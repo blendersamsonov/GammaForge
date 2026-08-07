@@ -15,7 +15,7 @@ Phase numbers/names match `docs/GRAND_PLAN.md` §11.
 | 0. Scaffold | 🟢 done (pending only the pre-3a/6 worktree re-check, C4) |
 | 1. Core | 🟢 done — all exit criteria met (see 2026-08-07 session below) |
 | 2. Validation harness | 🟢 done — both exit criteria met (see 2026-08-07 Phase 2 session) |
-| 2.5. Stage 0 + minimal delta | ⚪ not started |
+| 2.5. Stage 0 + minimal delta | 🟢 done — all four exit criteria met; §9.1 now a *derived* open question (see below) |
 | 3a. xigma engineering | ⚪ not started |
 | 3b. Physics closure | ⚪ not started |
 | 4. analytical engine | ⚪ not started |
@@ -473,6 +473,111 @@ golden for a different physical configuration under its name — now refused wit
 naming the fields.
 
 `pytest` → **230 passed**, and stable across hash seeds.
+
+---
+
+## 2026-08-07 — Phase 2.5: Stage 0, the chunking utility, and minimal delta
+
+Plan changes: none. `DECISIONS.md` **D024–D025** carry the rejected alternatives.
+
+**All four §11 exit criteria met.** Stage 0 tests green; chunk-invariance holds (exactly,
+against a real stage rather than a stub); delta produces independent spectra on every
+scenario in the bank; the identity harness runs as a section of
+`python -m gammaforge.validation.run`.
+
+### What landed
+
+- **`engines/xigma/chunking.py`** — the one auto-chunk + OOM-retry utility §4.2 asks for,
+  replacing the predecessor's three. Ported: proactive sizing with retry as backup, both
+  backends chunked (numpy is *not* exempt — a 5M x 1024 broadcast is >100 GB, and on the
+  host it meets the OOM-killer rather than a catchable error, so the estimate is the
+  defence there and the retry barely a net), and a hard ceiling independent of free
+  memory (measured: past chunk≈8–16 every doubling bought nothing while a 128 GB machine
+  sized it into the hundreds).
+- **`engines/xigma/stages.py`** — Stage 0, `integrate_trajectories`. Ballistic push over
+  each particle's own overlap window (Phase 1's `overlap_time_window`, so the cone fix of
+  D021/D022 is inherited rather than re-derived), midpoint-rule integration, producing
+  per-particle `luminosity` and `a0_shape`.
+- **`validation/references/delta.py`** — resonance binning per macroparticle, its angular
+  integral, the closed-form single-electron anchor, and `check_normalization`.
+- **`tests/test_stage0_delta.py`** — 26 tests. `pytest` → **256 passed**.
+
+### The CGS reformulation is confirmed against real numbers
+
+D015 dropped the predecessor's `k0_las` normalization on an argument. Stage 0 now tests
+it: **total yield agrees with the predecessor's xigma golden to 0.12%**, with the *same*
+relative offset (+1.248e-3) on all three scenarios — systematic, as it must be, since the
+two repos draw different bunches from the same nominal seed and bound the interaction
+window differently. The predecessor's `k0**2` really was the Jacobian of its own
+coordinate change and nothing more.
+
+Stage 0 also reads the entire laser through `a0_profile` (D024). The pulse energy cancels
+out of the density it needs, so P15 costs nothing here — no envelope formula, no spot
+sizes, no Gaussian assumption in the engine.
+
+### §9.1: the ~2pi is exactly 2pi, and now derived
+
+The predecessor recorded delta's angle-integrated total as "consistently ~6.3x
+[the table-free spectrum] -- suspiciously close to 2*pi, not yet explained". It is not
+close to 2pi. With `u = gamma**2 r**2` and the azimuthal average
+`<a_fac> = 1 - 2u/(1+u)**2`:
+
+    int dOmega 3 gamma**2 <a_fac> / (1+u)**2 = 3 pi [1 - 2*(1/6)] = 2 pi
+
+exactly. Measured here at 5.85–6.23 depending on how much of the cone the angular grid
+covers, tracking `2 pi x captured_fraction` to within ~1%. Reproducing it from an
+independent CGS implementation also **rules out the old repo's coordinate normalization
+as the cause**.
+
+Which side counts photons is not ambiguous: Stage 0's total is
+`flux x cross-section x time` summed, and the closed-form single-electron spectrum
+integrates to exactly that same number by an identity (its shape integrates to 1). Two
+independent methods agree; the third carries a differential solid-angle measure and an
+extra 2pi, which is what an azimuthal integral counted twice looks like.
+
+**No factor was applied** (D025). The derivation says the two are inconsistent and which
+one is the count; it does not say which normalization xigma's *Stage-2 kernel* should
+carry, and that kernel does not exist yet (Phase 3a). The identity harness reports the
+ratio against its derived value, so the suite stays green while the question is open and
+turns red the moment the ratio moves — the predecessor's version survived unexplained
+precisely because nothing would have noticed it changing.
+
+**For the author:** the open question is now a convention question, not a numerical one —
+does the paper's Stage-2 kernel normalization carry the `1/(2 pi)` azimuthal measure that
+delta's prefactor is missing? That is the §9.1 decision, and it wants the paper, not more
+code.
+
+### A Stage 0 bug the prefilter-invariance property caught immediately
+
+A particle that never enters the pulse gets an empty window, reported as `t0 = +inf`,
+`t1 = -inf`. Its span is zero so it contributes nothing — but `inf + 0*0` is still `inf`,
+and a trajectory evaluated there hands the laser a NaN that propagates into **every**
+particle's sum. Invisible with the prefilter on, since those particles are already gone;
+the §7 prefilter-invariance property is what exposed it, on a wide-bunch configuration.
+Empty windows are now anchored at a finite time and the zero span does the rest.
+
+### Deliberately not built
+
+- **No cupy or numba Stage 0.** `backend='cupy'` raises rather than silently running on
+  the host — which would make the §7 backend-agreement leg pass while comparing numpy
+  with numpy. A GPU Stage 0 needs `LaserField.a0_profile` to accept device arrays, a
+  change to the *protocol's* contract that every implementation inherits (P15), so it
+  belongs with the Phase 3a kernels, not to a wrapper here.
+- **No Stage 1 or Stage 2** — Phase 3a, as planned. The identity harness therefore has
+  three legs today (Stage 0 total, closed form, delta); `kernel` and `reference` join
+  when they exist.
+- **No `Collision` facade, no engine registration.** xigma is not an `Engine` yet, so
+  the §7 engine sections still report an empty engine list.
+
+### Notes for the next session
+
+- The float32-conditioning question for the GPU path (carried since Phase 1) is still
+  open and now measurable: Stage 0's integrand is `a0**2` times CGS constants of order
+  1e-24 (`SIGMA_T_CGS`) and 1e26 (`photon_density_scale`), which nearly cancel. Worth
+  checking the intermediate ordering before writing the cupy kernel.
+- `delta.angle_integrated_spectrum` is a double Python loop over the direction grid —
+  fine at the sizes the harness uses (~20 s at 321x321), wrong for anything larger. It
+  chunks naturally over directions if it ever needs to.
 
 ---
 

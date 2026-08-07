@@ -568,3 +568,60 @@ The floor moved to a fraction of the total for a related reason: as a fraction o
 different deviation at 64 bins and at 256. Against the total, a spurious peak is measured
 in units of a thousandth of the yield — a number a tolerance can be set against, and one
 that does not move when the grid does.
+
+---
+
+### D024 — Stage 0 reads the whole laser through `a0_profile`
+
+**Decision:** `integrate_trajectories` needs exactly two things from a `LaserField`:
+``a0_profile`` sampled along each trajectory, and ``active_region`` (through
+`overlap_time_window`) to bound the integration. The photon density it needs comes from
+inverting the laser's own energy→a0 chain — `photon_density_scale` — in which the pulse
+energy cancels, leaving ``n_photons(r,t) = a0(r,t)**2 (m_e c)**2 omega0 / (8 pi hbar e**2)``.
+
+**Rejected alternatives:** (a) *extend the `LaserField` protocol with a `photon_density`
+method*; (b) have Stage 0 evaluate a Gaussian envelope itself, as the predecessor's
+*push_and_sample* did by calling its own *pulse_envelope* with hand-passed
+*sigma_lr0*/*sigma_lz*/*beta_ff* scalars.
+
+**Rationale:** (b) is what P15 exists to prevent — an engine that unpacks a laser into
+five floats and re-derives its shape has hardcoded a Gaussian, whatever the type
+annotation says, and a non-Gaussian `LaserField` cannot be substituted into it. (a) would
+work, but it widens the protocol every future implementation must satisfy in order to
+supply something already derivable from a method it must supply anyway. The cancellation
+of the pulse energy is what makes that true and is worth stating: two quantities that look
+independent (how bright the pulse is, how many photons are in it) are one, because ``a0``
+was defined from the same energy.
+
+The remaining input, ``omega0``, comes from `fit_gaussian_paraxial` — the descriptive-fit
+route §3.4 already established for autoranging, not an attribute read off a concrete type.
+
+---
+
+### D025 — Delta's ``2 pi`` is derived and reported, not corrected
+
+**Decision:** `validation.references.delta` keeps the predecessor's differential prefactor
+unchanged. `check_normalization` reports the ratio against ``2 pi``, and the identity
+section of `run.py` passes while that ratio holds and fails if it moves.
+
+**Rejected alternatives:** (a) *divide delta's prefactor by 2 pi* so the identity reads
+1.0; (b) assert the identity against 1.0 and let the suite run red until §9.1 closes;
+(c) report the ratio without an expected value, as the predecessor did.
+
+**Rationale:** the predecessor recorded this as "consistently ~6.3x ... suspiciously close
+to 2*pi, not yet explained". It is not close to ``2 pi`` — it is ``2 pi``, and the integral
+is elementary: with ``u = gamma**2 r**2``, ``int dOmega 3 gamma**2 <a_fac> / (1+u)**2 =
+3 pi [1 - 2/6] = 2 pi``. Reproducing that from an independent CGS implementation also
+rules out the old repo's ``k0_las`` normalization as the cause.
+
+(a) is the tempting one and it is what P14 forbids: the derivation says the two methods
+are inconsistent by ``2 pi`` and identifies which side counts photons — Stage 0's
+``flux x cross-section x time``, corroborated by a closed form that reproduces it exactly
+— but *which* normalization xigma's Stage-2 kernel should carry is a statement about the
+paper's formalism, and that kernel does not exist yet (Phase 3a). Pasting the factor into
+the arbiter now would remove the evidence before the question is asked.
+
+(b) makes the suite permanently red, and a permanently red suite is an ignored suite.
+(c) is where the predecessor left it, and "an unexplained 6.3" survived for as long as it
+did precisely because nothing would ever notice it changing. Pinning the derived value
+keeps the discrepancy visible *and* guarded.

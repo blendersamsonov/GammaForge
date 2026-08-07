@@ -4,11 +4,15 @@
 
     python -m gammaforge.validation.run
 
-Two sections today, because engines arrive in later phases and the suite should be honest
-about what it did rather than silently doing less:
+Three sections today, because engines arrive in later phases and the suite should be
+honest about what it did rather than silently doing less:
 
 * **core invariants** — properties of `gammaforge.io` alone (bunch seed determinism, the
   prefilter discarding only particles the pulse never reaches). These run now.
+* **identities** — methods that must agree on the same number: Stage 0's total yield, the
+  closed-form single-electron spectrum, and delta's brute-force angular integral. The
+  third disagrees by exactly ``2 pi`` (§9.1, open) and is reported against that derived
+  value rather than against 1.
 * **goldens** — every committed snapshot is loaded and its stored closed-form scalars are
   compared against what this repo computes for the same scenario. This is a real
   cross-implementation check with no engine in it: two independent codebases, the same
@@ -23,6 +27,7 @@ an empty engine list, and the section appears when an engine does.
 from __future__ import annotations
 
 import sys
+from dataclasses import replace
 from typing import Iterable, Sequence
 
 from ..engines.base import Engine
@@ -31,7 +36,8 @@ from .invariance import Check, core_checks, engine_checks
 from .runners import derived_scalars, run_engine
 from .scenarios import SCENARIOS, Scenario
 
-__all__ = ["Report", "run_suite", "golden_scalar_checks", "main", "SCALAR_TOLERANCE"]
+__all__ = ["Report", "run_suite", "golden_scalar_checks", "identity_checks", "main",
+           "SCALAR_TOLERANCE", "IDENTITY_PARTICLES"]
 
 
 class Report:
@@ -92,12 +98,63 @@ def golden_scalar_checks(scenarios: Sequence[Scenario]) -> list[Check]:
     return checks
 
 
+#: Macroparticles the identity harness runs on. It is a normalization check, not a
+#: production run — the ratios it reports converge long before the statistics do.
+IDENTITY_PARTICLES = 2000
+
+
+def identity_checks(scenarios: Sequence[Scenario]) -> list[Check]:
+    """The §7 identity harness: methods that must agree, and by how much they do not.
+
+    Three legs exist today. Stage 0's total yield is an elementary
+    ``flux x cross-section x time`` count; the closed-form single-electron spectrum
+    integrates to that same number as an identity; delta's angular integral is the
+    independent brute-force path. The first two agree exactly, and delta comes out at
+    ``2 pi`` — the §9.1 discrepancy, derived rather than observed (see
+    `gammaforge.validation.references.delta`).
+
+    The 2 pi leg is reported against its **derived** value, so this section stays green
+    while the question is open and turns red if the ratio ever moves. Encoding it as
+    "expected 1.0, fails" would make the suite permanently red and therefore ignored;
+    encoding it as "expected 1.0, passes" would require pasting in a constant nobody has
+    justified (P14). Neither is what a harness is for.
+    """
+    from ..engines.xigma.stages import integrate_trajectories
+    from .references import delta
+    from .scenarios import build
+
+    checks = []
+    for scenario in scenarios:
+        interaction = build(
+            scenario, replace(scenario.sampling, n_particles=IDENTITY_PARTICLES)
+        )
+        samples = integrate_trajectories(
+            interaction.bunch, interaction.laser, interaction.N_e, n_steps=64
+        )
+        normalization = delta.check_normalization(samples, n_angles=33, cone_factor=4.0)
+        checks.append(Check(
+            name=f"{scenario.name} closed form = Stage 0 total",
+            passed=abs(normalization.anchor_ratio - 1.0) <= 1e-2,
+            detail=f"anchor ratio {normalization.anchor_ratio:.6f} (identity, up to binning)",
+        ))
+        checks.append(Check(
+            name=f"{scenario.name} delta/Stage 0 = 2*pi (\u00a79.1, open)",
+            passed=abs(normalization.deviation) <= 2e-2,
+            detail=normalization.summary(),
+        ))
+    return checks
+
+
 def run_suite(engines: Iterable[Engine] = (), scenarios: Sequence[Scenario] = SCENARIOS) -> Report:
     report = Report()
     engines = list(engines)
 
     report.section("core invariants (gammaforge.io)")
     for check in core_checks(scenarios):
+        report.check(check)
+
+    report.section("identities (Stage 0 / closed form / delta)")
+    for check in identity_checks(scenarios):
         report.check(check)
 
     report.section("golden scalars (predecessor vs this repo)")
