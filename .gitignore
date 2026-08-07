@@ -42,3 +42,8 @@ venv/
 # cloud-client edits)
 *.sync-conflict-*
 *sync-conflict*
+
+# graphify knowledge graph — regenerable from the sources it indexes, and ~2 MB of
+# graph.json + graph.html per build (C3). Rebuild with the graphify skill; `--update`
+# re-extracts only what changed, using the manifest inside this directory.
+graphify-out/
