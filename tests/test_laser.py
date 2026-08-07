@@ -261,6 +261,57 @@ def test_the_flying_focus_cancels_out_of_the_cone_slope_but_not_its_intercept():
     assert flying.active_region(1e-3).radius > still.active_region(1e-3).radius
 
 
+def test_psi_focus_decides_which_lab_direction_carries_which_waist():
+    """``psi_focus`` was serialized and round-tripped, but nothing checked it does anything.
+
+    It is a **no-op for a round, stigmatic beam**, which is exactly why an untested one
+    looks healthy: every existing laser test used ``sigma_x == sigma_y`` and both waists at
+    the origin, where rotating the focusing axes cannot change a single number. For the
+    elliptical, astigmatic beam §3.3 supports it decides which lab direction is measured
+    against ``sigma_x``/``z_fx`` and which against ``sigma_y``/``z_fy``.
+
+    This is the same shape of gap as the flying focus: a first-class schema parameter that
+    reaches the serializer but never meets the physics.
+    """
+    elliptical = dict(sigma_x=Q(10, "um"), sigma_y=Q(40, "um"),
+                      z_fx=Q(0, "um"), z_fy=Q(400, "um"))
+    upright = make_laser(**elliptical)
+    turned = make_laser(psi_focus=Q(math.pi / 2, "rad"), **elliptical)
+
+    # A quarter turn takes focusing axis 1 from the lab x-axis to the lab y-axis.
+    _, f1_upright, _ = upright.focusing_axes()
+    _, f1_turned, _ = turned.focusing_axes()
+    assert np.allclose(f1_upright, [1.0, 0.0, 0.0], atol=1e-12)
+    assert np.allclose(f1_turned, [0.0, 1.0, 0.0], atol=1e-12)
+
+    # Sample off-axis and away from both waists, so the elliptical *and* astigmatic parts
+    # of the profile are both in play; t places the pulse centre at this u (head-on, u = -z).
+    offset, z = 25e-4, 0.03
+    t = -z / C_CGS
+    assert turned.a0_profile(offset, 0.0, z, t) == pytest.approx(
+        upright.a0_profile(0.0, offset, z, t), rel=1e-12
+    )
+    # ...and the rotation genuinely changed the profile, so the equality above is not the
+    # trivial one a round beam would also satisfy.
+    assert turned.a0_profile(offset, 0.0, z, t) != pytest.approx(
+        upright.a0_profile(offset, 0.0, z, t), rel=1e-3
+    )
+
+
+def test_psi_focus_is_inert_for_a_round_stigmatic_beam():
+    """The degenerate case, asserted rather than assumed — it is why the gap was invisible.
+
+    This one **cannot** catch a dropped ``psi_focus``: an implementation that ignored the
+    parameter entirely would pass it. That is the point. It records that the previous
+    silence was the beam being round, not the parameter being verified, so the guard above
+    is not mistaken for redundant.
+    """
+    round_beam = make_laser()
+    turned = make_laser(psi_focus=Q(0.7, "rad"))
+    for point in [(0.0, 0.0, 0.0, 0.0), (12e-4, -8e-4, 0.01, -0.01 / C_CGS)]:
+        assert turned.a0_profile(*point) == pytest.approx(round_beam.a0_profile(*point), rel=1e-12)
+
+
 def test_a_looser_threshold_gives_a_larger_region():
     laser = make_laser()
     assert laser.active_region(1e-2).radius < laser.active_region(1e-6).radius
