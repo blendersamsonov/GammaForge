@@ -1,9 +1,18 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.4 — 2026-08-07
+**Status:** draft v0.5 — 2026-08-07
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 **Changelog**
+- **v0.5**: third review round — analytical declared as 1D-`spectrum`-only (its 1D
+  collimated estimate overlays the collimated sub-tab; it does not produce the 3D slice);
+  bunch re-sampling rule (only `SamplingSpec` changes re-sample; target/charge/output
+  edits reuse the bunch); kascade adapter reconstitutes absolute weights at its boundary
+  so `kascade.py` stays untouched; `.ele` loads normalize to relative weights (N_e from
+  the charge field); prefilter threshold defined as a fraction of peak a0; MC
+  statistical tolerance in cross-engine validation; doc-staleness guard made concrete
+  (backticked identifiers must resolve); charge live-rescale scoped to charge-alone
+  edits; `Bunch.n_electrons` property removed.
 - **v0.4**: interaction-model correction — **no engine is real-time; only analytical is**.
   Engines are Calculate-gated: input edits mark results stale, Calculate re-runs the
   checked engines with cache reuse (xigma skips Stage 0/1 on unchanged geometry; MC just
@@ -223,7 +232,9 @@ class FieldSpec:
   (None for pure input, populated by fit). *This type is both the input description and
   the fit output (P8).*
 - `Bunch` (macroparticle arrays in CGS): `x,y,z,thx,thy,gamma,weight,meta` +
-  `gaussian_fit`. Raw simulation data; arrays are plain CGS floats.
+  `gaussian_fit`. Raw simulation data; arrays are plain CGS floats. **`weight` is the
+  relative weight (`1/n_particles`)**; the old `n_electrons = weight·n` property is gone —
+  the total electron count is the interaction's N_e (§3.5).
 - **Sampling (`sample_gaussian_*`):** sample the physical slice variables directly —
   `(x, y, z, gamma, thx, thy)` — as independent Gaussians, with the physically-motivated
   correlations applied explicitly (chirp → z–γ correlation, dispersion → x–γ / y–γ,
@@ -233,7 +244,8 @@ class FieldSpec:
   "mass-shell enforcement" step** (no rejection, no adjustment) to get wrong.
 - **Laser-interaction prefilter:** not all macroparticles ever meet the laser. The laser
   (§3.3) provides an *active-region* query — the bounding space-time region where its
-  amplitude exceeds a threshold. A shared io helper filters the bunch before an engine
+  (period-averaged) amplitude exceeds a threshold, **expressed as a fraction of the peak
+  a0** (e.g. `a0_profile ≥ threshold · a0_peak`; default pinned in Phase 1). A shared io helper filters the bunch before an engine
   processes it, discarding particles that never enter the active region (they contribute
   L = 0 to every engine). **Weights are never renormalized on discard** — it is a pure
   computational optimization: with the same seed, results are identical with the
@@ -342,7 +354,9 @@ absent curves in the outputs tab.
   the interaction build — sampling parameters are **interaction-level, not engine
   parameters** (this resolves the old tracked task "move seed / n_mc into model-specific
   parameters": they go into the sampling group, not the engine; per-engine n_mc is
-  meaningless once one canonical bunch feeds all engines).
+  meaningless once one canonical bunch feeds all engines). **The GUI re-samples the bunch
+  only when SamplingSpec fields change** — target/charge/output edits reuse the existing
+  bunch (no new seed draws).
 
 ### 3.6 Results (`results.py`)
 
@@ -441,14 +455,19 @@ Closed-form estimates, no per-particle Monte Carlo:
   class must not return).
 - Growth items in scope: foci displacement, non-round beam total yield,
   collimated-spectrum construction (convolution of single-electron spectrum with energy
-  distribution + a0).
+  distribution + a0). **OutputKind note:** analytical produces the 1D `spectrum` (and its
+  1D collimated estimate) — it does **not** produce the 3D `collimated_spectrum` slice of
+  §3.4; the GUI overlays analytical's 1D estimate on the collimated sub-tab's "1D
+  spectrum on target" view.
 - Role: GUI quick-estimate panel **and** validation anchor (§7).
 
 ### 4.4 kascade engine (`engines/kascade/`) — minimal port
 
 - Ported **as-is** behind the uniform interface, minimal effort: convert the dict-based
   `run_simulation(cfg, n_mc, seed, electrons)` behind the `Engine` shape (its own SI
-  internals convert at the boundary, P1).
+  internals convert at the boundary, P1). The adapter **reconstitutes absolute weights at
+  its boundary** (relative weight × N_e, §3.2/§3.5) so `kascade.py`'s internals stay
+  untouched.
 - Purpose: one of the ≥4 cross-validation methods. Not first-class; not polished; off by
   default in the GUI.
 - **Minimum sanity bar before it anchors validation:** kascade has **zero dedicated
@@ -518,7 +537,9 @@ wired as a no-op.*
   state, §3.1). Editable fields still require Calculate; their re-runs are just cheap.
 - **Charge is the one exception to staleness:** because every output is exactly linear in
   N_e (§3.5), a charge edit rescales the displayed results immediately — a pure display
-  operation on existing `Results`, no engine run. Every other edit marks results stale.
+  operation on existing `Results`, no engine run. **Applies only when charge changes
+  alone**; a charge edit combined with any other edit marks results stale (Calculate).
+  Every other edit marks results stale.
 - **No live engine requery exists.** `spectrum_in_angular_range` is only ever invoked by
   Calculate, against the cached table. The old OOM saga's *mechanism* (auto-firing on
   keystroke) is structurally impossible; the `_MAX_LIVE_N_ENERGY_*` hardcap lesson does
@@ -538,8 +559,9 @@ the import-boundary check).
 - Electrons panel, Laser panel (fields rendered from `FieldSpec`, unit dropdowns per
   field, sliders where declared). The Laser panel carries the four geometry angles of
   §2.2.
-- Target panel: collimation window fields + **required-output checkboxes** with
-  per-output resolution controls (ranges are auto-derived, §3.4).
+- Target panel: collimation window fields (which define `collimated_spectrum`'s angular
+  ranges) + **required-output checkboxes** with per-output resolution controls (ranges
+  auto-derived except the collimated window, §3.4).
 - Model sub-tabs (one per available engine): each tab carries a checkbox labelled
   **"Use for calculation"** (unambiguous semantics) and the engine's typed parameters
   rendered from its schema. **One Calculate button** runs exactly the engines whose
@@ -592,8 +614,10 @@ assumption was broken" test zoo.
     (c) **backend** (numpy / cupy / numba); and **same seed → identical results**
     (seed determinism).
 - **Cross-engine consistency** (the ≥4 methods): xigma vs delta vs analytical vs kascade
-  on shared `Scenario`s (baseline, scaled pulse energy, ...), tolerance-based. kascade
-  only counts once its own Thomson-limit sanity check passes (§4.4).
+  on shared `Scenario`s (baseline, scaled pulse energy, ...), tolerance-based. MC legs are
+  compared with **statistical tolerance** (fixed-seed runs or error bars), not tight
+  absolute bounds. kascade only counts once its own Thomson-limit sanity check passes
+  (§4.4).
 - **~2π arbitration**: delta (built in Phase 2.5) is the independent arbiter; the paper
   formula is necessary-not-sufficient (its validation section is an unwritten
   placeholder, A1) — encode the identity tests regardless of paper agreement.
@@ -618,8 +642,9 @@ assumption was broken" test zoo.
   converted to CGS on load; the schema is the single source of truth for field sets.
   Round-trip tested.
 - **`.ele`/SDDS load** (elegant-format 6D distributions): kept; inherently SI/GeV —
-  converted at the boundary (P1). Bunch charge override is explicit (the old
-  no-charge-in-.ele caveat stays documented).
+  converted at the boundary (P1). On load, weights are normalized to the relative
+  convention (`1/n`); N_e comes from the separately-entered charge field (Bunch charge
+  override is explicit — the old no-charge-in-.ele caveat stays documented).
 - **Graphs**: matplotlib PNG/PDF via a plotting module shared by GUI and headless use.
 
 ---
@@ -694,7 +719,7 @@ assumption was broken" test zoo.
 
 | Phase | Scope | Exit criteria |
 |-------|-------|---------------|
-| **0. Scaffold** | Repo, git, pyproject (Python 3.12), pytest, package skeleton, README, ADR index + **`DECISIONS.md` provenance doc started** (C1); `.gitignore` **explicitly covers large data formats (`.ele`, notebooks with large outputs) and sync-conflict patterns from day one** (C3) | `pytest` green on an empty-suite smoke test; `pip install -e .` works; doc-staleness guard scaffolding in place (C2) |
+| **0. Scaffold** | Repo, git, pyproject (Python 3.12), pytest, package skeleton, README, ADR index + **`DECISIONS.md` provenance doc started** (C1); `.gitignore` **explicitly covers large data formats (`.ele`, notebooks with large outputs) and sync-conflict patterns from day one** (C3) | `pytest` green on an empty-suite smoke test; `pip install -e .` works; doc-staleness guard scaffolding in place (C2) — a CI smoke test asserting **every backticked identifier in the docs resolves in the package** |
 | **1. Core** | `io/`: schema, units/conventions (CGS), constants; beam; laser (incl. field sampling API §3.3, elliptical+astigmatic model, geometry angles); target (auto-ranges + `OutputKind` vocabulary §3.4); interaction (incl. `N_e` scalar + `SamplingSpec` §3.5); sampling + prefilter (§3.2); results contract (incl. `PhotonMacroparticles` §3.6); YAML + `.ele` I/O; HDF5 results writer | Round-trip tests; schema validation tests; CGS conversion tests vs known values; laser sampling API tests (period-averaged + period-resolved at arbitrary points); geometry round-trip test (R⁻¹ recovers head-on angles, §2.2) |
 | **2. Validation harness** | scenarios, runners skeleton, `make_references.py` + first golden snapshots from old repo; invariance-test scaffolding (chunk, prefilter, backend, seed — §7) | Golden generation runs; new-vs-golden comparisons execute |
 | **2.5. Minimal delta** | Delta scoped to Stage-2 normalization arbitration (reuses xigma Stage 0 per §4.5) | Delta produces independent spectra on baseline scenarios; identity harness (`kernel` vs `reference` vs `direct binning` vs delta) executable |
@@ -726,5 +751,5 @@ duplicated (C4).
 | pint friction with CGS | pint confined to schema/serialization; kernels never see it; EM conversions hand-coded with tests vs known values |
 | GUI regrows into a monolith (already happened once: 1174 → 1685 lines) | Import-boundary check in CI (P12/B3): `gammaforge.gui` may not import engine stages/kernels — mechanical enforcement, not discipline |
 | Capability data regrows into a registry/protocol | P10 explicit guardrail: plain tuples/dicts on the Engine instance; any registry/negotiation layer is the old `ModelCapabilities` mistake recurring |
-| Docs drift out of sync with code (old repo's AGENTS.md referenced deleted types) | Doc-staleness guard (grep-based CI smoke test for symbol names mentioned in docs) from Phase 0 (C2) |
+| Docs drift out of sync with code (old repo's AGENTS.md referenced deleted types) | Doc-staleness guard from Phase 0 (C2): a CI smoke test asserting every backticked identifier in the docs resolves in the package |
 | Scope creep (GUI polish, scans, sketches) | Explicitly deferred/late-phase; architecture supports them but they don't block physics milestones |
