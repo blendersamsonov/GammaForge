@@ -1,9 +1,48 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.5 — 2026-08-07
+**Status:** draft v0.8 — 2026-08-07
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 **Changelog**
+- **v0.8**: pluggable laser field source (author-directed, ahead of Phase 0 kickoff) —
+  new `LaserField` protocol (`a0_profile`/`field`/`active_region`, lab-frame, vectorized)
+  is the only thing engines are typed against; `GaussianParaxialLaser` is reframed as its
+  first implementation rather than *the* laser type (§3.3, new **P15**); `fit_gaussian_paraxial`
+  added as the laser-side analogue of `Bunch.fit_gaussian`/P8, extracting descriptive
+  metrics (waist, Rayleigh range, ...) from any `LaserField` so autoranging/analytical/
+  the sketch panel never sample raw fields directly (§3.3, §3.4); `InteractionParameters.laser`
+  retyped from `GaussianParaxialLaser` to `LaserField` (§3.5); added goal 9 and a Phase 1
+  scope/exit-criteria update (§0, §11) anticipating a second implementation backed by the
+  sibling `Spectral-FEM-Fields` project (arbitrary, non-paraxial-Gaussian pulses) at the
+  interface level only — no work on it now, same treatment as kascade's MC replacement.
+- **v0.7**: pre-implementation review — Phase 2.5 was scoped to reuse xigma's Stage 0
+  (§4.5) while Stage 0 itself wasn't built until Phase 3a, which follows 2.5 in the
+  table; Stage 0 and the shared chunking utility are now pulled forward into Phase 2.5
+  (which delta needs anyway), with 3a trimmed to Stage 1/2 + facade + wrapper (§11).
+  Also pinned the sampler's RNG architecture — independent per-variable substreams keyed
+  off `seed`, deviates transformed by the *current* beam parameters — which is what
+  actually makes the v0.6 bunch-resample rule compatible with the `REUSE_INTERMEDIATES`
+  cost tier for γ0/energy-spread/chirp/dispersion (§3.2, §5): without it, a resample
+  triggered by a γ0-only change could perturb the position/angle draws too and silently
+  invalidate Stage 0's cache despite the tier claiming otherwise.
+- **v0.6**: fourth review round (author-directed) — `seed` promoted to a first-class,
+  GUI-displayed/editable field, and the bunch resample rule extended: any beam/laser
+  physical-parameter edit resamples the bunch (not just `SamplingSpec` fields), always
+  drawing from the current `seed` — "same seed" now means "same seed + same beam/laser
+  parameters + same n_particles ⇒ identical bunch" (§3.5, §6); final-electron
+  macroparticle typing (`Bunch` reuse vs a symmetric `ElectronMacroparticles`) left an
+  **open question** pending a second MC engine currently in development by a colleague,
+  which should clarify the right shape (§3.6, §10); backend-invariance test scoped to a
+  tight relative tolerance (~1e-6), explicitly not bit-identical (§7); delta's
+  independence caveat added — it reuses xigma's Stage 0, so it arbitrates Stage-2 kernel
+  normalization only, not the full pipeline (§4.5); GUI import-boundary rule restated
+  around excluded engine internals rather than a three-item allowlist, so it doesn't
+  block the GUI's legitimate `io` imports (drawing module, YAML/HDF5 I/O) (P12);
+  Calculate explicitly runs checked engines **sequentially** in one worker thread, not
+  concurrently, since engines are heavy and would just contend for the same CPU/GPU (§6);
+  two factual corrections — the merged worktree-branch count is eight, not five (§11),
+  and kascade's `cfg` argument is a dataclass, not a dict (only `electrons` is
+  dict-based) (§4.4).
 - **v0.5**: third review round — analytical declared as 1D-`spectrum`-only (its 1D
   collimated estimate overlays the collimated sub-tab; it does not produce the 3D slice);
   bunch re-sampling rule (only `SamplingSpec` changes re-sample; target/charge/output
@@ -80,6 +119,12 @@ Goals, in priority order:
 8. **Preserve the predecessor's documentation discipline** as a deliberate deliverable:
    design decisions recorded *with their rejected alternatives* from Phase 0 onward
    (the old repo's docs are where most of the provenance in this plan comes from).
+9. **Pluggable laser field representation**: the physics core depends only on a
+   laser-sampling protocol (`LaserField`, §3.3/P15), never a concrete laser type.
+   `GaussianParaxialLaser` is today's only implementation; an arbitrary spectrally/FEM-
+   represented pulse — from the sibling `Spectral-FEM-Fields` project, once it grows
+   Python bindings — is anticipated as a second implementation requiring **zero** engine
+   changes when it lands.
 
 The accompanying paper (draft at `~/Work/Papers/2026/Compton-Numerics`) is the physics
 authority. It is in flux: **if a discrepancy between the paper and the code appears,
@@ -106,9 +151,10 @@ decision that was explicitly tried and rejected there.
 | P9 | **No `Results.cfg` back-reference**, no derived-value properties duplicating beam/laser fields, no `*_from_shared_fields` factories. | Rejected in old repo; fields are read at the point of use. |
 | P10 | **Capabilities are declarative engine *data*, not a mechanism.** `supported_outputs` / recompute costs are plain tuples/dicts read directly off the `Engine` instance the GUI already holds. **Unlike the abandoned `ModelCapabilities`, there is no registry, no protocol, no `UnavailableAdapter` placeholder.** If this grows a registry, discovery mechanism, or capability-negotiation protocol, that is the old mistake recurring. | Old `ModelCapabilities` was built then deleted as unnecessary machinery; capability detection then degraded to `hasattr` in the GUI. Plain data restores it without the mechanism. |
 | P11 | **No `Config` dataclass for xigma.** Engine numeric knobs live in the typed parameter schema, not in a mutable engine-side config object. | Rejected in old repo (adapters hold knobs as attributes); the schema makes this explicit and validated. |
-| P12 | **GUI never computes physics and never branches on engine type.** It renders schema, calls `run()`, renders `Results`. **Enforced, not just stated:** a CI import-boundary check asserts `gammaforge.gui` imports only `Engine.run()`/`Results`/schema — never engine stages or kernels. | The old 1685-line monolith did field parsing, orchestration, stats, plotting, and type branching. It was trimmed to 1174 lines once and **regrew** to 1685 through normal feature additions — discipline alone failed; the boundary must be mechanically enforced. |
+| P12 | **GUI never computes physics and never branches on engine type.** It renders schema, calls `run()`, renders `Results`. **Enforced, not just stated:** a CI import-boundary check asserts `gammaforge.gui` never imports engine internals — `engines/*/stages.py`, kernel modules, or any engine-specific stateful facade (e.g. xigma's `Collision`) — regardless of what else it legitimately imports from `io` (schema, `Engine.run()`/`Results`, the shared drawing module, YAML/HDF5 I/O). | The old 1685-line monolith did field parsing, orchestration, stats, plotting, and type branching. It was trimmed to 1174 lines once and **regrew** to 1685 through normal feature additions — discipline alone failed; the boundary must be mechanically enforced. |
 | P13 | **One authoritative formula implementation per observable.** The three old "spectrum from H" implementations must converge on one derivation and validate against each other (and against delta as the independent arbiter). | The ~2π discrepancy came from reimplementing the same math three times — and the paper's own normalization has never been checked against independent numerics, so convergence-to-paper is necessary but not sufficient (A1). |
 | P14 | **Paper-code discrepancies are BLOCKING; absent derivations are parallel work.** Three distinct cases: (a) formula exists in paper, code disagrees → resolve against the paper (blocking); (b) formula exists in paper but is itself unvalidated → resolve in code, arbitrate independently (delta/analytical), treat paper agreement as necessary-not-sufficient; (c) derivation does not exist in paper at all → net-new research task with the author, wired as explicit no-op/identity in code until it lands, run in parallel, never blocking engineering milestones. | The paper audit (A1) found: ~2π has a derived normalization but the paper's validation study is an unwritten placeholder (case b); ellipticity→a0 has no formula in the paper at all — a0 is a given input and the polarization object is a normalized coherence matrix with no scalar ellipticity (case c); crossing angle is entirely absent, the angular-spectrum derivation being near-head-on only, O(θ²) (case c). |
+| P15 | **Laser field source is pluggable behind a `LaserField` protocol.** Engines consume only its lab-frame, vectorized `a0_profile(x,y,z,t)` / `field(x,y,z,t)` / `active_region(...)` methods (§3.3) — never a concrete laser type. `GaussianParaxialLaser` is the initial (and currently only) implementation. A future arbitrary-pulse implementation is anticipated **at the interface level only** — same treatment as kascade's MC replacement (P5/§4.4) — no work on it now. | A sibling project (`Spectral-FEM-Fields`) is building a numerically efficient field representation not restricted to the paraxial Gaussian; once it grows Python bindings it should slot in as a second `LaserField` implementation with no engine-side changes. |
 
 ---
 
@@ -167,7 +213,10 @@ the head-on lab angles) is required. Compatibility aliases: old `crossing_angle 
 
 The laser therefore carries **at least four geometry angles** — `theta_xz`, `theta_yz`,
 `psi_focus`, `psi_pol` — plus the scalar polarization degree `ellipticity` (see §3.3).
-All are laser properties; nothing else in the framework re-defines them.
+All are laser properties; nothing else in the framework re-defines them. **These angles
+parameterize `GaussianParaxialLaser` specifically, not the abstract field-sampling
+contract** — see the `LaserField` protocol (§3.3/P15) for why a differently-parameterized
+future laser implementation is free to place itself in the lab frame however it needs to.
 
 The **GUI interaction sketch** must visualize all of this: lab axes, electron-bunch
 ellipsoid, laser k0 direction, focusing ellipse (two axes), and polarization ellipse —
@@ -242,8 +291,19 @@ class FieldSpec:
   `pz = sqrt((γ²−1)/(1+thx²+thy²))`, `px = thx·pz`, `py = thy·pz` — the mass-shell is
   satisfied identically **by construction**, and there is **no separate
   "mass-shell enforcement" step** (no rejection, no adjustment) to get wrong.
+- **RNG architecture (pinned):** the sampler draws from **independent per-variable RNG
+  substreams keyed off `seed`** (e.g. `numpy.random.Generator.spawn()` or per-variable
+  child seeds) — fixed standard-normal deviates per particle per variable, with the
+  *current* beam parameters' affine transform (mean, std, correlation) applied on top.
+  This is what makes the bunch resample rule (§3.5) compatible with the
+  `REUSE_INTERMEDIATES` cost tier (§5): changing only γ0/energy-spread/chirp/dispersion
+  perturbs only the gamma draw, leaving the position/angle deviates — and therefore
+  Stage 0's actual inputs — bit-identical, so "Stage 0 hash unchanged" (§5 table) holds
+  by construction rather than by accident of whichever RNG stream shape happens to get
+  implemented.
 - **Laser-interaction prefilter:** not all macroparticles ever meet the laser. The laser
-  (§3.3) provides an *active-region* query — the bounding space-time region where its
+  (§3.3) provides an *active-region* query (`active_region(...)`, part of the
+  `LaserField` protocol, §3.3/P15) — the bounding space-time region where its
   (period-averaged) amplitude exceeds a threshold, **expressed as a fraction of the peak
   a0** (e.g. `a0_profile ≥ threshold · a0_peak`; default pinned in Phase 1). A shared io helper filters the bunch before an engine
   processes it, discarding particles that never enter the active region (they contribute
@@ -260,35 +320,74 @@ class FieldSpec:
 
 ### 3.3 Laser (`laser.py`)
 
-- `GaussianParaxialLaser` (frozen dataclass, CGS): pulse energy, central wavelength,
-  **elliptical, astigmatic Gaussian** transverse profile — per-axis waist sizes
-  `sigma_x`, `sigma_y` (convention-aware) and per-axis focal offsets `z_fx`, `z_fy`
-  (astigmatism: different focal position per axis; the round beam is the degenerate case
-  `sigma_x = sigma_y`, `z_fx = z_fy`), with the focusing axes rotated by `psi_focus` —
-  pulse duration (convention-aware), plus plain scalars **`theta_xz`, `theta_yz`,
-  `psi_focus`, `psi_pol`, `ellipticity`** (polarization degree — *distinct from spot
-  ellipticity*, which is expressed by the per-axis waists), **`beta_ff`** (flying focus).
-  The full geometry of §2.2 is laser-owned.
-- **The laser owns field sampling. It is NOT an engine responsibility.** The laser
-  exposes a sampling API, callable **at any point in space and time**, in both modes:
-  - **period-averaged**: the intensity envelope / `a0` profile (what the old code called
-    `a0_shape`) — `laser.a0_profile(x, y, z, t)` and friends, including the
-    trajectory-averaged quantity the engines consume;
-  - **period-resolved**: the oscillating field (E/B or vector potential, including
-    polarization) — `laser.field(x, y, z, t)`.
-  These are **vectorized array-callable functions** (numpy/cupy style) — engines call
-  them, never re-implement them. xigma's Stage 0 is not a raw GPU kernel (unlike the
-  spectrum kernel), so calling an external Python-provided function vectorized is fine.
-  *Design note:* the numba CPU path cannot generally jit an arbitrary external callable;
-  the numba fallback must either evaluate the laser API vectorized outside the jitted
-  loop or interpolate from a lattice the API builds once. This is an implementation
-  requirement for the laser API, not a reason to move sampling back into engines.
+**`LaserField` protocol — the sampling contract engines depend on (P15).** This is the
+*only* thing engines are typed against:
+
+```python
+class LaserField(Protocol):
+    def a0_profile(self, x, y, z, t) -> ndarray: ...   # period-averaged envelope
+    def field(self, x, y, z, t) -> ndarray: ...         # period-resolved E/B (or vector potential)
+    def active_region(self, ...) -> ...: ...            # bounding space-time region (§3.2 prefilter)
+```
+
+- Both sampling methods are **vectorized, array-callable, lab-frame** functions
+  (numpy/cupy style) — engines call them, never re-implement field physics themselves.
+  xigma's Stage 0 is not a raw GPU kernel (unlike the spectrum kernel), so calling an
+  external Python-provided function vectorized is fine. *Design note:* the numba CPU
+  path cannot generally jit an arbitrary external callable; the numba fallback must
+  either evaluate the API vectorized outside the jitted loop or interpolate from a
+  lattice the implementation builds once. This is a requirement on `LaserField`
+  implementations, not a reason to move sampling back into engines.
+- **How a concrete implementation gets to lab-frame coordinates is its own business.**
+  `GaussianParaxialLaser` (below) does it via the four §2.2 geometry angles applied to a
+  head-on-frame analytic model. A future implementation is free to use an entirely
+  different internal parameterization — e.g. a field already expressed directly in lab
+  coordinates — as long as `a0_profile`/`field`/`active_region` behave correctly for
+  lab-frame `(x, y, z, t)` input. The protocol says nothing about *how* a field is
+  represented, only what engines may assume about querying it.
+- **Anticipated second implementation (interface-only, no work now, P15):** the sibling
+  `Spectral-FEM-Fields` project (`~/Work/Code/Spectral-FEM-Fields`) is building a
+  numerically efficient functional/spectral representation of electromagnetic fields,
+  not restricted to the paraxial Gaussian approximation — its own `RepresentationAdapter`
+  abstraction (grid vs. functional field evaluation) is a close analogue of the split
+  being made here. Once it grows Python bindings, a thin `LaserField`-conforming wrapper
+  around it should let GammaForge represent **arbitrary laser pulses**, not just Gaussian
+  ones, with **zero changes to any engine** (P15's whole point). Not built now; not
+  gated on by anything in this plan.
+
+**`GaussianParaxialLaser` — today's (and Phase 1's only) `LaserField` implementation:**
+
+- Frozen dataclass, CGS: pulse energy, central wavelength, **elliptical, astigmatic
+  Gaussian** transverse profile — per-axis waist sizes `sigma_x`, `sigma_y`
+  (convention-aware) and per-axis focal offsets `z_fx`, `z_fy` (astigmatism: different
+  focal position per axis; the round beam is the degenerate case `sigma_x = sigma_y`,
+  `z_fx = z_fy`), with the focusing axes rotated by `psi_focus` — pulse duration
+  (convention-aware), plus plain scalars **`theta_xz`, `theta_yz`, `psi_focus`,
+  `psi_pol`, `ellipticity`** (polarization degree — *distinct from spot ellipticity*,
+  which is expressed by the per-axis waists), **`beta_ff`** (flying focus). The full
+  geometry of §2.2 is owned here.
+- Implements `LaserField` directly: `a0_profile`/`field` are the analytic Gaussian
+  formulas (what the old code called `a0_shape` for the envelope); `active_region` is
+  the closed-form Gaussian bounding region.
 - **Energy → a0 chain**: pulse energy → peak intensity → a0, correct for elliptical
   polarization. This is an open modeling task (A1/§9.2) — the paper has no formula; the
   architecture carries `ellipticity`, `psi_pol`, and the focusing axes as first-class
   parameters now, with the derivation wired once it lands.
 - Derived quantities (photon energy, a0, N_photons) are computed by small module-level
   helpers at the point of use, never stored as properties (P9).
+
+**`fit_gaussian_paraxial(laser: LaserField) -> GaussianParaxialLaser`** — the laser-side
+analogue of `Bunch.fit_gaussian` (§3.2/P8): extracts descriptive metrics (waist size,
+Rayleigh range, effective wavelength/duration, peak a0, ...) from **any** `LaserField`
+implementation, not just an analytic Gaussian one, so callers that only need a rough
+physical picture — target autoranging (§3.4), the analytical engine's closed-form
+formulas (§4.3), the GUI sketch panel — never have to sample the raw field themselves.
+For a `GaussianParaxialLaser` input the fit is an identity (the parameters are already
+exact); for a future non-Gaussian `LaserField` (e.g. a `Spectral-FEM-Fields`-backed one)
+it does real work — however that's implemented (numerical sampling + least-squares
+against the paraxial formula, or reading the source's own internal moments if it exposes
+them). Same P8 discipline applies: no `LaserFittedParams` split, no lazily-cached
+property (P9) — called explicitly at the point of use, result used immediately.
 
 ### 3.4 Target (`target.py`)
 
@@ -320,6 +419,12 @@ methods):
     statistics + serialization; **not a slice** (separate entry, §3.6)
 - The GUI plots allow **zooming** (best-effort matplotlib affordance) instead of manual
   range entry.
+- **Autoranging reads descriptive laser metrics, never raw field samples.** Anywhere
+  "laser size" feeds an autorange (`spatial_distribution`, `angular_distribution`, the
+  Compton-edge energy range, ...), it comes from the laser's `GaussianParaxialLaser`
+  view — the object itself if it already is one, or `fit_gaussian_paraxial(laser)`'s
+  output otherwise (§3.3) — never from ad hoc re-derivation off `LaserField` samples.
+  This is what keeps autoranging correct once a non-Gaussian `LaserField` lands (P15).
 
 **OutputKind vocabulary.** The outputs above are the engine-facing vocabulary; each maps
 to a slice shape or a special entry:
@@ -341,10 +446,13 @@ absent curves in the outputs tab.
 
 ### 3.5 Interaction (`interaction.py`)
 
-- `InteractionParameters(beam: GaussianElectronBeam, laser: GaussianParaxialLaser,
-  bunch: Bunch, target: Target, N_e: float)` — the compiled, pre-sampled (and
-  prefiltered, §3.2) bundle every engine run consumes. One canonical sampling path (`io`
-  samples and prefilters, engines consume). No fields most engines ignore (P9).
+- `InteractionParameters(beam: GaussianElectronBeam, laser: LaserField, bunch: Bunch,
+  target: Target, N_e: float)` — the compiled, pre-sampled (and prefiltered, §3.2)
+  bundle every engine run consumes. `laser` is typed against the **`LaserField`
+  protocol** (§3.3/P15), not the concrete `GaussianParaxialLaser` — engines only ever
+  call its sampling API, which is what makes a future non-Gaussian laser implementation
+  a zero-engine-change swap. One canonical sampling path (`io` samples and prefilters,
+  engines consume). No fields most engines ignore (P9).
 - **N_e is a separate scalar** (derived from bunch charge): the bunch carries only
   *relative* weights (§3.2), and **every output is exactly linear in N_e** (no space
   charge in the model). Consequences: charge edits are an exact instant rescale
@@ -354,9 +462,15 @@ absent curves in the outputs tab.
   the interaction build — sampling parameters are **interaction-level, not engine
   parameters** (this resolves the old tracked task "move seed / n_mc into model-specific
   parameters": they go into the sampling group, not the engine; per-engine n_mc is
-  meaningless once one canonical bunch feeds all engines). **The GUI re-samples the bunch
-  only when SamplingSpec fields change** — target/charge/output edits reuse the existing
-  bunch (no new seed draws).
+  meaningless once one canonical bunch feeds all engines). **`seed` is a first-class,
+  GUI-displayed and -editable field** (§6) — reproducibility is a user-facing guarantee,
+  not incidental internal state.
+- **Bunch resample rule:** the bunch is re-sampled whenever `SamplingSpec` fields change
+  **or** any beam/laser physical parameter changes (i.e. any `FULL_RERUN`-tier field,
+  §5) — every resample draws from the current `seed`. So **"same seed" means "same seed +
+  same beam/laser parameters + same n_particles ⇒ identical bunch"**, not "same bunch
+  regardless of parameters." Target/charge/output edits reuse the existing bunch
+  unchanged (they don't affect the sampled distribution).
 
 ### 3.6 Results (`results.py`)
 
@@ -373,7 +487,11 @@ absent curves in the outputs tab.
   carries the *final* electron population (energy loss, deflection, final positions,
   emission time). Both are produced only by MC engines. (The old kascade `Results`
   already distinguished these two populations — `ph_*` arrays vs `eps_f`/`thx_f`/... —
-  the rebuild keeps that distinction *typed*.)
+  the rebuild keeps that distinction *typed*.) **Open question (§10):** whether
+  `electrons` should reuse `Bunch` as-is or get its own symmetric
+  `ElectronMacroparticles` type is left open — `Bunch` as specified has no per-particle
+  emission-time field, and a second MC engine currently in development (a colleague's
+  work, parallel to this plan) should clarify the right shape before this is locked in.
 - One slice shape for all engines (density arrays); the old Sampled/Binned duck-typing
   concern disappears entirely (MC engines histogram their samples into slices).
 
@@ -410,8 +528,8 @@ The tabulated-overlap pipeline, restructured into composable stages:
 
 - **Stage 0 — trajectory integration** (`stages.py::integrate_trajectories`): pure
   function; per-particle ballistic trajectory over the laser interaction window, with
-  the laser's own field/envelope API (§3.3) evaluated along each trajectory — **the
-  engine calls the laser; it does not define the a0 profile or envelope itself**.
+  the laser's `LaserField` sampling API (§3.3/P15) evaluated along each trajectory —
+  **the engine calls the laser; it does not define the a0 profile or envelope itself**.
   Produces per-particle `L` (weight contribution), trajectory-averaged a0, temporal/
   spatial diagnostics. Backends: numpy / cupy / numba. **Chunking: one shared
   auto-chunk + OOM-retry utility** (consuming `available_vram_bytes`/
@@ -463,9 +581,10 @@ Closed-form estimates, no per-particle Monte Carlo:
 
 ### 4.4 kascade engine (`engines/kascade/`) — minimal port
 
-- Ported **as-is** behind the uniform interface, minimal effort: convert the dict-based
-  `run_simulation(cfg, n_mc, seed, electrons)` behind the `Engine` shape (its own SI
-  internals convert at the boundary, P1). The adapter **reconstitutes absolute weights at
+- Ported **as-is** behind the uniform interface, minimal effort: convert kascade's
+  `run_simulation(cfg, n_mc, seed, electrons)` — `cfg` is a dataclass, `electrons` a dict
+  of raw arrays — behind the `Engine` shape (its own SI internals convert at the
+  boundary, P1). The adapter **reconstitutes absolute weights at
   its boundary** (relative weight × N_e, §3.2/§3.5) so `kascade.py`'s internals stay
   untouched.
 - Purpose: one of the ≥4 cross-validation methods. Not first-class; not polished; off by
@@ -485,6 +604,10 @@ Closed-form estimates, no per-particle Monte Carlo:
   for the ~2π normalization** (§9.1), which is why a *minimal* delta is built early
   (Phase 2.5, scoped to Stage-2 normalization) with the full cross-validation role
   coming in Phase 5.
+- **Scope of independence:** delta reuses xigma's Stage 0 (trajectory integration, laser-
+  field sampling), so it arbitrates **Stage-2 kernel normalization only** — it cannot
+  catch a bug living in Stage 0 or in the shared `io` laser-sampling code it shares with
+  xigma. Treat it as an independent check on the kernel, not on the full pipeline.
 
 ---
 
@@ -559,6 +682,10 @@ the import-boundary check).
 - Electrons panel, Laser panel (fields rendered from `FieldSpec`, unit dropdowns per
   field, sliders where declared). The Laser panel carries the four geometry angles of
   §2.2.
+- Sampling fields (`n_particles`, `seed`, `prefilter`) — `SamplingSpec` (§3.5), shown
+  alongside the Electrons panel (bunch generation is beam-driven). **`seed` is directly
+  displayed and editable**, not hidden internal state. Editing any of these, or any
+  beam/laser physical parameter, resamples the bunch (§3.5 bunch resample rule).
 - Target panel: collimation window fields (which define `collimated_spectrum`'s angular
   ranges) + **required-output checkboxes** with per-output resolution controls (ranges
   auto-derived except the collimated window, §3.4).
@@ -576,8 +703,10 @@ the import-boundary check).
 - Grey-out/release behavior driven by the engine's declared recompute costs (§5); any
   input edit (except charge, which rescales instantly) marks engine results **stale**
   until Calculate (§5 interaction model).
-- Calculate runs the checked engines in a worker thread with **per-engine progress/
-  status**; the analytical panel and the sketch stay responsive throughout.
+- Calculate runs the checked engines **sequentially in a single worker thread** — engines
+  do heavy compute, so running them concurrently would only contend for the same CPU/GPU
+  — with **per-engine progress/status**; the analytical panel and the sketch stay
+  responsive throughout.
 
 **Tab 2 — Outputs**
 - Sub-tabs per requested output. The collimated-spectrum output is visualized as the
@@ -611,8 +740,10 @@ assumption was broken" test zoo.
   - **Invariance properties:** results identical under (a) chunk size (regression guard
     on the old OOM fixes; exercises the single shared chunking utility of §4.2),
     (b) the **prefilter on/off** (same seed — it is a pure optimization, §3.2),
-    (c) **backend** (numpy / cupy / numba); and **same seed → identical results**
-    (seed determinism).
+    (c) **backend** (numpy / cupy / numba) to a tight relative tolerance (~1e-6) — **not**
+    bit-identical (GPU float32 vs. CPU float64 preclude exact equality); and **same seed
+    → identical results** (seed determinism, with beam/laser parameters held fixed too —
+    see the bunch resample rule, §3.5).
 - **Cross-engine consistency** (the ≥4 methods): xigma vs delta vs analytical vs kascade
   on shared `Scenario`s (baseline, scaled pulse energy, ...), tolerance-based. MC legs are
   compared with **statistical tolerance** (fixed-seed runs or error bars), not tight
@@ -712,6 +843,11 @@ assumption was broken" test zoo.
 5. MC macroparticle dump format (elegant `.ele`/`.bun` research, see 1).
 6. Crossing-angle formula details (§9.3) — with the author, parallel track.
 7. **RESOLVED:** k0_las normalization stays purely internal to xigma (confirmed).
+8. **Final-electron macroparticle typing** (§3.6): whether `Results.electrons` reuses
+   `Bunch` as-is or gets its own `ElectronMacroparticles` type (symmetric with
+   `PhotonMacroparticles`; `Bunch` as specified has no emission-time field) is open —
+   deferred until a second MC engine, currently in development by a colleague in
+   parallel, clarifies the right shape.
 
 ---
 
@@ -720,10 +856,10 @@ assumption was broken" test zoo.
 | Phase | Scope | Exit criteria |
 |-------|-------|---------------|
 | **0. Scaffold** | Repo, git, pyproject (Python 3.12), pytest, package skeleton, README, ADR index + **`DECISIONS.md` provenance doc started** (C1); `.gitignore` **explicitly covers large data formats (`.ele`, notebooks with large outputs) and sync-conflict patterns from day one** (C3) | `pytest` green on an empty-suite smoke test; `pip install -e .` works; doc-staleness guard scaffolding in place (C2) — a CI smoke test asserting **every backticked identifier in the docs resolves in the package** |
-| **1. Core** | `io/`: schema, units/conventions (CGS), constants; beam; laser (incl. field sampling API §3.3, elliptical+astigmatic model, geometry angles); target (auto-ranges + `OutputKind` vocabulary §3.4); interaction (incl. `N_e` scalar + `SamplingSpec` §3.5); sampling + prefilter (§3.2); results contract (incl. `PhotonMacroparticles` §3.6); YAML + `.ele` I/O; HDF5 results writer | Round-trip tests; schema validation tests; CGS conversion tests vs known values; laser sampling API tests (period-averaged + period-resolved at arbitrary points); geometry round-trip test (R⁻¹ recovers head-on angles, §2.2) |
+| **1. Core** | `io/`: schema, units/conventions (CGS), constants; beam; laser (incl. `LaserField` protocol + `GaussianParaxialLaser` as its sole implementation, `fit_gaussian_paraxial`, elliptical+astigmatic model, geometry angles — §3.3/P15); target (auto-ranges + `OutputKind` vocabulary §3.4); interaction (incl. `N_e` scalar + `SamplingSpec` §3.5); sampling + prefilter (§3.2); results contract (incl. `PhotonMacroparticles` §3.6); YAML + `.ele` I/O; HDF5 results writer | Round-trip tests; schema validation tests; CGS conversion tests vs known values; `LaserField` protocol conformance test for `GaussianParaxialLaser` (period-averaged + period-resolved at arbitrary points); `fit_gaussian_paraxial` identity test on a `GaussianParaxialLaser` input; geometry round-trip test (R⁻¹ recovers head-on angles, §2.2) |
 | **2. Validation harness** | scenarios, runners skeleton, `make_references.py` + first golden snapshots from old repo; invariance-test scaffolding (chunk, prefilter, backend, seed — §7) | Golden generation runs; new-vs-golden comparisons execute |
-| **2.5. Minimal delta** | Delta scoped to Stage-2 normalization arbitration (reuses xigma Stage 0 per §4.5) | Delta produces independent spectra on baseline scenarios; identity harness (`kernel` vs `reference` vs `direct binning` vs delta) executable |
-| **3a. xigma engineering** | Stage 0/1/2 pure functions; Collision facade + stage cache; Engine wrapper; kernels (numpy/cupy/numba) with the **one shared chunking utility**; geometry/a0/ellipticity parameters wired as explicit identity/no-op placeholders (P14c) | Stage architecture tests green; chunk-invariance holds; placeholders documented |
+| **2.5. Stage 0 + minimal delta** | **Stage 0** (`integrate_trajectories`) and the **shared auto-chunk + OOM-retry utility** (§4.2), pulled forward from 3a because delta needs both; delta itself scoped to Stage-2 normalization arbitration, built on top of Stage 0 (§4.5) | Stage 0 tests green; chunk-invariance holds; delta produces independent spectra on baseline scenarios; identity harness (`kernel` vs `reference` vs `direct binning` vs delta) executable |
+| **3a. xigma engineering** | Stage 1/2 pure functions; Collision facade + stage cache; Engine wrapper; kernels (numpy/cupy/numba) for Stages 1/2 (**Stage 0 and the chunking utility already built in 2.5**); geometry/a0/ellipticity parameters wired as explicit identity/no-op placeholders (P14c) | Stage architecture tests green; placeholders documented |
 | **3b. Physics closure** | ~2π resolution (§9.1), crossing-angle derivation (§9.3), ellipticity→a0 (§9.2) — **runs concurrently with Phases 4 and 5, not serially** | §9.1 closed with delta arbitration + identity tests; §9.2/§9.3 derivations landed if author completes them in parallel (never blocking 4–6) |
 | **4. analytical engine** | estimates + component breakdown; quadrature spectrum; growth items (foci displacement, non-round beam, collimated spectrum) | Closed-form limits match; validation anchor ready |
 | **5. kascade port + delta full role** | minimal kascade behind interface **+ its Thomson-limit sanity check (B4)**; delta full cross-validation role | 4-method cross-validation runs; kascade sanity check passes |
@@ -733,8 +869,9 @@ assumption was broken" test zoo.
 
 Order note: Phase 3b is explicitly parallel; Phases 4–6 must not wait on physics
 derivations (A3). **Before Phase 3a/6 kickoff, re-verify the old repo's remote
-`worktree-*` branches are merged** (audited 2026-08-06: all five are merged into
-`master`; a one-line `git branch -a` check suffices) so no half-finished work is
+`worktree-*` branches are merged** (audited 2026-08-06: all eight — 4 local worktree
+branches plus 4 remotes — are merged into `master`; a one-line `git branch -a` check
+suffices) so no half-finished work is
 duplicated (C4).
 
 ---
