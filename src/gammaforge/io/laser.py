@@ -1,0 +1,481 @@
+"""Laser field representation (GRAND_PLAN.md §3.3, §2.2; P15).
+
+Two things live here, and the split is the point:
+
+* :class:`LaserField` — the **sampling contract engines are typed against**. Three
+  vectorized, lab-frame methods (``a0_profile``, ``field``, ``active_region``) and
+  nothing else. An engine that only calls these works unchanged when a differently
+  represented pulse arrives (P15).
+* :class:`GaussianParaxialLaser` — today's only implementation. It owns the four
+  geometry angles of §2.2 and an elliptical, astigmatic paraxial-Gaussian model. How it
+  gets from its own head-on-frame parameterization to lab coordinates is entirely its own
+  business; the protocol says nothing about it.
+
+**Geometry (§2.2, pinned).** ``psi_focus``/``psi_pol`` are defined as if the collision
+were exactly head-on (``k0 = -z``), measured from the electron's x-axis; the whole
+configuration is then carried into the real 3D geometry by
+
+    R = R_y(theta_xz) @ R_x(theta_yz)
+
+— extrinsic: tilt ``theta_yz`` about the lab x-axis first, then ``theta_xz`` about the
+lab y-axis. The roll about k-hat is *determined by that composition order*, not a free
+parameter, which is exactly why the order is pinned rather than left to the caller.
+
+**Physics deliberately not implemented here (P14c).** The energy→a0 chain below is the
+standard **linear-polarization** relation. ``ellipticity`` is carried as a first-class
+parameter but is an **explicit no-op**: §9.2 records that the paper has no formula for it
+(its polarization object is a normalized coherence matrix with no scalar ellipticity), so
+inventing one here would be exactly the silent approximation P14 forbids.
+:func:`validate` warns on any nonzero value rather than letting it pass unremarked.
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
+
+import numpy as np
+
+from .units import (
+    C_CGS,
+    E_ESU,
+    HBAR_CGS,
+    ME_CGS,
+    Quantity,
+    WidthConvention,
+    as_canonical_quantity,
+)
+
+__all__ = [
+    "LaserField",
+    "ActiveRegion",
+    "GaussianParaxialLaser",
+    "fit_gaussian_paraxial",
+    "rotation_matrix",
+    "lab_frame_axes",
+    "validate",
+    "ELLIPTICITY_IS_NOOP",
+]
+
+#: §9.2 is unresolved: the paper gives no energy→a0 relation for elliptical polarization.
+#: Until it lands, ``ellipticity`` is carried but changes nothing. Flipping this to False
+#: is the one-line marker for "the derivation landed" — grep for it.
+ELLIPTICITY_IS_NOOP = True
+
+
+# ---------------------------------------------------------------------------
+# The sampling contract
+# ---------------------------------------------------------------------------
+@runtime_checkable
+class LaserField(Protocol):
+    """What an engine may assume about a laser (§3.3/P15).
+
+    All three methods are **lab-frame** and **array-callable**: pass numpy (or cupy)
+    arrays of positions/times and get arrays back, broadcasting normally. Engines call
+    these; they never re-implement field physics themselves.
+
+    *Implementation note for future non-analytic sources:* a numba CPU path generally
+    cannot jit an arbitrary external callable, so an implementation must be usable either
+    vectorized outside a jitted loop or via a lattice it builds once. That is a
+    requirement on implementations, not a reason to move sampling back into engines.
+    """
+
+    def a0_profile(self, x, y, z, t):
+        """Period-averaged normalized vector-potential envelope at ``(x, y, z, t)``."""
+        ...
+
+    def field(self, x, y, z, t):
+        """Period-resolved field at ``(x, y, z, t)``, as lab-frame vector components."""
+        ...
+
+    def active_region(self, threshold: float) -> "ActiveRegion":
+        """Bounding space-time region where the envelope exceeds ``threshold * a0_peak``."""
+        ...
+
+
+@dataclass(frozen=True)
+class ActiveRegion:
+    """Conservative bounding region for the §3.2 prefilter.
+
+    A lab-frame point ``(r, t)`` is *possibly* inside the pulse iff it lies within
+    ``radius`` of the propagation axis **and** within ``half_length`` of the pulse centre
+    measured along that axis in the co-moving sense::
+
+        u        = (r - origin) . axis
+        inside  <=>  |r - origin - u*axis| <= radius  and  |u - c*t| <= half_length
+
+    The region is deliberately **over-inclusive**: the prefilter is a pure optimization
+    that must never discard a particle which would have contributed (§3.2), so every
+    approximation made in deriving it errs towards keeping particles.
+
+    ``a0_peak`` is carried along because the threshold that produced this region is a
+    fraction of it, and callers reporting what was filtered need the absolute scale.
+    """
+
+    axis: np.ndarray  # unit vector, lab frame
+    origin: np.ndarray  # lab-frame point the pulse centre passes through at t = 0
+    radius: float  # cm
+    half_length: float  # cm
+    threshold: float
+    a0_peak: float
+
+    def contains(self, x, y, z, t):
+        """Boolean mask: which ``(x, y, z, t)`` points fall inside this region."""
+        rx = np.asarray(x) - self.origin[0]
+        ry = np.asarray(y) - self.origin[1]
+        rz = np.asarray(z) - self.origin[2]
+        u = rx * self.axis[0] + ry * self.axis[1] + rz * self.axis[2]
+        perp2 = np.maximum(rx * rx + ry * ry + rz * rz - u * u, 0.0)
+        return (perp2 <= self.radius**2) & (np.abs(u - C_CGS * np.asarray(t)) <= self.half_length)
+
+
+# ---------------------------------------------------------------------------
+# Geometry (§2.2)
+# ---------------------------------------------------------------------------
+def rotation_matrix(theta_xz: float, theta_yz: float) -> np.ndarray:
+    """The pinned lab-frame rotation ``R = R_y(theta_xz) @ R_x(theta_yz)`` (§2.2).
+
+    Carries the head-on configuration (``k0 = -z``, focusing/polarization axes measured
+    from the electron x-axis) into the actual 3D geometry. Composition order is what fixes
+    the roll about k-hat, so it is pinned here and nowhere else.
+    """
+    cx, sx = math.cos(theta_yz), math.sin(theta_yz)
+    cy, sy = math.cos(theta_xz), math.sin(theta_xz)
+    r_x = np.array([[1.0, 0.0, 0.0], [0.0, cx, -sx], [0.0, sx, cx]])
+    r_y = np.array([[cy, 0.0, sy], [0.0, 1.0, 0.0], [-sy, 0.0, cy]])
+    return r_y @ r_x
+
+
+def lab_frame_axes(
+    theta_xz: float, theta_yz: float, psi: float
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Lab-frame ``(k_hat, e1, e2)`` for a transverse-plane rotation ``psi``.
+
+    ``k_hat`` is the propagation direction (head-on ``-z``, rotated by :func:`rotation_matrix`).
+    ``e1``/``e2`` are the transverse axes obtained by rotating the transported x-axis by
+    ``psi`` in the plane perpendicular to ``k_hat`` — used for both the focusing axes
+    (``psi_focus``) and the polarization axes (``psi_pol``), which is why this takes a
+    generic ``psi`` rather than being written twice.
+    """
+    rot = rotation_matrix(theta_xz, theta_yz)
+    k_hat = rot @ np.array([0.0, 0.0, -1.0])
+    x_hat = rot @ np.array([1.0, 0.0, 0.0])
+    y_hat = rot @ np.array([0.0, 1.0, 0.0])
+    c, s = math.cos(psi), math.sin(psi)
+    return k_hat, c * x_hat + s * y_hat, -s * x_hat + c * y_hat
+
+
+# ---------------------------------------------------------------------------
+# The paraxial Gaussian implementation
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class GaussianParaxialLaser:
+    """Elliptical, astigmatic paraxial Gaussian pulse. CGS-Gaussian throughout (P1).
+
+    ``sigma_x``/``sigma_y`` are the RMS widths of the **intensity** profile at each axis's
+    own waist (`WidthConvention.SIGMA_INTENSITY_RMS`), along the focusing axes set by
+    ``psi_focus``. ``z_fx``/``z_fy`` place those two waists at (generally different)
+    positions along the propagation direction — astigmatism; the round, stigmatic beam is
+    the degenerate case ``sigma_x == sigma_y`` and ``z_fx == z_fy``.
+
+    ``duration`` is the RMS intensity duration. ``ellipticity`` is the polarization
+    degree — *distinct from spot ellipticity*, which the per-axis waists express — and is
+    an explicit no-op (see :data:`ELLIPTICITY_IS_NOOP`). ``beta_ff`` is the flying-focus
+    factor, entering only the spot-size term (never the longitudinal envelope), ported
+    from the predecessor's xigma formalism.
+
+    Derived quantities (photon energy, peak a0, photon count) are module-level helpers or
+    plain methods evaluated at the point of use, never cached properties (P9).
+    """
+
+    pulse_energy: Quantity  # energy
+    wavelength: Quantity  # length
+    sigma_x: Quantity  # length, RMS intensity width along focusing axis 1
+    sigma_y: Quantity  # length, RMS intensity width along focusing axis 2
+    duration: Quantity  # time, RMS intensity duration
+    z_fx: Quantity = Quantity(0.0, "cm")  # focal offset of axis 1 along k_hat
+    z_fy: Quantity = Quantity(0.0, "cm")  # focal offset of axis 2 along k_hat
+    theta_xz: Quantity = Quantity(0.0, "rad")
+    theta_yz: Quantity = Quantity(0.0, "rad")
+    psi_focus: Quantity = Quantity(0.0, "rad")
+    psi_pol: Quantity = Quantity(0.0, "rad")
+    ellipticity: float = 0.0
+    beta_ff: float = 0.0
+
+    #: The convention every stored width is in — see `WidthConvention` (§2.1).
+    width_convention = WidthConvention.SIGMA_INTENSITY_RMS
+
+    #: Canonical CGS unit of each dimensioned field; also what `__post_init__` converts
+    #: incoming values into, so `.m` below always yields CGS. Angles are typed too, so a
+    #: crossing angle can be given in degrees without a hand-written conversion.
+    UNITS = {
+        "pulse_energy": "erg",
+        "wavelength": "cm",
+        "sigma_x": "cm",
+        "sigma_y": "cm",
+        "duration": "s",
+        "z_fx": "cm",
+        "z_fy": "cm",
+        "theta_xz": "rad",
+        "theta_yz": "rad",
+        "psi_focus": "rad",
+        "psi_pol": "rad",
+    }
+
+    #: Longitudinal extents, which §2.1 allows to be quoted as either a length or a
+    #: duration. Only these opt into the `light_time` equivalence — a transverse size
+    #: given in femtoseconds is a mistake, not a unit choice.
+    LIGHT_TIME_FIELDS = frozenset({"duration"})
+
+    def __post_init__(self) -> None:
+        for name, unit in self.UNITS.items():
+            object.__setattr__(
+                self,
+                name,
+                as_canonical_quantity(
+                    getattr(self, name), unit, name, light_time=name in self.LIGHT_TIME_FIELDS
+                ),
+            )
+
+    def m(self, name: str) -> float:
+        """Magnitude of a dimensioned field in its canonical CGS unit.
+
+        Every method below unpacks through this once at the top, so the vectorized field
+        arithmetic underneath is plain numpy — pint never enters a hot path (§2.1).
+        """
+        return float(getattr(self, name).magnitude)
+
+    # -- geometry -----------------------------------------------------------
+    def focusing_axes(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Lab-frame ``(k_hat, f1, f2)``: propagation direction and focusing axes."""
+        return lab_frame_axes(self.m("theta_xz"), self.m("theta_yz"), self.m("psi_focus"))
+
+    def polarization_axes(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Lab-frame ``(k_hat, p1, p2)``: propagation direction and polarization axes."""
+        return lab_frame_axes(self.m("theta_xz"), self.m("theta_yz"), self.m("psi_pol"))
+
+    # -- descriptive scalars ------------------------------------------------
+    def omega0(self) -> float:
+        """Central angular frequency, rad/s."""
+        return 2.0 * math.pi * C_CGS / self.m("wavelength")
+
+    def photon_energy(self) -> float:
+        """Central photon energy, erg."""
+        return HBAR_CGS * self.omega0()
+
+    def n_photons(self) -> float:
+        """Photons in the pulse: pulse energy / central photon energy."""
+        return self.m("pulse_energy") / self.photon_energy()
+
+    def rayleigh_x(self) -> float:
+        """Rayleigh range of focusing axis 1, cm.
+
+        ``z_R = pi w0^2 / lambda`` with ``w0 = 2 sigma`` (the 1/e² intensity radius is
+        twice the intensity-profile RMS), i.e. ``4 pi sigma^2 / lambda``. The flying-focus
+        factor stretches it by ``(1 + beta_ff)``, the predecessor's xigma convention.
+        """
+        return 4.0 * math.pi * self.m("sigma_x") ** 2 / self.m("wavelength") * (1.0 + self.beta_ff)
+
+    def rayleigh_y(self) -> float:
+        return 4.0 * math.pi * self.m("sigma_y") ** 2 / self.m("wavelength") * (1.0 + self.beta_ff)
+
+    def sigma_ct(self) -> float:
+        """RMS pulse duration expressed as a length, cm."""
+        return C_CGS * self.m("duration")
+
+    def spot_sizes(self, u_spot):
+        """RMS intensity spot sizes ``(s1, s2)`` at longitudinal position ``u_spot``."""
+        s1 = self.m("sigma_x") * np.sqrt(1.0 + ((u_spot - self.m("z_fx")) / self.rayleigh_x()) ** 2)
+        s2 = self.m("sigma_y") * np.sqrt(1.0 + ((u_spot - self.m("z_fy")) / self.rayleigh_y()) ** 2)
+        return s1, s2
+
+    def a0_peak(self) -> float:
+        """Peak period-averaged a0 anywhere in the pulse.
+
+        The pulse's own maximum, attained where both spots are smallest and the temporal
+        envelope peaks. With astigmatism the two waists are at different ``u``, so the
+        joint maximum of ``1 / (s1 s2)`` sits between them and is found numerically over
+        the interval they span (a 1D unimodal problem, not worth an optimizer).
+        """
+        lo, hi = sorted((self.m("z_fx"), self.m("z_fy")))
+        if hi > lo:
+            u = np.linspace(lo, hi, 257)
+        else:
+            u = np.array([lo])
+        s1, s2 = self.spot_sizes(u)
+        return float(np.max(self._a0_from_density(1.0 / ((2.0 * np.pi) ** 1.5 * s1 * s2 * self.sigma_ct()))))
+
+    def _a0_from_density(self, density):
+        """Period-averaged a0 from a normalized photon-density envelope.
+
+        The standard **linear-polarization** chain in CGS-Gaussian: energy density
+        ``U = E_pulse * density``, intensity ``I = c U``, cycle-averaged
+        ``I = c E0^2 / (8 pi)`` so ``E0 = sqrt(8 pi E_pulse * density)``, and
+        ``a0 = e E0 / (m_e c omega0)``.
+
+        ``ellipticity`` does **not** enter — see :data:`ELLIPTICITY_IS_NOOP` and §9.2.
+        """
+        e0 = np.sqrt(8.0 * np.pi * self.m("pulse_energy") * np.asarray(density, dtype=float))
+        return E_ESU * e0 / (ME_CGS * C_CGS * self.omega0())
+
+    # -- the LaserField contract -------------------------------------------
+    def _local_coordinates(self, x, y, z, t):
+        """Lab ``(x, y, z, t)`` → ``(xi1, xi2, u, u_spot, ct)`` in the pulse's own frame."""
+        k_hat, f1, f2 = self.focusing_axes()
+        rx = np.asarray(x, dtype=float)
+        ry = np.asarray(y, dtype=float)
+        rz = np.asarray(z, dtype=float)
+        u = rx * k_hat[0] + ry * k_hat[1] + rz * k_hat[2]
+        xi1 = rx * f1[0] + ry * f1[1] + rz * f1[2]
+        xi2 = rx * f2[0] + ry * f2[1] + rz * f2[2]
+        ct = C_CGS * np.asarray(t, dtype=float)
+        # Flying focus: the spot-size evaluation point slides with time, while the
+        # longitudinal envelope below stays beta_ff-independent (xigma's construction).
+        return xi1, xi2, u, u + self.beta_ff * ct, ct
+
+    def photon_density(self, x, y, z, t):
+        """Photon-density envelope, normalized to integrate to 1 over space at fixed ``t``.
+
+        Integrating over ``t`` as well would double-count: the pulse translates through
+        space, so its photon number is conserved, not accumulated.
+        """
+        xi1, xi2, u, u_spot, ct = self._local_coordinates(x, y, z, t)
+        s1, s2 = self.spot_sizes(u_spot)
+        s_ct = self.sigma_ct()
+        norm = 1.0 / ((2.0 * np.pi) ** 1.5 * s1 * s2 * s_ct)
+        arg = -(xi1**2) / (2.0 * s1**2) - xi2**2 / (2.0 * s2**2) - (u - ct) ** 2 / (2.0 * s_ct**2)
+        return norm * np.exp(arg)
+
+    def a0_profile(self, x, y, z, t):
+        """Period-averaged normalized vector-potential envelope (the `LaserField` method)."""
+        return self._a0_from_density(self.photon_density(x, y, z, t))
+
+    def field(self, x, y, z, t):
+        """Period-resolved normalized vector potential, lab-frame components.
+
+        Returns an array of shape ``(3, *broadcast_shape)`` so callers can unpack
+        ``ax, ay, az = laser.field(...)``. The natural companion to :meth:`a0_profile`:
+        its envelope *is* ``a0_profile``, and consumers derive **E** and **B** from it.
+
+        The carrier phase is the full paraxial one — plane-wave term, per-axis Gouy phase,
+        and per-axis wavefront curvature — so an astigmatic beam gets the correct
+        near-focus phase, not a plane-wave stand-in.
+
+        **Linear polarization along p1** (`psi_pol`). ``ellipticity`` is not applied; see
+        :data:`ELLIPTICITY_IS_NOOP` and §9.2.
+        """
+        xi1, xi2, u, u_spot, ct = self._local_coordinates(x, y, z, t)
+        s1, s2 = self.spot_sizes(u_spot)
+        k0 = 2.0 * np.pi / self.m("wavelength")
+
+        du1 = u_spot - self.m("z_fx")
+        du2 = u_spot - self.m("z_fy")
+        zr1, zr2 = self.rayleigh_x(), self.rayleigh_y()
+        gouy = 0.5 * (np.arctan2(du1, zr1) + np.arctan2(du2, zr2))
+        # Radius of curvature R(u) = u * (1 + (zR/u)^2); written as the reciprocal so
+        # 1/R -> 0 smoothly at the waist instead of dividing by zero.
+        inv_r1 = du1 / (du1**2 + zr1**2)
+        inv_r2 = du2 / (du2**2 + zr2**2)
+        phase = k0 * (u - ct) - gouy + 0.5 * k0 * (xi1**2 * inv_r1 + xi2**2 * inv_r2)
+
+        amplitude = self._a0_from_density(self.photon_density(x, y, z, t)) * np.cos(phase)
+        _, p1, _ = self.polarization_axes()
+        return np.stack([amplitude * p1[0], amplitude * p1[1], amplitude * p1[2]])
+
+    def active_region(self, threshold: float = 1e-3) -> ActiveRegion:
+        """Bounding region where ``a0_profile >= threshold * a0_peak`` (§3.2).
+
+        Derived analytically and **conservatively**. Longitudinally, ``a0`` falls as
+        ``exp(-(u - ct)^2 / (4 sigma_ct^2))`` (the square root of the intensity Gaussian),
+        so the cut is at ``|u - ct| = 2 sigma_ct sqrt(ln(1/threshold))``. Transversely the
+        same square-root Gaussian gives ``xi <= 2 s(u) sqrt(ln(1/threshold))``, evaluated
+        at the **largest** spot within the longitudinal cut; the ``1/sqrt(s1 s2)``
+        amplitude decay away from focus is deliberately ignored, which can only make the
+        real region smaller than this bound.
+        """
+        if not 0.0 < threshold < 1.0:
+            raise ValueError(f"active_region threshold must be in (0, 1), got {threshold}")
+        reach = 2.0 * math.sqrt(math.log(1.0 / threshold))
+        half_length = reach * self.sigma_ct()
+        # Worst-case spot: at whichever end of the longitudinal window is furthest from
+        # each axis's own focus.
+        u_extreme = half_length + max(abs(self.m("z_fx")), abs(self.m("z_fy")))
+        s1, s2 = self.spot_sizes(np.array([-u_extreme, u_extreme]))
+        radius = reach * float(max(np.max(s1), np.max(s2)))
+        k_hat, _, _ = self.focusing_axes()
+        return ActiveRegion(
+            axis=k_hat,
+            origin=np.zeros(3),
+            radius=radius,
+            half_length=half_length,
+            threshold=threshold,
+            a0_peak=self.a0_peak(),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Descriptive fit (§3.3, the laser-side analogue of Bunch.fit_gaussian / P8)
+# ---------------------------------------------------------------------------
+def fit_gaussian_paraxial(laser: LaserField) -> GaussianParaxialLaser:
+    """Descriptive `GaussianParaxialLaser` metrics extracted from any `LaserField`.
+
+    What target autoranging (§3.4), the analytical engine (§4.3) and the GUI sketch panel
+    call when they need a rough physical picture — waist, Rayleigh range, effective
+    duration, peak a0 — so none of them ever samples a raw field itself. Keeping that in
+    one place is what makes those callers correct by construction once a non-Gaussian
+    `LaserField` lands (P15).
+
+    For a `GaussianParaxialLaser` the fit is an **identity**: its parameters already are
+    the exact answer, and re-deriving them numerically could only add error.
+
+    For any other implementation this raises. That is deliberate, not an oversight: no
+    such implementation exists yet (`Spectral-FEM-Fields` has no Python bindings), so a
+    numerical fit written now would be untestable code speculating about a field
+    representation nobody has seen — precisely the speculative abstraction P6 rejects.
+    The identity path is what Phase 1 has a consumer and a test for; the numerical path
+    lands with the second implementation that needs it, which will also be able to test it.
+    """
+    if isinstance(laser, GaussianParaxialLaser):
+        return laser
+    raise NotImplementedError(
+        f"fit_gaussian_paraxial has no numerical path yet and {type(laser).__name__} is not "
+        "a GaussianParaxialLaser. Implement the fit alongside the LaserField "
+        "implementation that needs it (GRAND_PLAN.md §3.3/P15)."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
+def validate(laser: GaussianParaxialLaser) -> list[str]:
+    """Hard-fail on impossible values; return warning strings for suspicious ones."""
+    for name in ("pulse_energy", "wavelength", "sigma_x", "sigma_y", "duration"):
+        if laser.m(name) <= 0:
+            raise ValueError(f"GaussianParaxialLaser: {name} must be > 0")
+    if not math.isfinite(laser.m("z_fx")) or not math.isfinite(laser.m("z_fy")):
+        raise ValueError("GaussianParaxialLaser: focal offsets must be finite")
+    if laser.beta_ff <= -1.0:
+        raise ValueError("GaussianParaxialLaser: beta_ff must be > -1 (Rayleigh range scales as 1 + beta_ff)")
+    if not 0.0 <= laser.ellipticity <= 1.0:
+        raise ValueError("GaussianParaxialLaser: ellipticity must be in [0, 1]")
+
+    warnings: list[str] = []
+    if ELLIPTICITY_IS_NOOP and laser.ellipticity != 0.0:
+        warnings.append(
+            f"ellipticity = {laser.ellipticity:g} is carried but not applied: the "
+            "energy->a0 chain assumes linear polarization until the derivation of §9.2 "
+            "lands. Results are those of a linearly polarized pulse."
+        )
+    if abs(laser.m("z_fx")) > laser.rayleigh_x() or abs(laser.m("z_fy")) > laser.rayleigh_y():
+        warnings.append(
+            "A focus sits more than a Rayleigh range from the interaction point; the "
+            "on-axis a0 there is well below the pulse's peak."
+        )
+    if laser.m("sigma_x") != laser.m("sigma_y") or laser.m("z_fx") != laser.m("z_fy"):
+        warnings.append("Elliptical and/or astigmatic beam — check the focusing axes (psi_focus).")
+    if max(laser.m("sigma_x"), laser.m("sigma_y")) < laser.m("wavelength"):
+        warnings.append(
+            "Spot size is below the wavelength; the paraxial approximation does not hold."
+        )
+    return warnings

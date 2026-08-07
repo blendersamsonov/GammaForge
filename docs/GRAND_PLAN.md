@@ -1,9 +1,56 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.8 — 2026-08-07
+**Status:** draft v0.11 — 2026-08-07
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 **Changelog**
+- **v0.11**: two units decisions, both author-directed after a Phase-1 review.
+  **(a) Dimensioned types at the engine boundary.** §2.1's "kernels never see pint
+  quantities" constrained *kernels*; it was over-read during Phase 1 as "the shared layer
+  holds bare floats", which was never decided and is not what P1 says. Every dimensioned
+  field of `GaussianElectronBeam`, `GaussianParaxialLaser` and `Target` is now typed as a
+  pint `Quantity`, still **stored** canonically in CGS so P1 stays literally true. P1
+  removes the multiplicity of unit systems but not the one conversion each engine must
+  still perform at its own boundary — kascade is SI internally — and typing makes that
+  conversion checked instead of a hand-written factor. Engines unpack once at `run()`;
+  nothing below sees a `Quantity`. Bulk per-particle arrays (`Bunch`,
+  `PhotonMacroparticles`) stay raw ndarrays with **declared** units, the pattern `Axis`
+  already used, because a 6D beam covariance is dimensionally heterogeneous and cannot be
+  a single quantified array in any units library (`DECISIONS.md` D013). The `light_time`
+  context is now opt-in per field rather than global, so a *transverse* size can no longer
+  be given in femtoseconds (D014).
+  **(b) k0_las normalization is dropped entirely** (§2.1, §4.2, open question 7). An audit
+  of the predecessor found it is not physics: the `k0**2` in Stage 0's `contribution` is
+  exactly what replaces `c` when coordinates are normalized, `a0_shape` is k0-free by
+  construction, the H-table axes are all dimensionless, Stage 2's kernel contains no energy
+  scale at all, and the only other appearances are `/k0_las` and `/omega_las` *un*-normalizing
+  the diagnostics. With the laser owning lab-frame CGS sampling (P15) and the bunch owning
+  CGS trajectories, Stage 0 in CGS needs no normalization — and normalizing would actively
+  fight P15, since an arbitrary `LaserField` knows nothing about `k0_las` (D015).
+- **v0.10**: §3.2's beam correlation set gains the **angle**-energy pair
+  (`rho_thx_gamma`/`rho_thy_gamma`, the dispersion derivative), because without it the
+  `drift`/`propagate` promise that the attached description is carried "analytically in
+  lockstep, no refit" is only true for a *single* drift — two consecutive drifts silently
+  disagreed with one of the combined length. They are independent parameters, not
+  derivable from `alpha` and the position-energy correlation (`DECISIONS.md` D012).
+- **v0.9**: Phase 1 implementation feedback — details the plan's sketches left open, now
+  pinned by working code (`DECISIONS.md` D004–D010 carry the rejected alternatives).
+  `FieldSpec` gains `choices` (a `CHOICE` field needs its closed set) and `integer` (bin
+  and particle counts are not floats); both are orthogonal additions to the §3.1 sketch,
+  not changes to it — `FieldKind` stays the four-member convention-semantics vocabulary.
+  Beam **chirp and dispersion are stored as correlation coefficients** rather than the
+  predecessor's dimensional `chirp_h`/`D_x`, which is what makes §3.2's "(dimensionless)"
+  literally true, bounds them visibly by `rho_x²+rho_y²+rho_z² < 1`, and preserves the
+  marginal energy spread by construction. **`Bunch.weight` is a per-particle array**, not
+  a scalar: `.ele` loads carry unequal weights, and the §3.2 no-renormalization rule needs
+  weights to survive filtering per particle. `Axis` members carry a `(key, unit)` pair
+  because `X`/`Y` and `THETA_X`/`THETA_Y` share a unit and `Enum` would otherwise alias
+  them into one member. A second pint context (`gaussian_charge`) joins `light_time` at
+  the boundary — §2.1 already noted pint cannot convert charge between SI and Gaussian,
+  and the schema needs exactly that to accept a bunch charge in pC. §3.4's temporal
+  autorange and §3.2's prefilter are **one function**, `overlap_time_window`, which
+  generalizes the predecessor's head-on-only `laser_overlap_time_window` to arbitrary
+  geometry — a crossing angle needs no special case in either consumer.
 - **v0.8**: pluggable laser field source (author-directed, ahead of Phase 0 kickoff) —
   new `LaserField` protocol (`a0_profile`/`field`/`active_region`, lab-frame, vectorized)
   is the only thing engines are typed against; `GaussianParaxialLaser` is reframed as its
@@ -168,11 +215,16 @@ decision that was explicitly tried and rejected there.
   CGS (`float(Quantity(1, name).to(...))` plus the exact textbook EM-unit conversion,
   `1 C = c[cm/s]/10 statC`, applied by hand — pint cannot convert electromagnetic
   quantities between SI and Gaussian).
-- **k0_las normalization is purely internal to xigma** (confirmed; no leakage into
-  shared results).
-- **pint stays** as the display/serialization conversion layer (GUI unit dropdowns, YAML
-  I/O) and the `light_time` context (pulse duration ↔ length). Kernels never see pint
-  quantities; the schema converts at the boundary.
+- **No coordinate normalization anywhere.** Engines work in CGS directly. The
+  predecessor's `k0_las`-normalized xigma pipeline is not carried over: its `k0` factors
+  are the Jacobian of that normalization, not physics (see §4.2), and normalizing would
+  conflict with the lab-frame `LaserField` contract (P15).
+- **pint is the boundary type as well as the boundary converter.** Every dimensioned field
+  of a shared physics dataclass is a `Quantity`, stored canonically in CGS; an engine
+  unpacks at its own `run()` boundary, and **kernels never see a `Quantity`**. Bulk
+  per-particle arrays are raw ndarrays with declared units instead (`Bunch.UNITS`), since a
+  6D beam covariance is dimensionally heterogeneous. The `light_time` context (longitudinal
+  extent ↔ duration) is opt-in per field; the `gaussian_charge` context is always on.
 - **Width-convention semantics are kept for width-type parameters only**: transverse
   sizes (laser/beam) and longitudinal extents (pulse/bunch) carry a convention (RMS
   intensity / FWHM / 1/e² / field-RMS) alongside the unit. Everything else (energy,
@@ -273,7 +325,7 @@ class FieldSpec:
 - Electron/laser/target field sets are declared once and shared by GUI, engines, and YAML
   I/O (single source of truth for parameter semantics).
 
-### 3.2 Beam (`beam.py`)
+### 3.2 Bunch and beam description (`bunch.py`)
 
 - `GaussianElectronBeam` (frozen dataclass, CGS): bunch charge, kinetic energy (or γ0),
   relative energy spread, transverse sizes (convention-aware), emittances, bunch length
@@ -451,7 +503,7 @@ absent curves in the outputs tab.
   bundle every engine run consumes. `laser` is typed against the **`LaserField`
   protocol** (§3.3/P15), not the concrete `GaussianParaxialLaser` — engines only ever
   call its sampling API, which is what makes a future non-Gaussian laser implementation
-  a zero-engine-change swap. One canonical sampling path (`io` samples and prefilters,
+  a zero-engine-change swap. One sampling path (`io` samples and prefilters,
   engines consume). No fields most engines ignore (P9).
 - **N_e is a separate scalar** (derived from bunch charge): the bunch carries only
   *relative* weights (§3.2), and **every output is exactly linear in N_e** (no space
@@ -462,7 +514,7 @@ absent curves in the outputs tab.
   the interaction build — sampling parameters are **interaction-level, not engine
   parameters** (this resolves the old tracked task "move seed / n_mc into model-specific
   parameters": they go into the sampling group, not the engine; per-engine n_mc is
-  meaningless once one canonical bunch feeds all engines). **`seed` is a first-class,
+  meaningless once every engine in a run is given the same bunch). **`seed` is a first-class,
   GUI-displayed and -editable field** (§6) — reproducibility is a user-facing guarantee,
   not incidental internal state.
 - **Bunch resample rule:** the bunch is re-sampled whenever `SamplingSpec` fields change
@@ -842,7 +894,9 @@ assumption was broken" test zoo.
    button runs the checked engines (§6).
 5. MC macroparticle dump format (elegant `.ele`/`.bun` research, see 1).
 6. Crossing-angle formula details (§9.3) — with the author, parallel track.
-7. **RESOLVED:** k0_las normalization stays purely internal to xigma (confirmed).
+7. **RESOLVED (v0.11):** there is no k0_las normalization — xigma works in CGS directly.
+   Superseded the earlier "stays purely internal" answer, which satisfied the no-leakage
+   requirement but kept bookkeeping that buys nothing (§4.2, `DECISIONS.md` D015).
 8. **Final-electron macroparticle typing** (§3.6): whether `Results.electrons` reuses
    `Bunch` as-is or gets its own `ElectronMacroparticles` type (symmetric with
    `PhotonMacroparticles`; `Bunch` as specified has no emission-time field) is open —
@@ -856,7 +910,7 @@ assumption was broken" test zoo.
 | Phase | Scope | Exit criteria |
 |-------|-------|---------------|
 | **0. Scaffold** | Repo, git, pyproject (Python 3.12), pytest, package skeleton, README, ADR index + **`DECISIONS.md` provenance doc started** (C1); `.gitignore` **explicitly covers large data formats (`.ele`, notebooks with large outputs) and sync-conflict patterns from day one** (C3) | `pytest` green on an empty-suite smoke test; `pip install -e .` works; doc-staleness guard scaffolding in place (C2) — a CI smoke test asserting **every backticked identifier in the docs resolves in the package** |
-| **1. Core** | `io/`: schema, units/conventions (CGS), constants; beam; laser (incl. `LaserField` protocol + `GaussianParaxialLaser` as its sole implementation, `fit_gaussian_paraxial`, elliptical+astigmatic model, geometry angles — §3.3/P15); target (auto-ranges + `OutputKind` vocabulary §3.4); interaction (incl. `N_e` scalar + `SamplingSpec` §3.5); sampling + prefilter (§3.2); results contract (incl. `PhotonMacroparticles` §3.6); YAML + `.ele` I/O; HDF5 results writer | Round-trip tests; schema validation tests; CGS conversion tests vs known values; `LaserField` protocol conformance test for `GaussianParaxialLaser` (period-averaged + period-resolved at arbitrary points); `fit_gaussian_paraxial` identity test on a `GaussianParaxialLaser` input; geometry round-trip test (R⁻¹ recovers head-on angles, §2.2) |
+| **1. Core** | `io/`: schema, units/conventions (CGS), constants; bunch (`Bunch` + `GaussianElectronBeam`); laser (incl. `LaserField` protocol + `GaussianParaxialLaser` as its sole implementation, `fit_gaussian_paraxial`, elliptical+astigmatic model, geometry angles — §3.3/P15); target (auto-ranges + `OutputKind` vocabulary §3.4); interaction (incl. `N_e` scalar + `SamplingSpec` §3.5); sampling + prefilter (§3.2); results contract (incl. `PhotonMacroparticles` §3.6); YAML + `.ele` I/O; HDF5 results writer | Round-trip tests; schema validation tests; CGS conversion tests vs known values; `LaserField` protocol conformance test for `GaussianParaxialLaser` (period-averaged + period-resolved at arbitrary points); `fit_gaussian_paraxial` identity test on a `GaussianParaxialLaser` input; geometry round-trip test (R⁻¹ recovers head-on angles, §2.2) |
 | **2. Validation harness** | scenarios, runners skeleton, `make_references.py` + first golden snapshots from old repo; invariance-test scaffolding (chunk, prefilter, backend, seed — §7) | Golden generation runs; new-vs-golden comparisons execute |
 | **2.5. Stage 0 + minimal delta** | **Stage 0** (`integrate_trajectories`) and the **shared auto-chunk + OOM-retry utility** (§4.2), pulled forward from 3a because delta needs both; delta itself scoped to Stage-2 normalization arbitration, built on top of Stage 0 (§4.5) | Stage 0 tests green; chunk-invariance holds; delta produces independent spectra on baseline scenarios; identity harness (`kernel` vs `reference` vs `direct binning` vs delta) executable |
 | **3a. xigma engineering** | Stage 1/2 pure functions; Collision facade + stage cache; Engine wrapper; kernels (numpy/cupy/numba) for Stages 1/2 (**Stage 0 and the chunking utility already built in 2.5**); geometry/a0/ellipticity parameters wired as explicit identity/no-op placeholders (P14c) | Stage architecture tests green; placeholders documented |

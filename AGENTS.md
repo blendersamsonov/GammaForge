@@ -31,9 +31,15 @@ These are the ones a fresh agent is most likely to get wrong by pattern-matching
 "reasonable Python architecture" instead of this project's specific, hard-won
 constraints (`GRAND_PLAN.md` §1 has the full table with provenance — P1–P15):
 
-- **One unit system, CGS-Gaussian, in every shared dataclass.** Engines convert at
-  their own boundary (kascade is SI internally, xigma has an internal `k0_las` unit —
-  neither leaks out). Never introduce a second internal unit system "for convenience."
+- **One unit system, CGS-Gaussian, in every shared dataclass** — and **dimensioned types
+  at the engine boundary**: each dimensioned field is a pint `Quantity`, stored
+  canonically in CGS, so an engine converting to its own internal system (kascade is SI)
+  gets a checked conversion rather than a hand-written factor. Engines unpack once at
+  `run()`; kernels only ever see floats. Bulk per-particle arrays are *not* wrapped —
+  `Bunch` declares its units as data and converts through a scale factor. Never introduce
+  a second internal unit system "for convenience", and note there is **no coordinate
+  normalization** anywhere: xigma works in CGS directly, `k0_las` scaling is not carried
+  over from the predecessor (see `DECISIONS.md` D013–D015).
 - **No `gammaforge.core` package.** The shared layer is `gammaforge.io` — yes, that
   name is odd, it's kept for continuity with the predecessor. Don't add an intermediate
   layer between `io` and `engines`.
