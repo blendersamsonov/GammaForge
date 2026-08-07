@@ -81,10 +81,17 @@ constraints (`GRAND_PLAN.md` §1 has the full table with provenance — P1–P15
   history. Link back to `GRAND_PLAN.md`'s changelog for plan changes instead of
   duplicating rationale.
 - **Old repo (`ComptonSuite`):** reference only, and only through
-  `validation/make_references.py` (once it exists) for golden snapshots. When the plan
-  says "port," it usually means port the *algorithm and hard-won constants*, not the
-  code verbatim — e.g. the chunking utility (§4.2) explicitly replaces three
-  inconsistent old implementations with one, not a copy of any of them.
+  `src/gammaforge/validation/make_references.py` for golden snapshots. It runs the old
+  code in a **subprocess** — both repos install a package called `gammaforge`, so they
+  cannot share a process — and needs the `OLD_REPO` / `OLD_REPO_PYTHON` environment
+  variables. Regenerating goldens is deliberate and manual; the committed snapshots under
+  `validation/references/data/` are what the suite compares against. When the plan says
+  "port," it usually means port the *algorithm and hard-won constants*, not the code
+  verbatim — e.g. the chunking utility (§4.2) explicitly replaces three inconsistent old
+  implementations with one, not a copy of any of them.
+- **Validation:** `python -m gammaforge.validation.run` is the suite entry point (it runs
+  what is runnable and says what it skipped); `gammaforge.validation.scenarios.SCENARIOS`
+  is the shared bank — iterate it, don't hardcode a scenario name in a runner.
 - **Graphify:** once there's real code to search across, use the `graphify` skill for
   codebase-wide queries instead of ad hoc grepping — not needed yet at Phase 0 scaffold
   size, but worth reaching for once `gammaforge.io`/`engines` have real content.

@@ -405,3 +405,114 @@ that reaches for `a0_profile` inside a Python loop.
 each value twice and adding state that is not quite what P9 forbids but is adjacent to it.
 It is the option to revisit if the display of stored values ever becomes a real complaint;
 until then it buys presentation, not correctness.
+
+---
+
+### D018 — `engines/base.py` lands in Phase 2, with the `Engine` protocol but no registry
+
+**Decision:** the §4.1 `Engine` protocol and the §5 `RecomputeCost` enum are written in
+Phase 2, one phase before the engines they describe. The *ENGINES* registry named in the
+same plan section is *not*: it arrives with the first engine that has something to
+register.
+
+**Rejected alternatives:** (a) leave `gammaforge.engines` empty until Phase 3a and have
+`run_engine` accept any object with a `run` method, checking nothing; (b) defer the whole
+runner layer to Phase 3a and make Phase 2 golden-generation only.
+
+**Rationale.** Phase 2's scope is "runners skeleton", and a skeleton needs a joint. (a)
+would have replaced a checked contract with a duck-typed one at precisely the boundary the
+plan spends §4.1 pinning down — and `runtime_checkable` makes the check cost one
+`isinstance` and produce an error naming what an engine is missing, rather than an
+`AttributeError` from inside a run. (b) would have left the harness untestable: with no
+engine type there is no stub engine either, so the chunk/backend/prefilter invariance
+machinery could only be *written*, never *exercised*, which is how scaffolding rots.
+
+The registry is a different matter. A lazy optional-dependency import table over zero
+engines is exactly the speculative machinery P10 warns about, and it is three lines to add
+when xigma exists.
+
+---
+
+### D019 — Golden references are generated in a subprocess, and committed as ordinary results files
+
+**Decision:** `validation/make_references.py` builds a JSON description of each scenario in
+the predecessor's units and runs `validation/_predecessor_driver.py` under a *separate
+interpreter* whose path points at the old checkout (the OLD_REPO and OLD_REPO_PYTHON
+environment variables — env var names, not package symbols, hence no backticks). The
+driver writes plain `.npz` files; the translation into this repo's `Axis`/`OutputKind`
+vocabulary and CGS units happens on this side of the boundary. Snapshots are stored as the
+ordinary `gammaforge.io.formats.hdf5` results file plus a `provenance` group and a
+`scalars` group, under `src/gammaforge/validation/references/data/`, and are **committed**
+— which needs a `.gitignore` negation, since `*.h5` is otherwise excluded wholesale.
+
+**Rejected alternatives:** (a) import the old package directly and call it in-process;
+(b) let the driver write this repo's HDF5 format itself; (c) keep goldens out of git and
+regenerate them before each run.
+
+**Rationale.** (a) is impossible, not merely inadvisable: both repos install a package
+named `gammaforge`, and no import trick makes two of them coexist safely in one process.
+The subprocess is the design. It also buys the old repo's own environment — it needs
+scipy, which this repo deliberately does not have. (b) would put this repo's serialization
+format inside a file that runs against the old repo's dependencies, where it could not be
+tested and would silently drift; instead the driver reports what the old code produced in
+the old code's own terms, and the one place that knows both vocabularies is versioned with
+the format it targets. (c) would make the suite depend on a machine that has the
+predecessor checked out — the opposite of what a reference is for. At ~24 kB per snapshot
+the C3 concern about committed data does not bite; the negation is scoped to that one
+directory so it cannot quietly re-admit a stray multi-MB file elsewhere.
+
+---
+
+### D020 — The validation runners have no result cache
+
+**Decision:** `validation/runners.py` runs an engine and returns; nothing is memoized to
+disk.
+
+**Rejected alternative:** porting the predecessor's *cache.py* — a commit-hash-keyed
+pickle store that skipped recomputation when the tree was clean.
+
+**Rationale.** That cache existed because a GPU run per tier per scenario dominated the
+suite's cost, and the tiers each re-ran the models independently. Neither is true here:
+the tiers are gone (one run is shared), and engines cache their *own* intermediates keyed
+by the exact hash of the inputs each one consumed (§5), which is both finer-grained and
+valid by construction rather than by a clean-tree heuristic. A second, coarser cache on
+top would be the speculative machinery P6 warns about. It is worth reinstating the moment
+a full suite run is *measured* to be too slow — not before.
+
+---
+
+### D021 — The laser's active region is a cone, not a cylinder
+
+**Decision:** `ActiveRegion` carries a `radius_slope` alongside its `radius`, and
+`radius_at` gives `radius + radius_slope * |u|`. `GaussianParaxialLaser.active_region`
+derives both by linearizing the spot hyperbola,
+`s(u) = sigma sqrt(1 + ((u - z_f)/z_R)^2) <= sigma (1 + (|u| + |z_f|)/z_R)`.
+`overlap_time_window` evaluates that cone at the widest point of each particle's own
+longitudinal window, so the transverse test stays a single closed-form quadratic.
+
+**Rejected alternatives:** (a) keep the cylinder and give `active_region` an extra
+argument for the longitudinal span it must be valid over; (b) keep the cylinder and size
+its radius from the largest spot the bunch can ever meet; (c) solve the cone inequality in
+`t` exactly.
+
+**Rationale.** This fixes a real defect, found by the Phase-2 harness rather than by
+review. The region's contract is to be **over-inclusive** — the prefilter is a pure
+optimization and must never discard a particle that would have contributed (§3.2) — and
+the old radius came from the spot within the pulse's *own* length around focus. A pulse
+diverges: a bunch longer than the Rayleigh range meets it far from focus, where the spot
+is many times larger, so particles the expanded pulse still reaches were being thrown
+away. In the probe configuration a discarded macroparticle saw `a0` **six times** the
+threshold meant to bound it.
+
+(a) works but changes the `LaserField` protocol for every implementer (P15) and leaves a
+default that is wrong for anyone who forgets the argument — a footgun in a safety
+mechanism. (b) needs no protocol change but sizes every particle's test by the worst
+particle in the bunch, which costs most of the filter's value on exactly the long-bunch
+case that motivated the fix. (c) is the tight answer, but a cone inequality in `t` is not
+a single band — the parabola can open downward, making the solution set a union of two
+rays — and the per-particle evaluation in (the chosen option) is already conservative,
+already closed-form, and tight in the only regime that matters. The pre-fix behaviour is
+now guarded twice: at the laser level
+(`test_active_region_is_still_conservative_far_from_focus`) and by the harness check that
+found it (`check_prefilter_discards_only_dark_particles`), which samples `a0` along every
+discarded trajectory and so depends on none of the geometry it is testing.

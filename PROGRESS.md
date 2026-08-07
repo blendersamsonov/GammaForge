@@ -14,7 +14,7 @@ Phase numbers/names match `docs/GRAND_PLAN.md` §11.
 |-------|--------|
 | 0. Scaffold | 🟢 done (pending only the pre-3a/6 worktree re-check, C4) |
 | 1. Core | 🟢 done — all exit criteria met (see 2026-08-07 session below) |
-| 2. Validation harness | ⚪ not started |
+| 2. Validation harness | 🟢 done — both exit criteria met (see 2026-08-07 Phase 2 session) |
 | 2.5. Stage 0 + minimal delta | ⚪ not started |
 | 3a. xigma engineering | ⚪ not started |
 | 3b. Physics closure | ⚪ not started |
@@ -320,6 +320,125 @@ convention required to be italics.
 `pytest` → **183 passed**.
 
 ---
+
+## 2026-08-07 — Phase 2: the validation harness
+
+Plan bumped to **v0.12** — see its changelog for the three design items this session
+settled (Engine protocol placement, the active-region cone, the golden-reference
+subprocess). `DECISIONS.md` D018–D021 carry the rejected alternatives.
+
+**Both §11 exit criteria are met:** golden generation runs (`python -m
+gammaforge.validation.make_references`, nine snapshots in ~60 s), and new-vs-golden
+comparisons execute — as `pytest`, as the orchestrator's own report, and against a stub
+engine end to end.
+
+### What landed
+
+- **`engines/base.py`** — the §4.1 `Engine` protocol and the §5 `RecomputeCost` enum, one
+  phase early because a runner skeleton needs a joint (D018). No registry.
+- **`validation/scenarios.py`** — `Scenario` (beam, laser, target, sampling — *no* engine
+  knobs, unlike the predecessor's, which carried one xigma field and one analytical field
+  on a supposedly model-agnostic object) and the three-point bank `BASELINE` / `LOW_A0` /
+  `NEAR_A0_MAX`. The operating point is the predecessor's own — gamma0 = 2000, 10 nC, 20 J
+  at 1030 nm — written in CGS with explicit units rather than as converted literals. The
+  scan varies pulse energy alone, so `a0` moves and nothing else does (0.057 / 0.181 /
+  0.405).
+- **`validation/metrics.py`** — the window-integrated deviation ported from the
+  predecessor, reporting both a reference-flux-weighted L1 and a max-over-windows, plus
+  `compare_slices` over `PhasespaceSlice`. Two numbers because one hides a localized
+  defect: a bad Compton edge is invisible in a weighted average.
+- **`validation/golden.py`** — snapshot format, provenance, and comparison. A golden is
+  the ordinary results HDF5 plus a provenance group and the model's own scalars (D019).
+- **`validation/make_references.py`** + **`_predecessor_driver.py`** — the one place the
+  old repo is referenced. Nine goldens committed: three scenarios x
+  {analytical, xigma, delta}.
+- **`validation/invariance.py`** — the four §7 properties as engine-generic functions,
+  plus the two that need no engine at all.
+- **`validation/runners.py`**, **`validation/run.py`** — running one engine on one
+  scenario, and the suite entry point with a pass/fail report.
+- **`tests/test_validation.py`** — 38 tests. `pytest` → **221 passed**.
+
+### A real Phase-1 bug, found by the harness on its first run
+
+`check_prefilter_discards_only_dark_particles` samples `a0` along every *discarded*
+trajectory and compares the peak against the threshold that discarded it — deliberately
+independent of the closed-form geometry that made the decision. On a probe configuration
+(1 mm beam, 30 fs pulse) it immediately reported a discarded macroparticle seeing
+`a0 = 3.6e-2` against a threshold of `5.7e-3`: **six times** the bound.
+
+The cause: `ActiveRegion` was a cylinder whose radius came from the spot within the
+*pulse's own length* around focus. A pulse diverges. A bunch longer than the Rayleigh
+range (0.3 cm vs 0.12 cm here — the baseline's own numbers) meets it far from focus, where
+the spot is many times larger, so the filter was discarding particles the expanded pulse
+still reached. That breaks the §3.2 contract outright: the prefilter is a *pure
+optimization*, and every result computed with it on would have been quietly wrong.
+
+Fixed by making the region a cone (D021). Post-fix the same probe reports `3.0e-6` against
+the same threshold — 1900x under, rather than 6x over — while still discarding 1988 of
+2000 particles, so the filter kept its value. Guarded twice now: at the laser level
+(`test_active_region_is_still_conservative_far_from_focus`, which fails against the old
+cylinder) and by the harness check itself.
+
+Worth stating plainly, since it is the argument for the phase existing: this was not
+caught by 183 passing Phase-1 tests. The nearest one sampled points within ±8e-3 cm of
+focus — well inside the Rayleigh range — and passed for a configuration the bug does not
+reach.
+
+### What the goldens already say
+
+The scalar cross-check is the sharpest comparison available and needs no engine: two
+independently written codebases, the same physical input, the same analytic quantity.
+
+| quantity | agreement |
+|---|---|
+| `n_photons` | exact (0 ULP on two of three scenarios) |
+| `gamma0` | exact |
+| `n_electrons` | 1.2e-16 |
+| `a0_peak` | 6.6e-11 |
+
+`a0_peak`'s 6.6e-11 is the only one not at machine precision, consistent with the
+predecessor's hand-entered constants differing from pint's CODATA around the eleventh
+digit. Tested at 1e-9, which leaves an order of magnitude of margin without being loose
+enough to hide a convention error.
+
+Two observations from the snapshot data itself, recorded rather than acted on:
+
+- xigma and delta agree to **2.6e-8** (weighted L1) on every scenario. Expected — delta
+  reuses xigma's Stage 0 and differs only in the Stage-2 kernel (§4.5) — but it means the
+  pair is a check on the kernel, not independent evidence about the pipeline.
+- The predecessor's **analytical** model gives a total yield **3.28x lower** than xigma
+  and delta, uniformly across all three scenarios. This is the neighbourhood of the §9.1
+  ~2pi normalization question, but 3.28 is not 2pi and the old analytical model's own
+  code carries a flagged self-rescale hack, so it is not evidence for anything yet. Noted
+  as the kind of thing the golden set exists to make visible; §9.1's arbiter is delta at
+  Phase 2.5, and this does not pre-empt it.
+
+### Deliberately not built
+
+- **No result cache in the runners** (D020). The predecessor's commit-hash-keyed pickle
+  store solved a problem this architecture does not have.
+- **No `ENGINES` registry** — nothing to register until Phase 3a.
+- **Chunk and backend invariance are exercised against stubs only**, which is all that is
+  possible: neither the chunking utility (Phase 2.5) nor any real backend exists. The
+  checks are written engine-generically and take the engine's own parameter key, so
+  wiring them up in 2.5/3a is a call site, not new machinery.
+- **No `visualize.py`** — the predecessor had one; plots belong to the shared plotting
+  module (§8), which is Phase 6.
+
+### Notes for the next session
+
+- The prefilter is now correct but *conservative in a new place*: for a long bunch the
+  cone's radius grows with distance from focus, so it discards less than the old (wrong)
+  cylinder did. If a real engine run shows the filter earning too little, the tight fix is
+  the exact cone solve rejected in D021, not a return to a fixed radius.
+- `make_references` needs OLD_REPO and OLD_REPO_PYTHON. On this machine:
+  `/home/alexander/Work/Code/ComptonSuite` and `/home/alexander/miniforge3/envs/core/bin/python`
+  (the old repo needs scipy; this one deliberately has none). Goldens were generated from
+  predecessor commit `4298070`, clean tree — asserted by a test, so a snapshot taken from a
+  dirty tree cannot land unnoticed.
+
+---
+
 
 ## How to update this file
 

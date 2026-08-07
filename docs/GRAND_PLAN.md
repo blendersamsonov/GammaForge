@@ -1,9 +1,26 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.11 — 2026-08-07
+**Status:** draft v0.12 — 2026-08-07
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 **Changelog**
+- **v0.12**: Phase 2 implementation feedback, three items.
+  **(a) `engines/base.py` lands in Phase 2, not 3a.** The §4.1 `Engine` protocol and the
+  §5 `RecomputeCost` enum are what a "runners skeleton" is a skeleton *of*: without an
+  engine type there is no stub engine either, so the invariance machinery could be written
+  but never exercised. The `ENGINES` registry stays in 3a, where there will be something
+  to register (`DECISIONS.md` D018).
+  **(b) The §3.2 prefilter's active region is a cone, not a cylinder.** Found by the
+  Phase-2 harness, not by review: the region's radius came from the spot near focus, so a
+  bunch longer than the Rayleigh range met the *diverged* pulse and had particles
+  discarded that it still reached — a discarded macroparticle measured six times the `a0`
+  the threshold was meant to bound. The region now carries a radius slope, and
+  over-inclusiveness — the property that makes the prefilter a pure optimization — holds
+  at any distance from focus (D021).
+  **(c) The golden-reference boundary is a subprocess.** Both repos install a package
+  named `gammaforge`, so `make_references` runs the predecessor under its own interpreter
+  and translates results at this side of the boundary; §7's "runs the old repo's models"
+  is unchanged in intent, and this pins how (D019).
 - **v0.11**: two units decisions, both author-directed after a Phase-1 review.
   **(a) Dimensioned types at the engine boundary.** §2.1's "kernels never see pint
   quantities" constrained *kernels*; it was over-read during Phase 1 as "the shared layer

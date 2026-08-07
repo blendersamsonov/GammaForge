@@ -98,16 +98,25 @@ class LaserField(Protocol):
 class ActiveRegion:
     """Conservative bounding region for the §3.2 prefilter.
 
-    A lab-frame point ``(r, t)`` is *possibly* inside the pulse iff it lies within
-    ``radius`` of the propagation axis **and** within ``half_length`` of the pulse centre
-    measured along that axis in the co-moving sense::
+    A lab-frame point ``(r, t)`` is *possibly* inside the pulse iff it lies within the
+    region's local radius of the propagation axis **and** within ``half_length`` of the
+    pulse centre measured along that axis in the co-moving sense::
 
         u        = (r - origin) . axis
-        inside  <=>  |r - origin - u*axis| <= radius  and  |u - c*t| <= half_length
+        inside  <=>  |r - origin - u*axis| <= radius + radius_slope*|u|
+                     and  |u - c*t| <= half_length
 
-    The region is deliberately **over-inclusive**: the prefilter is a pure optimization
-    that must never discard a particle which would have contributed (§3.2), so every
-    approximation made in deriving it errs towards keeping particles.
+    **The region is a cone, not a cylinder**, and that is load-bearing rather than
+    decorative. A pulse diverges: far from focus its spot — and with it the transverse
+    extent in which ``a0`` clears the threshold — grows without bound. A fixed radius is
+    conservative only near focus, so a bunch longer than the Rayleigh range would have had
+    particles discarded that the expanded pulse still reaches. ``radius_slope`` bounds that
+    growth linearly, which is an upper bound on the hyperbolic truth
+    (``sqrt(1 + a^2) <= 1 + |a|``) and therefore still over-inclusive.
+
+    Over-inclusiveness is the whole contract: the prefilter is a pure optimization that
+    must never discard a particle which would have contributed (§3.2), so every
+    approximation made in deriving this region errs towards keeping particles.
 
     ``a0_peak`` is carried along because the threshold that produced this region is a
     fraction of it, and callers reporting what was filtered need the absolute scale.
@@ -115,10 +124,15 @@ class ActiveRegion:
 
     axis: np.ndarray  # unit vector, lab frame
     origin: np.ndarray  # lab-frame point the pulse centre passes through at t = 0
-    radius: float  # cm
+    radius: float  # cm, the region's half-width where it crosses the focal plane
+    radius_slope: float  # cm per cm, how fast that half-width grows away from focus
     half_length: float  # cm
     threshold: float
     a0_peak: float
+
+    def radius_at(self, u):
+        """The region's transverse half-width at longitudinal coordinate ``u``."""
+        return self.radius + self.radius_slope * np.abs(u)
 
     def contains(self, x, y, z, t):
         """Boolean mask: which ``(x, y, z, t)`` points fall inside this region."""
@@ -127,7 +141,9 @@ class ActiveRegion:
         rz = np.asarray(z) - self.origin[2]
         u = rx * self.axis[0] + ry * self.axis[1] + rz * self.axis[2]
         perp2 = np.maximum(rx * rx + ry * ry + rz * rz - u * u, 0.0)
-        return (perp2 <= self.radius**2) & (np.abs(u - C_CGS * np.asarray(t)) <= self.half_length)
+        return (perp2 <= self.radius_at(u) ** 2) & (
+            np.abs(u - C_CGS * np.asarray(t)) <= self.half_length
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -389,26 +405,34 @@ class GaussianParaxialLaser:
         Derived analytically and **conservatively**. Longitudinally, ``a0`` falls as
         ``exp(-(u - ct)^2 / (4 sigma_ct^2))`` (the square root of the intensity Gaussian),
         so the cut is at ``|u - ct| = 2 sigma_ct sqrt(ln(1/threshold))``. Transversely the
-        same square-root Gaussian gives ``xi <= 2 s(u) sqrt(ln(1/threshold))``, evaluated
-        at the **largest** spot within the longitudinal cut; the ``1/sqrt(s1 s2)``
-        amplitude decay away from focus is deliberately ignored, which can only make the
-        real region smaller than this bound.
+        same square-root Gaussian gives ``xi <= reach * s(u)`` with
+        ``reach = 2 sqrt(ln(1/threshold))``; the ``1/sqrt(s1 s2)`` amplitude decay away
+        from focus is deliberately ignored, which can only make the real region smaller
+        than this bound.
+
+        ``s(u)`` **grows with distance from focus**, so the transverse bound is a cone
+        rather than a fixed radius. Linearizing the hyperbola,
+        ``s_i(u) = sigma_i sqrt(1 + ((u - z_fi)/z_Ri)^2) <= sigma_i (1 + (|u| + |z_fi|)/z_Ri)``,
+        gives an intercept and a slope, each maximized over the two focusing axes
+        independently — which over-estimates when the two axes disagree, in the safe
+        direction. Bounding ``s(u)`` by its value near focus instead (as this did until the
+        Phase-2 harness caught it) silently discards particles that a diverged pulse still
+        reaches, whenever the bunch is longer than the Rayleigh range.
         """
         if not 0.0 < threshold < 1.0:
             raise ValueError(f"active_region threshold must be in (0, 1), got {threshold}")
         reach = 2.0 * math.sqrt(math.log(1.0 / threshold))
-        half_length = reach * self.sigma_ct()
-        # Worst-case spot: at whichever end of the longitudinal window is furthest from
-        # each axis's own focus.
-        u_extreme = half_length + max(abs(self.m("z_fx")), abs(self.m("z_fy")))
-        s1, s2 = self.spot_sizes(np.array([-u_extreme, u_extreme]))
-        radius = reach * float(max(np.max(s1), np.max(s2)))
+        sigmas = (self.m("sigma_x"), self.m("sigma_y"))
+        focus_offsets = (abs(self.m("z_fx")), abs(self.m("z_fy")))
+        rayleigh = (self.rayleigh_x(), self.rayleigh_y())
         k_hat, _, _ = self.focusing_axes()
         return ActiveRegion(
             axis=k_hat,
             origin=np.zeros(3),
-            radius=radius,
-            half_length=half_length,
+            radius=reach * max(s * (1.0 + z_f / z_r)
+                               for s, z_f, z_r in zip(sigmas, focus_offsets, rayleigh)),
+            radius_slope=reach * max(s / z_r for s, z_r in zip(sigmas, rayleigh)),
+            half_length=reach * self.sigma_ct(),
             threshold=threshold,
             a0_peak=self.a0_peak(),
         )

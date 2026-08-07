@@ -214,9 +214,35 @@ def test_active_region_is_conservative_at_its_own_threshold():
     assert np.all(region.contains(x[above], y[above], z[above], 0.0))
 
 
+def test_active_region_is_still_conservative_far_from_focus():
+    """The pulse diverges, and the region has to diverge with it.
+
+    Regression guard for a real defect: the region was a cylinder whose radius came from
+    the spot *near focus*, so beyond a few Rayleigh ranges the expanded pulse reached
+    particles the prefilter had already discarded. The Phase-2 harness found it by
+    sampling ``a0`` along discarded trajectories; this is the same statement at the
+    laser level, where the fix lives.
+    """
+    laser = make_laser()
+    threshold = 1e-3
+    region = laser.active_region(threshold)
+    rng = np.random.default_rng(4)
+    for distance in (0.0, 5.0, 25.0):
+        u = distance * laser.rayleigh_x()
+        spot = laser.spot_sizes(u)[0]
+        # The pulse centre is at this u at t = u / c, so the longitudinal factor is 1.
+        x, y = (rng.uniform(-4 * spot, 4 * spot, 3000) for _ in range(2))
+        z = np.full_like(x, -u)  # head-on: the axis is -z, so u = -z
+        t = np.full_like(x, u / C_CGS)
+        above = laser.a0_profile(x, y, z, t) >= threshold * region.a0_peak
+        assert np.any(above), f"nothing above threshold at {distance} Rayleigh ranges"
+        assert np.all(region.contains(x[above], y[above], z[above], t[above]))
+
+
 def test_a_looser_threshold_gives_a_larger_region():
     laser = make_laser()
     assert laser.active_region(1e-2).radius < laser.active_region(1e-6).radius
+    assert laser.active_region(1e-2).radius_slope < laser.active_region(1e-6).radius_slope
     assert laser.active_region(1e-2).half_length < laser.active_region(1e-6).half_length
 
 

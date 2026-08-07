@@ -495,17 +495,37 @@ def overlap_time_window(bunch: Bunch, laser, threshold: float = 1e-3):
 
     # --- longitudinal: |u(t) - c t| <= half_length, linear in t ---
     u0 = dx * axis[0] + dy * axis[1] + dz * axis[2]
-    slope = vx * axis[0] + vy * axis[1] + vz * axis[2] - C_CGS
+    v_par = vx * axis[0] + vy * axis[1] + vz * axis[2]
+    slope = v_par - C_CGS
     t_lo, t_hi = _linear_band(u0, slope, region.half_length)
 
     # --- transverse: |d(t)|^2 - (d(t).axis)^2 <= radius^2, quadratic in t ---
-    v_par = vx * axis[0] + vy * axis[1] + vz * axis[2]
+    # The region is a cone (§3.2), so its radius depends on where along the axis the
+    # encounter happens. Evaluating it at the widest point of *this particle's own*
+    # longitudinal window keeps the test conservative and still closed-form — a cone
+    # inequality in t is not a single quadratic band, and a global worst-case radius would
+    # throw away most of the filter's value on a long bunch.
+    radius = region.radius_at(_widest_reach(u0, v_par, t_lo, t_hi))
     a = (vx**2 + vy**2 + vz**2) - v_par**2
     b = 2.0 * ((dx * vx + dy * vy + dz * vz) - u0 * v_par)
-    c = (dx**2 + dy**2 + dz**2) - u0**2 - region.radius**2
+    c = (dx**2 + dy**2 + dz**2) - u0**2 - radius**2
     q_lo, q_hi = _quadratic_band(a, b, c)
 
     return np.maximum(t_lo, q_lo), np.minimum(t_hi, q_hi)
+
+
+def _widest_reach(u0, v_par, t_lo, t_hi):
+    """Largest ``|u|`` a particle can have while inside the longitudinal window.
+
+    ``u`` is linear in ``t``, so its extremes over ``[t_lo, t_hi]`` are at the ends. An
+    unbounded window — a particle travelling with the pulse rather than through it —
+    yields infinity, which widens the cone to everything and therefore keeps the particle:
+    the conservative answer.
+    """
+    bounded = np.isfinite(t_lo) & np.isfinite(t_hi)
+    ends = np.where(bounded, t_lo, 0.0), np.where(bounded, t_hi, 0.0)
+    reach = np.maximum(np.abs(u0 + v_par * ends[0]), np.abs(u0 + v_par * ends[1]))
+    return np.where(bounded, reach, np.inf)
 
 
 def _linear_band(offset, slope, half_width):
