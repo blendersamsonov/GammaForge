@@ -223,20 +223,42 @@ def test_active_region_is_still_conservative_far_from_focus():
     sampling ``a0`` along discarded trajectories; this is the same statement at the
     laser level, where the fix lives.
     """
-    laser = make_laser()
-    threshold = 1e-3
-    region = laser.active_region(threshold)
-    rng = np.random.default_rng(4)
-    for distance in (0.0, 5.0, 25.0):
-        u = distance * laser.rayleigh_x()
-        spot = laser.spot_sizes(u)[0]
-        # The pulse centre is at this u at t = u / c, so the longitudinal factor is 1.
-        x, y = (rng.uniform(-4 * spot, 4 * spot, 3000) for _ in range(2))
-        z = np.full_like(x, -u)  # head-on: the axis is -z, so u = -z
-        t = np.full_like(x, u / C_CGS)
-        above = laser.a0_profile(x, y, z, t) >= threshold * region.a0_peak
-        assert np.any(above), f"nothing above threshold at {distance} Rayleigh ranges"
-        assert np.all(region.contains(x[above], y[above], z[above], t[above]))
+    for beta_ff in (0.0, 0.5, 2.0, -0.5):
+        laser = make_laser(beta_ff=beta_ff)
+        threshold = 1e-3
+        region = laser.active_region(threshold)
+        rng = np.random.default_rng(4)
+        for distance in (0.0, 5.0, 25.0):
+            u = distance * laser.rayleigh_x()
+            # The pulse centre is at this u at t = u / c, so the longitudinal factor is 1;
+            # the spot is set by the flying-focus coordinate, not by u.
+            spot = max(laser.spot_sizes(u * (1.0 + beta_ff)))
+            x, y = (rng.uniform(-4 * spot, 4 * spot, 3000) for _ in range(2))
+            z = np.full_like(x, -u)  # head-on: the axis is -z, so u = -z
+            t = np.full_like(x, u / C_CGS)
+            above = laser.a0_profile(x, y, z, t) >= threshold * region.a0_peak
+            assert np.any(above), f"nothing above threshold at {distance} Rayleigh ranges"
+            assert np.all(region.contains(x[above], y[above], z[above], t[above])), (
+                f"beta_ff={beta_ff}, {distance} Rayleigh ranges from focus"
+            )
+
+
+def test_the_flying_focus_cancels_out_of_the_cone_slope_but_not_its_intercept():
+    """Two ``beta_ff`` effects meet in the cone, and only one of them cancels.
+
+    The spot is evaluated at ``u + beta_ff*ct``, which steepens the cone by
+    ``|1 + beta_ff|`` — exactly undoing the ``(1 + beta_ff)`` stretch already in the
+    Rayleigh range, so the *slope* is beta_ff-independent. The intercept is not: within
+    the pulse length ``ct`` drifts from ``u`` by up to ``half_length``, and the region has
+    to allow for the spot that drift reaches. Dropping the slide leaves the slope short by
+    that same factor — the region narrower than the pulse, in the one direction a
+    conservative bound may not err.
+    """
+    still, flying = make_laser(), make_laser(beta_ff=1.0)
+    assert flying.active_region(1e-3).radius_slope == pytest.approx(
+        still.active_region(1e-3).radius_slope
+    )
+    assert flying.active_region(1e-3).radius > still.active_region(1e-3).radius
 
 
 def test_a_looser_threshold_gives_a_larger_region():

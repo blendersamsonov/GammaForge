@@ -47,7 +47,6 @@ from ..io.results import Axis, PhasespaceSlice, Results
 from ..io.target import SLICE_AXES, OutputKind
 from ..io.units import C_CGS, EV_CGS, scale_factor
 from .golden import Provenance, save_golden
-from .runners import derived_scalars
 from .scenarios import SCENARIOS, Scenario, by_name
 
 __all__ = ["MODELS", "make_references", "main"]
@@ -75,11 +74,16 @@ _AXIS_TRANSLATION: dict[str, tuple[Axis, float]] = {
 }
 
 #: Old `model_specific` key -> the canonical scalar name `runners.derived_scalars` uses.
+#: The old models did not share a vocabulary: `analytical` reported ``a0_interaction``
+#: (a0 at the origin) while xigma and delta reported ``a0`` (a0 at the focus). Both are
+#: this repo's peak a0 for a pulse focused at the interaction point, which
+#: :func:`_scenario_payload` guarantees is the only kind it ever sends.
 _SCALAR_TRANSLATION = {
     "gamma0": "gamma0",
     "N_e": "n_electrons",
     "n_photons": "n_photons",
     "a0_interaction": "a0_peak",
+    "a0": "a0_peak",
 }
 
 #: Axis grouping -> `OutputKind`. The old repo identified a slice purely by its axis set;
@@ -93,9 +97,45 @@ _KIND_BY_AXES = {
 }
 
 
+#: Fields this boundary cannot carry, with the value that means "absent". The predecessor's
+#: beam and laser types have no counterpart for any of them, so a scenario that sets one
+#: is refused rather than silently snapshotted as a *different physical configuration*
+#: under its own name — the failure that a golden, of all things, must not have.
+_UNTRANSMITTED = {
+    "laser": {"z_fx": 0.0, "z_fy": 0.0, "theta_xz": 0.0, "theta_yz": 0.0,
+              "psi_focus": 0.0, "psi_pol": 0.0},
+    "laser_plain": {"ellipticity": 0.0, "beta_ff": 0.0},
+    "beam_plain": {"rho_x_gamma": 0.0, "rho_y_gamma": 0.0, "rho_z_gamma": 0.0,
+                   "rho_thx_gamma": 0.0, "rho_thy_gamma": 0.0,
+                   "alpha_x": 0.0, "alpha_y": 0.0},
+}
+
+
+def _reject_untransmittable(scenario: Scenario, beam, laser) -> None:
+    unsupported = [
+        f"laser.{name}" for name, default in _UNTRANSMITTED["laser"].items()
+        if laser.m(name) != default
+    ] + [
+        f"laser.{name}" for name, default in _UNTRANSMITTED["laser_plain"].items()
+        if getattr(laser, name) != default
+    ] + [
+        f"beam.{name}" for name, default in _UNTRANSMITTED["beam_plain"].items()
+        if getattr(beam, name) != default
+    ]
+    if unsupported:
+        raise ValueError(
+            f"scenario {scenario.name!r} sets {sorted(unsupported)}, which this boundary "
+            f"cannot carry to the predecessor. Generating a golden for it would label a "
+            f"different physical configuration with this scenario's name. Extend "
+            f"_scenario_payload and _predecessor_driver together, or leave the scenario "
+            f"without a golden."
+        )
+
+
 def _scenario_payload(scenario: Scenario, n_energy_bins: int) -> dict:
     """Describe one scenario in the old repo's units (SI, eV) and field names."""
     beam, laser = scenario.beam, fit_gaussian_paraxial(scenario.laser)
+    _reject_untransmittable(scenario, beam, laser)
     cm_to_m = scale_factor("cm", "m")
     return {
         "name": scenario.name,
@@ -225,25 +265,18 @@ def make_references(
     return written
 
 
-def _check_scalars(scenarios) -> int:
-    """Report each golden's scalars against what `io` computes now. Returns a failure count."""
-    from .golden import available_goldens, load_golden
+def _report_scalars(scenarios) -> int:
+    """Print each golden's scalars against what `io` computes now; return a failure count.
 
-    failures = 0
-    for scenario_name, model in available_goldens():
-        scenario = by_name(scenario_name)
-        if scenario not in tuple(scenarios):
-            continue
-        golden = load_golden(scenario_name, model)
-        fresh = derived_scalars(scenario)
-        for name, reference in sorted(golden.scalars.items()):
-            error = abs(fresh[name] - reference) / abs(reference) if reference else abs(fresh[name])
-            flag = "ok" if error <= 1e-6 else "MISMATCH"
-            if error > 1e-6:
-                failures += 1
-            print(f"  {scenario_name}/{model} {name:<12} {fresh[name]:.12g} vs "
-                  f"{reference:.12g}  ({error:.2e}) {flag}")
-    return failures
+    The comparison itself is `run.golden_scalar_checks` — the same code the suite runs, so
+    regenerating references cannot pass a check the suite would fail (or the reverse).
+    """
+    from .run import golden_scalar_checks
+
+    checks = golden_scalar_checks(list(scenarios))
+    for check in checks:
+        print(f"  {check}")
+    return sum(not check.passed for check in checks)
 
 
 def main(argv=None) -> int:
@@ -265,7 +298,7 @@ def main(argv=None) -> int:
     for path in written:
         print(f"wrote {path}")
     print("scalar cross-check against this repo's own closed forms:")
-    return 1 if _check_scalars(scenarios) else 0
+    return 1 if _report_scalars(scenarios) else 0
 
 
 if __name__ == "__main__":

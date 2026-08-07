@@ -437,8 +437,44 @@ Two observations from the snapshot data itself, recorded rather than acted on:
   predecessor commit `4298070`, clean tree — asserted by a test, so a snapshot taken from a
   dirty tree cannot land unnoticed.
 
----
+### Review round (same session)
 
+A review of the Phase-2 diff returned eight findings; all eight were verified by running
+the code and all eight are fixed. The two that mattered:
+
+- **The active-region cone ignored the flying focus** — the same defect class as the one
+  the harness had just found, one layer down. The spot is evaluated at `u + beta_ff*ct`,
+  not at `u`, and the `(1 + beta_ff)` stretch already in the Rayleigh range makes the cone
+  *shallower*: the omitted slide would have made it steeper by exactly that factor, so
+  dropping one of the pair left the region narrower than the pulse. Measured at 1775 of
+  4913 above-threshold points outside the region. Fixed (D022), now swept over `beta_ff`
+  at both the laser and harness levels. Worth noting how it survived: the D021 fix
+  rederived the transverse bound and carried the pre-existing `s(u)` reading forward
+  without asking where the spot is actually evaluated.
+- **The window metric could not see photons outside the reference's support** — inherited
+  from the predecessor's `significant = win_flux_ref > floor`. A candidate carrying 0.12%
+  of its yield past a hard reference edge scored zero on *both* reported numbers and
+  passed a 2% tolerance, which is precisely the misplaced-Compton-edge case the module
+  documents itself as catching (D023).
+
+The rest, briefly: xigma and delta report `a0` where analytical reports `a0_interaction`,
+so six of nine goldens carried **no scalars at all** while the suite reported a green
+"golden scalars" section — the test asserted a total count rather than per-golden, so it
+could not notice; mapping added, goldens regenerated, and the test now requires every
+golden to carry something. The leaky stub engine keyed its offset on `hash()`, which is
+salted per process, so two negative assertions failed on roughly 1 run in 49 (reproduced
+at `PYTHONHASHSEED=45`). `compare_slices` crashed on a single-bin axis that `_total` went
+out of its way to tolerate. `make_references` re-resolved scenarios through `by_name` —
+crashing on a stale reference directory where `run.py` correctly skipped, and validating
+the bank's scenario rather than a caller's modified one; both now share
+`run.golden_scalar_checks`. And `_scenario_payload` silently dropped every geometry and
+correlation field, so adding a crossing-angle scenario to the bank would have committed a
+golden for a different physical configuration under its name — now refused with a message
+naming the fields.
+
+`pytest` → **230 passed**, and stable across hash seeds.
+
+---
 
 ## How to update this file
 

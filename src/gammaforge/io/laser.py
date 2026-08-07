@@ -410,29 +410,46 @@ class GaussianParaxialLaser:
         from focus is deliberately ignored, which can only make the real region smaller
         than this bound.
 
-        ``s(u)`` **grows with distance from focus**, so the transverse bound is a cone
-        rather than a fixed radius. Linearizing the hyperbola,
-        ``s_i(u) = sigma_i sqrt(1 + ((u - z_fi)/z_Ri)^2) <= sigma_i (1 + (|u| + |z_fi|)/z_Ri)``,
+        ``s`` **grows with distance from focus**, so the transverse bound is a cone rather
+        than a fixed radius. Linearizing the hyperbola,
+        ``s_i(v) = sigma_i sqrt(1 + ((v - z_fi)/z_Ri)^2) <= sigma_i (1 + (|v| + |z_fi|)/z_Ri)``,
         gives an intercept and a slope, each maximized over the two focusing axes
         independently — which over-estimates when the two axes disagree, in the safe
-        direction. Bounding ``s(u)`` by its value near focus instead (as this did until the
+        direction. Bounding ``s`` by its value near focus instead (as this did until the
         Phase-2 harness caught it) silently discards particles that a diverged pulse still
         reaches, whenever the bunch is longer than the Rayleigh range.
+
+        **The spot is evaluated at the flying-focus coordinate**, not at ``u``:
+        ``v = u + beta_ff * ct`` (see :meth:`_local_coordinates`). Inside the longitudinal
+        window ``ct`` is within ``half_length`` of ``u``, so
+        ``|v| <= |1 + beta_ff| |u| + |beta_ff| half_length`` — the slide steepens the cone
+        by ``|1 + beta_ff|`` and widens its intercept by the drift accumulated across the
+        pulse length. The steepening cancels against the ``(1 + beta_ff)`` stretch already
+        in :meth:`rayleigh_x`, which is why omitting it makes the cone too *narrow* rather
+        than merely inexact — the one direction a conservative bound may not err in.
         """
         if not 0.0 < threshold < 1.0:
             raise ValueError(f"active_region threshold must be in (0, 1), got {threshold}")
         reach = 2.0 * math.sqrt(math.log(1.0 / threshold))
-        sigmas = (self.m("sigma_x"), self.m("sigma_y"))
-        focus_offsets = (abs(self.m("z_fx")), abs(self.m("z_fy")))
-        rayleigh = (self.rayleigh_x(), self.rayleigh_y())
+        half_length = reach * self.sigma_ct()
+        slide = abs(1.0 + self.beta_ff)
+        drift = abs(self.beta_ff) * half_length
+        axes = zip(
+            (self.m("sigma_x"), self.m("sigma_y")),
+            (abs(self.m("z_fx")), abs(self.m("z_fy"))),
+            (abs(self.rayleigh_x()), abs(self.rayleigh_y())),
+        )
+        intercept, slope = 0.0, 0.0
+        for sigma, focus_offset, z_r in axes:
+            intercept = max(intercept, sigma * (1.0 + (drift + focus_offset) / z_r))
+            slope = max(slope, sigma * slide / z_r)
         k_hat, _, _ = self.focusing_axes()
         return ActiveRegion(
             axis=k_hat,
             origin=np.zeros(3),
-            radius=reach * max(s * (1.0 + z_f / z_r)
-                               for s, z_f, z_r in zip(sigmas, focus_offsets, rayleigh)),
-            radius_slope=reach * max(s / z_r for s, z_r in zip(sigmas, rayleigh)),
-            half_length=reach * self.sigma_ct(),
+            radius=reach * intercept,
+            radius_slope=reach * slope,
+            half_length=half_length,
             threshold=threshold,
             a0_peak=self.a0_peak(),
         )

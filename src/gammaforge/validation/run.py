@@ -29,9 +29,9 @@ from ..engines.base import Engine
 from .golden import available_goldens, compare_to_golden, load_golden
 from .invariance import Check, core_checks, engine_checks
 from .runners import derived_scalars, run_engine
-from .scenarios import SCENARIOS, Scenario, by_name
+from .scenarios import SCENARIOS, Scenario
 
-__all__ = ["Report", "run_suite", "main"]
+__all__ = ["Report", "run_suite", "golden_scalar_checks", "main", "SCALAR_TOLERANCE"]
 
 
 class Report:
@@ -59,29 +59,36 @@ class Report:
         return "\n".join([*self.lines, "", "=" * 62, self.verdict(), "=" * 62])
 
 
-def _golden_scalar_checks(scenarios: Sequence[Scenario]) -> list[Check]:
+#: How closely a golden's stored closed-form scalars must match this repo's own. Tight by
+#: design: these are not Monte-Carlo numbers. Both repos compute them analytically from the
+#: same physical inputs, so a disagreement means a constant, a unit or a convention differs
+#: — worth failing over, unlike a spectrum shape.
+SCALAR_TOLERANCE = 1e-9
+
+
+def golden_scalar_checks(scenarios: Sequence[Scenario]) -> list[Check]:
     """Compare each golden's stored closed-form scalars against this repo's own.
 
-    Tight by design (1e-9): these are not Monte-Carlo numbers. Both repos compute them
-    analytically from the same physical inputs, so a disagreement means a constant, a unit
-    or a convention differs — and that is worth failing over, unlike a spectrum shape.
+    Scalars are recomputed from the `Scenario` **objects passed in**, not from the bank
+    entry that happens to share a name — a caller comparing a modified scenario must be
+    told about *its* numbers.
     """
-    names = {scenario.name for scenario in scenarios}
+    available = available_goldens()
     checks = []
-    for scenario_name, model in available_goldens():
-        if scenario_name not in names:
-            continue
-        golden = load_golden(scenario_name, model)
-        fresh = derived_scalars(by_name(scenario_name))
-        for name, reference in sorted(golden.scalars.items()):
-            if name not in fresh:
-                continue
-            error = abs(fresh[name] - reference) / abs(reference) if reference else abs(fresh[name])
-            checks.append(Check(
-                name=f"{scenario_name}/{model} {name}",
-                passed=error <= 1e-9,
-                detail=f"{fresh[name]:.12g} vs golden {reference:.12g} ({error:.2e})",
-            ))
+    for scenario in scenarios:
+        fresh = derived_scalars(scenario)
+        for model in sorted(model for name, model in available if name == scenario.name):
+            golden = load_golden(scenario.name, model)
+            for name, reference in sorted(golden.scalars.items()):
+                if name not in fresh:
+                    continue
+                error = (abs(fresh[name] - reference) / abs(reference) if reference
+                         else abs(fresh[name]))
+                checks.append(Check(
+                    name=f"{scenario.name}/{model} {name}",
+                    passed=error <= SCALAR_TOLERANCE,
+                    detail=f"{fresh[name]:.12g} vs golden {reference:.12g} ({error:.2e})",
+                ))
     return checks
 
 
@@ -94,7 +101,7 @@ def run_suite(engines: Iterable[Engine] = (), scenarios: Sequence[Scenario] = SC
         report.check(check)
 
     report.section("golden scalars (predecessor vs this repo)")
-    scalar_checks = _golden_scalar_checks(scenarios)
+    scalar_checks = golden_scalar_checks(scenarios)
     if not scalar_checks:
         report.note("no goldens committed — run `python -m gammaforge.validation.make_references`")
     for check in scalar_checks:

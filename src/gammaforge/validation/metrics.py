@@ -65,11 +65,27 @@ def resample_to(x_ref, x_src, y_src):
                      np.asarray(y_src, float), left=0.0, right=0.0)
 
 
-def window_integrated_deviation(x, y, y_ref, window, floor_fraction=1e-6):
+#: Below this fraction of the *total* reference flux, a window carries nothing worth
+#: reporting a relative error on. It is deliberately not "a fraction of the mean window",
+#: which would make the floor shrink as the binning got finer and turn every empty tail bin
+#: into a large deviation. A spurious peak is therefore measured in units of a thousandth
+#: of the total yield, which is a number a tolerance can be set against.
+_FLUX_FLOOR_FRACTION = 1e-3
+
+
+def window_integrated_deviation(x, y, y_ref, window, floor_fraction=_FLUX_FLOOR_FRACTION):
     """Compare two densities sampled on the same 1D grid ``x``.
 
     ``window`` is the reporting resolution, in ``x``'s own units: the width over which
     flux is integrated before comparing. Returns ``(weighted_l1, max_window, n_windows)``.
+
+    **A window counts if either side has flux in it**, not only the reference. Restricting
+    the comparison to the reference's own support is the natural-looking choice and it
+    blinds the metric to the failure this whole module exists to catch: photons appearing
+    where the reference has none — a Compton edge in the wrong place — contribute nothing
+    to a reference-weighted average and would be excluded from the maximum as well.
+    ``weighted_l1`` stays reference-weighted, since that is what it means; ``max_window``
+    is what reports flux that should not be there.
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
@@ -91,17 +107,26 @@ def window_integrated_deviation(x, y, y_ref, window, floor_fraction=1e-6):
     flux = np.bincount(index, weights=y * dx, minlength=n_windows)
     flux_ref = np.bincount(index, weights=y_ref * dx, minlength=n_windows)
 
-    total_ref = flux_ref.sum()
-    floor = floor_fraction * total_ref / n_windows if total_ref > 0 else 0.0
-    deviation = np.abs(flux - flux_ref) / np.maximum(np.abs(flux_ref), max(floor, 1e-300))
-
-    significant = flux_ref > floor
-    if not np.any(significant):
+    # The scale is the larger of the two totals, so an all-zero reference does not make
+    # every candidate compare as a perfect match — it makes the candidate's own flux the
+    # thing being measured, which is the honest answer.
+    total_ref = float(flux_ref.sum())
+    scale = max(total_ref, float(np.abs(flux).sum()))
+    if scale <= 0.0:
         return 0.0, 0.0, n_windows
+    floor = floor_fraction * scale
+    deviation = np.abs(flux - flux_ref) / np.maximum(np.abs(flux_ref), floor)
 
-    weights = np.where(significant, flux_ref, 0.0)
-    weights = weights / weights.sum()
-    return float(np.sum(weights * deviation)), float(deviation[significant].max()), n_windows
+    counted = (np.abs(flux_ref) > floor) | (np.abs(flux) > floor)
+    if not np.any(counted):
+        return 0.0, 0.0, n_windows
+    max_window = float(deviation[counted].max())
+
+    weights = np.where(flux_ref > floor, flux_ref, 0.0)
+    total_weight = weights.sum()
+    if total_weight <= 0.0:  # nothing in the reference to weight by; the maximum says it all
+        return max_window, max_window, n_windows
+    return float(np.sum(weights / total_weight * deviation)), max_window, n_windows
 
 
 def compare_slices(
@@ -112,11 +137,11 @@ def compare_slices(
 ) -> Deviation:
     """Compare two slices of the same axis grouping, resampling onto the reference's grid.
 
-    Only the **1D** case gets a window-integrated shape metric; for a 0D total yield or a
-    multi-dimensional slice, the shape numbers are the yield error, since a windowing
-    scheme for a 3D density is a reporting decision nobody has needed yet (P6). Every
-    grouping still gets its integrated-yield comparison, which is the number the identity
-    tests of §7 are written against.
+    Only a **1D slice with a resolvable axis** gets a window-integrated shape metric; a 0D
+    total yield, a multi-dimensional slice and a single-bin axis all report the yield error
+    instead, since a windowing scheme for a 3D density is a reporting decision nobody has
+    needed yet (P6). Every grouping still gets its integrated-yield comparison, which is
+    the number the identity tests of §7 are written against.
 
     ``windows`` is how many reporting windows to divide the reference's span into.
     """
@@ -127,11 +152,14 @@ def compare_slices(
         )
 
     yield_error = relative_error(_total(slice_), _total(reference))
-    if len(reference.axes) != 1:
+    (axis,) = tuple(reference.axes) if len(reference.axes) == 1 else (None,)
+    # A shape metric needs an axis with a width. A 0D yield, a multi-dimensional slice, and
+    # a one-bin spectrum all lack one, so all three report the yield error — which is a
+    # real comparison, where crashing on the third would only be an accident of `np.gradient`.
+    if axis is None or reference.axes[axis].size < 2 or slice_.axes[axis].size < 2:
         magnitude = abs(yield_error)
         return Deviation(magnitude, magnitude, 1, yield_error)
 
-    (axis,) = tuple(reference.axes)
     x_ref = reference.axes[axis]
     y = resample_to(x_ref, slice_.axes[axis], slice_.distr)
     span = float(x_ref[-1] - x_ref[0]) if x_ref.size > 1 else 0.0

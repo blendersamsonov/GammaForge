@@ -516,3 +516,55 @@ now guarded twice: at the laser level
 (`test_active_region_is_still_conservative_far_from_focus`) and by the harness check that
 found it (`check_prefilter_discards_only_dark_particles`), which samples `a0` along every
 discarded trajectory and so depends on none of the geometry it is testing.
+
+---
+
+### D022 — The active-region cone is evaluated at the flying-focus coordinate
+
+**Decision:** `active_region` derives its cone from `s(v)` where `v = u + beta_ff * ct`,
+the coordinate `_local_coordinates` actually evaluates the spot at — not from `s(u)`.
+Inside the longitudinal window `|v| <= |1 + beta_ff| |u| + |beta_ff| half_length`, so the
+slide multiplies the slope and the drift widens the intercept.
+
+**Rejected alternative:** *keeping the `s(u)` derivation* and treating `beta_ff` as a
+detail the bounding region need not model, on the grounds that the `(1 + beta_ff)` factor
+already in `rayleigh_x`/`rayleigh_y` accounts for it.
+
+**Rationale:** it does not — it accounts for it **backwards**. The stretched Rayleigh range
+makes the cone *shallower*, and the omitted slide would have made it steeper by exactly the
+same factor. Dropping one of the pair leaves the region narrower than the pulse it bounds,
+which is the one direction a conservative bound may not err in; measured, a flying-focus
+pulse put 1775 of 4913 above-threshold sample points outside the region, and the harness
+check reported a discarded macroparticle at 1.2x its threshold. With both terms present
+they cancel and the slope is `beta_ff`-independent — which is the property
+`test_the_flying_focus_cancels_out_of_the_cone_slope_but_not_its_intercept` now pins, since
+an assertion that the region merely "gets wider" would pass against the broken version too.
+
+This is the same defect class as D021, found the same way and one review later: the D021
+fix rederived the transverse bound and carried the pre-existing `s(u)` reading forward
+without noticing that the spot is not evaluated there.
+
+---
+
+### D023 — The window metric counts a window if *either* side has flux in it
+
+**Decision:** `window_integrated_deviation` includes a window in `max_window` when the
+candidate has flux above the floor even if the reference has none, and the floor is a
+fraction of the **total** reference flux (1e-3) rather than of the mean window flux.
+`weighted_l1` stays reference-weighted. An all-zero reference is scaled by the candidate's
+own total instead of returning a perfect match.
+
+**Rejected alternative:** the predecessor's *`significant = win_flux_ref > floor`*, which
+restricts both reported numbers to the reference's own support.
+
+**Rationale:** that restriction is invisible in every test one would think to write and it
+blinds the metric to the exact failure the module documents itself as catching. Photons
+appearing where the reference has none — a Compton edge in the wrong place — contribute
+nothing to a reference-*weighted* average, by construction, and were then dropped from the
+maximum as well: a candidate carrying 0.12% of its yield in a region the reference sets
+hard to zero scored `weighted_l1 = 0.0, max_window = 0.0` and passed a 2% golden tolerance.
+The floor moved to a fraction of the total for a related reason: as a fraction of the
+*mean window* it shrinks when the binning is refined, so the same spurious flux reports a
+different deviation at 64 bins and at 256. Against the total, a spurious peak is measured
+in units of a thousandth of the yield — a number a tolerance can be set against, and one
+that does not move when the grid does.

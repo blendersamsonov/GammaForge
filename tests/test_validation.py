@@ -94,10 +94,14 @@ class ParameterLeakEngine(ConstantEngine):
     def __init__(self, field: str) -> None:
         super().__init__()
         self.field = field
+        self._seen: dict[str, int] = {}
 
     def run(self, interaction, params: Parameters) -> Results:
-        value = params[self.field]
-        offset = 1e-3 * (hash(str(value)) % 7)
+        # A distinct offset per distinct value, by first-seen order. Hashing the value
+        # would be the obvious thing and would make this test flaky: `hash` is salted per
+        # process, so two values can collide modulo any small modulus on some runs and not
+        # others — an engine that is meant to be broken would intermittently look invariant.
+        offset = 1e-3 * (1 + self._seen.setdefault(str(params[self.field]), len(self._seen)))
         spectrum = self._spectrum(interaction, offset)
         return Results(photon_slices={
             OutputKind.SPECTRUM: spectrum,
@@ -227,6 +231,41 @@ def test_resampling_invents_no_flux_outside_the_source_range():
     assert values[0] == 0.0 and values[-1] == 0.0 and values[1] == pytest.approx(1.0)
 
 
+def test_photons_where_the_reference_has_none_are_caught():
+    """The failure mode the two-number metric exists for: a misplaced edge.
+
+    A reference-weighted average cannot see flux outside the reference's support — it is
+    weighted by exactly the thing that is zero there — so if the maximum is also restricted
+    to that support, a spectrum that pushes photons past a hard edge compares as perfect.
+    """
+    energy = np.linspace(0.0, 1e-5, 256)
+    reference = PhasespaceSlice(axes={Axis.ENERGY: energy},
+                                distr=np.where(energy <= 5e-6, 1.0, 0.0))
+    leaked = reference.distr.copy()
+    leaked[200:205] = 0.05  # a small peak well past the reference's edge
+
+    deviation = metrics.compare_slices(
+        PhasespaceSlice(axes={Axis.ENERGY: energy}, distr=leaked), reference
+    )
+    assert deviation.yield_error > 0.0
+    assert deviation.max_window > 0.1, "spurious flux beyond the reference edge went unseen"
+
+
+def test_an_all_zero_reference_is_not_a_free_pass():
+    energy = np.linspace(0.0, 1e-5, 64)
+    empty = PhasespaceSlice(axes={Axis.ENERGY: energy}, distr=np.zeros_like(energy))
+    full = PhasespaceSlice(axes={Axis.ENERGY: energy}, distr=np.ones_like(energy))
+    assert metrics.compare_slices(full, empty).worst() > 0.0
+    assert metrics.compare_slices(empty, empty).worst() == 0.0
+
+
+def test_a_single_bin_axis_compares_by_yield_instead_of_crashing():
+    one = PhasespaceSlice(axes={Axis.ENERGY: np.array([1e-6])}, distr=np.array([2.0]))
+    other = PhasespaceSlice(axes={Axis.ENERGY: np.array([1e-6])}, distr=np.array([1.0]))
+    assert metrics.compare_slices(other, other).worst() == 0.0
+    assert metrics.compare_slices(one, other).yield_error == pytest.approx(1.0)
+
+
 def test_comparing_different_observables_is_an_error():
     with pytest.raises(ValueError, match="different observables"):
         metrics.compare_slices(
@@ -284,14 +323,15 @@ def test_goldens_agree_with_this_repos_closed_forms():
     quantity. Nothing statistical is involved, so a disagreement here means a constant,
     a unit or a convention differs — hence the tight bound.
     """
-    compared = 0
     for scenario_name, model in available_goldens():
         golden = load_golden(scenario_name, model)
         fresh = derived_scalars(scenarios.by_name(scenario_name))
+        # Per golden, not in aggregate: an empty `scalars` dict makes a snapshot
+        # vacuously agree, and that is how six of nine goldens once carried no check at
+        # all while the suite reported a green "golden scalars" section.
+        assert golden.scalars, f"{scenario_name}/{model} carries no scalars to compare"
         for name, reference in golden.scalars.items():
             assert fresh[name] == pytest.approx(reference, rel=1e-9), f"{scenario_name}/{model} {name}"
-            compared += 1
-    assert compared > 0, "no golden carries any scalar to compare"
 
 
 def test_the_predecessors_two_tabulated_methods_agree_with_each_other():
@@ -339,6 +379,19 @@ def test_the_payload_describes_the_scenario_in_the_old_repos_units():
     )
 
 
+def test_a_scenario_the_boundary_cannot_carry_is_refused():
+    """A silently-dropped field would label a different configuration with this name."""
+    crossed = replace(scenarios.BASELINE,
+                      laser=replace(scenarios.BASELINE.laser, theta_xz=Quantity(20.0, "mrad")))
+    with pytest.raises(ValueError, match="cannot carry"):
+        _scenario_payload(crossed, n_energy_bins=64)
+
+    chirped = replace(scenarios.BASELINE,
+                      beam=replace(scenarios.BASELINE.beam, rho_z_gamma=0.3))
+    with pytest.raises(ValueError, match="beam.rho_z_gamma"):
+        _scenario_payload(chirped, n_energy_bins=64)
+
+
 def test_every_axis_and_scalar_the_old_repo_reports_has_a_translation():
     assert set(_AXIS_TRANSLATION) == {"E_eV", "t_seconds", "x", "y", "theta_x", "theta_y"}
     assert set(_SCALAR_TRANSLATION.values()) <= set(derived_scalars(scenarios.BASELINE))
@@ -356,8 +409,17 @@ def test_bunch_seed_determinism_holds(small_scenario):
     assert check.passed, str(check)
 
 
-def test_the_prefilter_discards_only_particles_the_pulse_never_reaches(prefilter_scenario):
-    check = invariance.check_prefilter_discards_only_dark_particles(prefilter_scenario, n_times=256)
+@pytest.mark.parametrize("beta_ff", [0.0, 0.5, 2.0, -0.5])
+def test_the_prefilter_discards_only_particles_the_pulse_never_reaches(prefilter_scenario, beta_ff):
+    """Swept over the flying focus, which slides the spot-evaluation point with time.
+
+    A stationary focus is not enough to exercise the region's transverse bound: the slide
+    both steepens the cone and widens its intercept, and getting either wrong puts the
+    boundary inside the pulse rather than outside it.
+    """
+    scenario = replace(prefilter_scenario,
+                       laser=replace(prefilter_scenario.laser, beta_ff=beta_ff))
+    check = invariance.check_prefilter_discards_only_dark_particles(scenario, n_times=256)
     assert check.passed, str(check)
     # If nothing were discarded the check would pass vacuously, which would make this test
     # a decoration rather than a test.
