@@ -1,9 +1,21 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.2 — 2026-08-06
+**Status:** draft v0.3 — 2026-08-07
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 **Changelog**
+- **v0.3**: second review round — `collimated_spectrum` is a 3D (E,θx,θy) slice windowed to
+  the target with an explicit GUI visualization pipeline (§3.4); `OutputKind` vocabulary
+  replaces axis-grouping capability declarations (§3.4, §4.1); `PhotonMacroparticles`
+  typed separately from final electrons (§3.6); N_e decoupled from bunch weights —
+  charge is an exact linear rescale, `QUERY_ONLY` (§3.5, §5); prefilter **never
+  renormalizes** and is a pure optimization with an invariance test (§3.2, §7);
+  `SamplingSpec(n_particles, seed, prefilter)` lives at the interaction level (§3.5);
+  `editable_after_run` removed from `FieldSpec` (§3.1); rotation composition pinned —
+  roll about k̂ fixed by rotation order + round-trip test (§2.2); elliptical + astigmatic
+  Gaussian laser model (§3.3); cross-backend invariance and seed-determinism validation
+  categories (§7); "Use for calculation" checkboxes with one Calculate button (§6, §10);
+  collimated-slice cost risk added (§12); perf-regression item dropped per author.
 - **v0.2**: Full 3D collision geometry (§2.2); validity regime scoped to xigma only (§2.3);
   engine-declared recompute costs replace the global stage-tied ParamGroup (§3.1, §5);
   sampling without mass-shell "enforcement" + laser-interaction particle prefilter (§3.2);
@@ -128,6 +140,14 @@ whole laser field configuration (k0, focusing axes, polarization axes, field vec
 then transformed by the two k0 inclination angles into the actual 3D geometry. This keeps
 the four angles independent, intuitive, and physical.
 
+**Rotation convention (pinned):** the 3D rotation is fixed by composition order —
+**R = R_y(θxz) · R_x(θyz)** (extrinsic: first a tilt θyz about the lab x̂, then θxz about
+the lab ŷ). The **roll about k̂ is thereby determined by the rotation order**, not a free
+parameter; `psi_focus`/`psi_pol` are measured from the transported x̂ (R applied to the
+head-on x̂) in the plane perpendicular to k̂. A **round-trip test** (applying R⁻¹ recovers
+the head-on lab angles) is required. Compatibility aliases: old `crossing_angle ≡
+(θxz, 0)`; old `phi_pol` → `psi_pol`.
+
 The laser therefore carries **at least four geometry angles** — `theta_xz`, `theta_yz`,
 `psi_focus`, `psi_pol` — plus the scalar polarization degree `ellipticity` (see §3.3).
 All are laser properties; nothing else in the framework re-defines them.
@@ -173,7 +193,6 @@ class FieldSpec:
     display_units: tuple[str, ...]  # GUI dropdown choices (pint-convertible)
     convention: WidthConvention | TimeConvention | None  # width kinds only (P1)
     value_range: tuple[float, float] | None
-    editable_after_run: bool = True   # grey-out/release default (engine may override)
 ```
 
 - A `Parameters` object (frozen, validated) is what engines receive — no stringly dict.
@@ -183,7 +202,8 @@ class FieldSpec:
   (`QUERY_ONLY` / `REUSE_INTERMEDIATES` / `FULL_RERUN`) via a plain dict. This resolves
   the old-plan flaw where the classification was tied to xigma's specific stages — the
   future single-stage MC still fits trivially (all physics fields `FULL_RERUN`, only
-  output/target `QUERY_ONLY`). See §5.
+  output/target `QUERY_ONLY`). See §5. `FieldSpec` carries **no** editable/grey-out flag —
+  that state is derived solely from the engine's `recompute_costs` (§5).
 - Electron/laser/target field sets are declared once and shared by GUI, engines, and YAML
   I/O (single source of truth for parameter semantics).
 
@@ -206,10 +226,13 @@ class FieldSpec:
 - **Laser-interaction prefilter:** not all macroparticles ever meet the laser. The laser
   (§3.3) provides an *active-region* query — the bounding space-time region where its
   amplitude exceeds a threshold. A shared io helper filters the bunch before an engine
-  processes it, discarding particles that never enter the active region. **Discarding
-  must conserve physics:** weights are renormalized (or the effective N_e reported)
-  so total yield/charge stay correct. (This existed in the original xigma code and is
-  being promoted to a first-class shared feature.)
+  processes it, discarding particles that never enter the active region (they contribute
+  L = 0 to every engine). **Weights are never renormalized on discard** — it is a pure
+  computational optimization: with the same seed, results are identical with the
+  prefilter on or off (tested invariant, §7). (Existed in the original xigma code;
+  promoted to a first-class shared feature.)
+- **Weights are relative** (`1/n_particles`): N_e lives as a separate scalar on the
+  interaction (§3.5), and every output is exactly linear in N_e — see A3 resolution.
 - `drift` / `propagate` / `stream`: position propagation with the attached
   `gaussian_fit`'s Twiss tilt updated analytically in lockstep (no refit).
 - `fit_gaussian`: covariance-based Twiss/chirp/dispersion fit with quality metrics
@@ -218,10 +241,14 @@ class FieldSpec:
 ### 3.3 Laser (`laser.py`)
 
 - `GaussianParaxialLaser` (frozen dataclass, CGS): pulse energy, central wavelength,
-  transverse sizes along the two focusing axes (convention-aware), pulse duration
-  (convention-aware), plus plain scalars **`theta_xz`, `theta_yz`, `psi_focus`,
-  `psi_pol`, `ellipticity`, `beta_ff`** (flying focus) — the full geometry of §2.2 is
-  laser-owned.
+  **elliptical, astigmatic Gaussian** transverse profile — per-axis waist sizes
+  `sigma_x`, `sigma_y` (convention-aware) and per-axis focal offsets `z_fx`, `z_fy`
+  (astigmatism: different focal position per axis; the round beam is the degenerate case
+  `sigma_x = sigma_y`, `z_fx = z_fy`), with the focusing axes rotated by `psi_focus` —
+  pulse duration (convention-aware), plus plain scalars **`theta_xz`, `theta_yz`,
+  `psi_focus`, `psi_pol`, `ellipticity`** (polarization degree — *distinct from spot
+  ellipticity*, which is expressed by the per-axis waists), **`beta_ff`** (flying focus).
+  The full geometry of §2.2 is laser-owned.
 - **The laser owns field sampling. It is NOT an engine responsibility.** The laser
   exposes a sampling API, callable **at any point in space and time**, in both modes:
   - **period-averaged**: the intensity envelope / `a0` profile (what the old code called
@@ -262,19 +289,52 @@ methods):
     manual override only as an advanced option
   - `angular_distribution` (θx,θy) — resolution; **autorange** (~1/γ0 window)
   - `spectral_angular_distribution` (E,θx,θy) — resolutions; auto ranges
-  - `collimated_spectrum` (= "spectrum on target", the spectrum inside the collimation
-    window) — resolution; auto range
+  - `collimated_spectrum` (= "spectrum on target") — a **3D slice in (E, θx, θy)** whose
+    **angular ranges are the target's collimation window** (user-defined, not auto;
+    energy range auto). It is a distinct output from the fully angle-integrated
+    `spectrum`: the 1D "spectrum on target" is a *visualization* of this 3D slice, not a
+    separate computation. GUI pipeline: 2D slices at θx = 0 and θy = 0; 2D energy–angle
+    distributions summed over the other angle; finally the 1D spectrum on target (summed
+    over both angles within the window).
   - `macroparticle_dump` (MC engines only: final electron + photon macroparticles) —
-    statistics + serialization
+    statistics + serialization; **not a slice** (separate entry, §3.6)
 - The GUI plots allow **zooming** (best-effort matplotlib affordance) instead of manual
   range entry.
+
+**OutputKind vocabulary.** The outputs above are the engine-facing vocabulary; each maps
+to a slice shape or a special entry:
+
+| OutputKind | Slice axes | Range policy |
+|------------|-----------|--------------|
+| `0d_yield` | `()` (0D) | implicit — always produced |
+| `spectrum` | `(E,)` | energy auto |
+| `temporal_envelope` | `(t,)` | auto; no range field |
+| `spatial_distribution` | `(x, y)` | auto (manual override advanced) |
+| `angular_distribution` | `(θx, θy)` | auto |
+| `spectral_angular_distribution` | `(E, θx, θy)` | auto |
+| `collimated_spectrum` | `(E, θx, θy)` | angular = target window; energy auto |
+| `macroparticle_dump` | — (not a slice; MC-only, §3.6) | — |
+
+Engines declare `supported_outputs` in this vocabulary (§4.1); the GUI enables an output
+checkbox iff **at least one selected engine** supports it, and per-engine gaps surface as
+absent curves in the outputs tab.
 
 ### 3.5 Interaction (`interaction.py`)
 
 - `InteractionParameters(beam: GaussianElectronBeam, laser: GaussianParaxialLaser,
-  bunch: Bunch, target: Target)` — the compiled, pre-sampled (and prefiltered, §3.2)
-  bundle every engine run consumes. One canonical sampling path (`io` samples and
-  prefilters, engines consume). No fields most engines ignore (P9).
+  bunch: Bunch, target: Target, N_e: float)` — the compiled, pre-sampled (and
+  prefiltered, §3.2) bundle every engine run consumes. One canonical sampling path (`io`
+  samples and prefilters, engines consume). No fields most engines ignore (P9).
+- **N_e is a separate scalar** (derived from bunch charge): the bunch carries only
+  *relative* weights (§3.2), and **every output is exactly linear in N_e** (no space
+  charge in the model). Consequences: charge edits are an exact instant rescale
+  (`QUERY_ONLY`, §5); the prefilter never touches N_e (§3.2); per-electron averages
+  (multiplicity, final-state stats) condition on the kept set where appropriate.
+- **`SamplingSpec(n_particles, seed, prefilter)`** drives the io sampler and is part of
+  the interaction build — sampling parameters are **interaction-level, not engine
+  parameters** (this resolves the old tracked task "move seed / n_mc into model-specific
+  parameters": they go into the sampling group, not the engine; per-engine n_mc is
+  meaningless once one canonical bunch feeds all engines).
 
 ### 3.6 Results (`results.py`)
 
@@ -285,8 +345,13 @@ methods):
 - `PhasespaceSlice(axes: dict[Axis, ndarray], distr: ndarray)`: density over a named
   axis set; empty axes = 0D total yield. The closed set of allowed axis-groupings is
   kept and validated (the nine groupings from the old contract).
-- `Results(photon_slices, macroparticles: Bunch|None, model_specific: dict)`.
-  The MC macroparticle dump is an optional field used only by MC engines.
+- `Results(photon_slices, electrons: Bunch | None, photons: PhotonMacroparticles | None,
+  model_specific: dict)`. `PhotonMacroparticles` is a small new dataclass with per-photon
+  arrays (energy, lab direction, position, time, weight, order/parent); `electrons`
+  carries the *final* electron population (energy loss, deflection, final positions,
+  emission time). Both are produced only by MC engines. (The old kascade `Results`
+  already distinguished these two populations — `ph_*` arrays vs `eps_f`/`thx_f`/... —
+  the rebuild keeps that distinction *typed*.)
 - One slice shape for all engines (density arrays); the old Sampled/Binned duck-typing
   concern disappears entirely (MC engines histogram their samples into slices).
 
@@ -300,7 +365,7 @@ methods):
 class Engine(Protocol):
     name: str
     schema: Parameters              # typed parameter schema (P5)
-    supported_outputs: tuple[frozenset[Axis], ...]   # declarative data (P10)
+    supported_outputs: tuple[OutputKind, ...]   # declarative data (P10), §3.4 vocabulary
     recompute_costs: dict[str, RecomputeCost]        # field key -> cost tier (P4/P10)
 
     def run(self, interaction: InteractionParameters,
@@ -308,9 +373,11 @@ class Engine(Protocol):
 ```
 
 - No `Job.extra`, no `model_params()` triples, no mutable adapter knobs (P11).
-- "Which outputs can this engine produce" = declarative `supported_outputs` data (P10) —
-  used by the GUI to enable/disable output checkboxes. `recompute_costs` drives
-  grey-out/release and cheap requery (§5).
+- "Which outputs can this engine produce" = declarative `supported_outputs` **in the
+  `OutputKind` vocabulary of §3.4** (not raw axis-groupings — `collimated_spectrum` is a
+  windowed (E,θx,θy) slice and `macroparticle_dump` is not a slice at all). Used by the
+  GUI to enable/disable output checkboxes. `recompute_costs` drives grey-out/release and
+  cheap requery (§5).
 - Engines omit unsupported outputs from their results; the GUI renders what came back.
 - A small registry (`ENGINES`) with lazy optional-dependency registration: xigma needs
   cupy/numba, everything else is pure.
@@ -417,15 +484,20 @@ single-stage MC would not fit it. The mechanism is now **generic + engine-declar
 | γ0, energy spread, chirp, dispersion | REUSE_INTERMEDIATES | Stage 1 re-deposition; Stage 0 hash unchanged |
 | laser spot, duration, beta_ff, geometry angles | FULL_RERUN | feeds Stage 0 + Stage 1 |
 | pulse energy → a0, ellipticity | REUSE_INTERMEDIATES | Stage 1 a0-axis retarget (no re-deposition) |
-| bunch charge (N_e) | REUSE_INTERMEDIATES | Stage 1 weights + Stage 2 rescale |
+| bunch charge (N_e) | QUERY_ONLY | outputs are exactly linear in N_e (§3.5) — instant rescale, no stage rerun |
 | collimation window | QUERY_ONLY | Stage 2 requery against cached table |
 | output grid (bins per output) | QUERY_ONLY | Stage 2 requery |
 | numerics (n_steps, grid bins, chunk, device) | FULL_RERUN | affects all stages |
 
+*The `REUSE_INTERMEDIATES` tier for pulse-energy/a0 assumes a0 enters Stage 2 only through
+the a0 axis (the retarget claim) — this holds even while §9.2's energy→a0 derivation is
+wired as a no-op.*
+
 **GUI behavior derived from the engine's declared costs** (no hardcoding):
 - Fields declared `QUERY_ONLY`/`REUSE_INTERMEDIATES` stay active after a run; others grey
   out until "release" — generalizing the old "XIGMA keeps pulse energy and gamma active"
-  rule to a mechanism every engine declares.
+  rule to a mechanism every engine declares (`FieldSpec` carries no editable flag; this
+  mapping is the sole source of grey-out state, §3.1).
 - **Cheap requery**: `spectrum_in_angular_range` is a plain Stage-2 query against the
   cached table — no hardcoded n_energy caps inside the engine; render-time budgets and
   debouncing live in the GUI layer.
@@ -446,9 +518,10 @@ the import-boundary check).
   §2.2.
 - Target panel: collimation window fields + **required-output checkboxes** with
   per-output resolution controls (ranges are auto-derived, §3.4).
-- Model sub-tabs (one per available engine): each engine's typed parameters rendered
-  from its schema, plus a Calculate button that runs **all checked engines** and shows
-  status.
+- Model sub-tabs (one per available engine): each tab carries a checkbox labelled
+  **"Use for calculation"** (unambiguous semantics) and the engine's typed parameters
+  rendered from its schema. **One Calculate button** runs exactly the engines whose
+  checkbox is on, and shows per-engine status.
 - Analytical estimates panel (always visible): total yield + per-component spectrum-width
   breakdown (§4.3). **analytical is not a checkboxable engine** — its estimates panel is
   separate; however, in the outputs tab every engine's curves (analytical included) are
@@ -459,7 +532,9 @@ the import-boundary check).
 - Grey-out/release behavior driven by the engine's declared recompute costs (§5).
 
 **Tab 2 — Outputs**
-- Sub-tabs per requested output.
+- Sub-tabs per requested output. The collimated-spectrum output is visualized as the
+  §3.4 pipeline: 2D slices at θx = 0 / θy = 0, 2D energy–angle sums, and the 1D
+  spectrum on target.
 - Line plots: all selected engines' curves drawn; **per-engine show/hide toggles**
   (analytical included); distinct colors.
 - 2D colorplots: a picker list of the available 2D outputs (spatial, angular,
@@ -484,9 +559,12 @@ assumption was broken" test zoo.
     the Compton edge; edge location and width vs theory.
   - Total yield: `∫ angular spectrum = ∫ spectrum = total_yield` — exact identities,
     not tolerances, where the contract guarantees them.
-  - Convergence: results converge with `n_steps`, `n_bins`; **results are invariant
-    under chunk size** (regression guard on the old OOM fixes; exercises the single
-    shared chunking utility of §4.2).
+  - Convergence: results converge with `n_steps`, `n_bins`.
+  - **Invariance properties:** results identical under (a) chunk size (regression guard
+    on the old OOM fixes; exercises the single shared chunking utility of §4.2),
+    (b) the **prefilter on/off** (same seed — it is a pure optimization, §3.2),
+    (c) **backend** (numpy / cupy / numba); and **same seed → identical results**
+    (seed determinism).
 - **Cross-engine consistency** (the ≥4 methods): xigma vs delta vs analytical vs kascade
   on shared `Scenario`s (baseline, scaled pulse energy, ...), tolerance-based. kascade
   only counts once its own Thomson-limit sanity check passes (§4.4).
@@ -577,7 +655,9 @@ assumption was broken" test zoo.
 3. **RESOLVED:** analytical is **not** a regular checkboxable engine; its estimates panel
    is always shown, and in the outputs tab every engine's curves (analytical included)
    are individually showable/hideable.
-4. GUI visual design details (panel layout, sketch panel content) — later.
+4. GUI visual design details (panel layout, sketch panel content) — later. **Calculate
+   semantics settled:** "Use for calculation" checkbox per model sub-tab; one Calculate
+   button runs the checked engines (§6).
 5. MC macroparticle dump format (elegant `.ele`/`.bun` research, see 1).
 6. Crossing-angle formula details (§9.3) — with the author, parallel track.
 7. **RESOLVED:** k0_las normalization stays purely internal to xigma (confirmed).
@@ -589,8 +669,8 @@ assumption was broken" test zoo.
 | Phase | Scope | Exit criteria |
 |-------|-------|---------------|
 | **0. Scaffold** | Repo, git, pyproject (Python 3.12), pytest, package skeleton, README, ADR index + **`DECISIONS.md` provenance doc started** (C1); `.gitignore` **explicitly covers large data formats (`.ele`, notebooks with large outputs) and sync-conflict patterns from day one** (C3) | `pytest` green on an empty-suite smoke test; `pip install -e .` works; doc-staleness guard scaffolding in place (C2) |
-| **1. Core** | `io/`: schema, units/conventions (CGS), constants; beam; laser (incl. field sampling API §3.3 and geometry angles); target (auto-ranges §3.4); interaction; sampling + prefilter (§3.2); results contract; YAML + `.ele` I/O; HDF5 results writer | Round-trip tests; schema validation tests; CGS conversion tests vs known values; laser sampling API tests (period-averaged + period-resolved at arbitrary points) |
-| **2. Validation harness** | scenarios, runners skeleton, `make_references.py` + first golden snapshots from old repo; chunk-invariance test scaffolding (single shared chunking utility) | Golden generation runs; new-vs-golden comparisons execute |
+| **1. Core** | `io/`: schema, units/conventions (CGS), constants; beam; laser (incl. field sampling API §3.3, elliptical+astigmatic model, geometry angles); target (auto-ranges + `OutputKind` vocabulary §3.4); interaction (incl. `N_e` scalar + `SamplingSpec` §3.5); sampling + prefilter (§3.2); results contract (incl. `PhotonMacroparticles` §3.6); YAML + `.ele` I/O; HDF5 results writer | Round-trip tests; schema validation tests; CGS conversion tests vs known values; laser sampling API tests (period-averaged + period-resolved at arbitrary points); geometry round-trip test (R⁻¹ recovers head-on angles, §2.2) |
+| **2. Validation harness** | scenarios, runners skeleton, `make_references.py` + first golden snapshots from old repo; invariance-test scaffolding (chunk, prefilter, backend, seed — §7) | Golden generation runs; new-vs-golden comparisons execute |
 | **2.5. Minimal delta** | Delta scoped to Stage-2 normalization arbitration (reuses xigma Stage 0 per §4.5) | Delta produces independent spectra on baseline scenarios; identity harness (`kernel` vs `reference` vs `direct binning` vs delta) executable |
 | **3a. xigma engineering** | Stage 0/1/2 pure functions; Collision facade + stage cache; Engine wrapper; kernels (numpy/cupy/numba) with the **one shared chunking utility**; geometry/a0/ellipticity parameters wired as explicit identity/no-op placeholders (P14c) | Stage architecture tests green; chunk-invariance holds; placeholders documented |
 | **3b. Physics closure** | ~2π resolution (§9.1), crossing-angle derivation (§9.3), ellipticity→a0 (§9.2) — **runs concurrently with Phases 4 and 5, not serially** | §9.1 closed with delta arbitration + identity tests; §9.2/§9.3 derivations landed if author completes them in parallel (never blocking 4–6) |
@@ -616,6 +696,7 @@ duplicated (C4).
 | Crossing-angle and ellipticity→a0 have **no existing derivation** in the paper (confirmed by audit, not just undocumented) | Open-ended research tasks, not consult-and-implement: parameters are first-class in schema/architecture now; physics wired as explicit identity/no-op until derivations land; derivation runs in parallel (P14c, §9.2/§9.3); never blocks Phases 3a–6 |
 | Old-repo golden data encodes bugs | Goldens are transitional; closed-form identities + delta reference are the real anchors; goldens regenerated deliberately |
 | Chunking regressions (OOM class) | Chunk-invariance property tests from Phase 2 on; single shared auto-chunk + OOM-retry utility (porting algorithm + constants, not the old triplicated code) |
+| Collimated 3D-slice cost: live window edits trigger expensive Stage-2 (E,θx,θy) queries — the old OOM/CPU-pegging saga | `QUERY_ONLY` requery is quantized/debounced in the GUI render layer (render-time budgets, §5) rather than capped inside the engine; the old `_MAX_LIVE_N_ENERGY_*` lesson lives in the GUI thread |
 | pint friction with CGS | pint confined to schema/serialization; kernels never see it; EM conversions hand-coded with tests vs known values |
 | GUI regrows into a monolith (already happened once: 1174 → 1685 lines) | Import-boundary check in CI (P12/B3): `gammaforge.gui` may not import engine stages/kernels — mechanical enforcement, not discipline |
 | Capability data regrows into a registry/protocol | P10 explicit guardrail: plain tuples/dicts on the Engine instance; any registry/negotiation layer is the old `ModelCapabilities` mistake recurring |
