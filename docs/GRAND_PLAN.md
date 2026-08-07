@@ -1,9 +1,17 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.3 — 2026-08-07
+**Status:** draft v0.4 — 2026-08-07
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 **Changelog**
+- **v0.4**: interaction-model correction — **no engine is real-time; only analytical is**.
+  Engines are Calculate-gated: input edits mark results stale, Calculate re-runs the
+  checked engines with cache reuse (xigma skips Stage 0/1 on unchanged geometry; MC just
+  filters particles and rebins). Target changes are a *cheap re-Calculate*, never a live
+  replot. Charge is the sole exception (exact N_e linearity → instant display rescale).
+  The old "live-requery" risk is structurally impossible (no auto-firing path) — the
+  residual risk is only that a deliberate Calculate may be slow (§5, §12); the
+  `_MAX_LIVE_N_ENERGY_*` hardcap lesson explicitly does not apply.
 - **v0.3**: second review round — `collimated_spectrum` is a 3D (E,θx,θy) slice windowed to
   the target with an explicit GUI visualization pipeline (§3.4); `OutputKind` vocabulary
   replaces axis-grouping capability declarations (§3.4, §4.1); `PhotonMacroparticles`
@@ -81,7 +89,7 @@ decision that was explicitly tried and rejected there.
 | P1 | **CGS-Gaussian shared core** — every shared dataclass (beam, laser, target, results) stores canonical CGS-Gaussian values. | The old repo split SI (kascade/analytical) vs CGS+k0_las (xigma_i) and hand-converted at every boundary — the deepest legacy cut. One core system eliminates it. |
 | P2 | **Kernels are pure functions; one thin stateful facade per engine owns caching.** | Hidden cache state caused real bugs (stale recompute caches, `engine.params` aliasing). Pure kernels are testable; the facade is the single audited cache-invalidation point. |
 | P3 | **Composable, cacheable stages; GUI sees only an opaque `run()`.** | Old adapter orchestrated Stage 0/1/2 internally; the tracked tasks (a0 retarget, cheap collimation requery) all need reused intermediates. |
-| P4 | **Engine-declared recompute costs** — each engine declares, per schema field, how expensive it is to vary (QUERY_ONLY / REUSE_INTERMEDIATES / FULL_RERUN); cache keys hash exactly the inputs each engine intermediate consumes. | Replaces the old bolted-on `spectrum_in_angular_range` + hardcoded n_energy caps + debouncing, and generalizes across engines with different pipelines (MC = single stage). |
+| P4 | **Engine-declared recompute costs** — each engine declares, per schema field, how expensive it is to vary (QUERY_ONLY / REUSE_INTERMEDIATES / FULL_RERUN); cache keys hash exactly the inputs each engine intermediate consumes. Tiers express how cheap a *re-Calculate* is. | Replaces the old bolted-on `spectrum_in_angular_range` + hardcoded n_energy caps + debounced live updates (engines are now Calculate-gated, §5), and generalizes across engines with different pipelines (MC = single stage). |
 | P5 | **Uniform engine interface: typed parameter schema + `run() -> Results`.** | The old `ModelAdapter` fused a GUI contract (`(label, default, key)` triples, `Job.extra` stringly dict) with physics; kascade/xigma/analytical each did config differently. |
 | P6 | **No generic spec/adapt-to-model framework.** Models convert typed parameters to whatever they need at their own boundary. | Rejected in old repo (ModelSpec/`adapt_to_model` built, demonstrated, never wired, then dropped). |
 | P7 | **No `gammaforge.core` package.** The shared layer is one package; no intermediate layer between it and engines. | Rejected in old repo (a `core/` package was proposed and never built; consolidation into the shared layer won). |
@@ -466,10 +474,12 @@ Closed-form estimates, no per-particle Monte Carlo:
 The old-plan global `ParamGroup` enum tied to xigma's stages was rejected: the future
 single-stage MC would not fit it. The mechanism is now **generic + engine-declared**:
 
-- **`RecomputeCost`** is a small generic enum: `QUERY_ONLY` (varying the field only
-  re-queries cached results — no engine stage re-runs), `REUSE_INTERMEDIATES` (varying
-  the field reuses some cached engine intermediates — the engine decides which, via its
-  internal cache keys), `FULL_RERUN` (varying the field invalidates everything).
+- **`RecomputeCost`** is a small generic enum: `QUERY_ONLY` (varying the field re-runs
+  only the query stage against cached results — no engine stage re-runs), `REUSE_INTERMEDIATES`
+  (varying the field reuses some cached engine intermediates — the engine decides which,
+  via its internal cache keys), `FULL_RERUN` (varying the field invalidates everything).
+  **Tiers describe how cheap a re-Calculate is — nothing is real-time (see the GUI
+  interaction model below).**
 - **Each engine declares** `recompute_costs: dict[field-key, RecomputeCost]` (P4/P10).
 - **Engine-side cache keys** are derived from each engine's own dataflow: every cached
   intermediate (xigma: Stage 0 output, Stage 1 table; future MC: its single stage)
@@ -493,14 +503,26 @@ single-stage MC would not fit it. The mechanism is now **generic + engine-declar
 the a0 axis (the retarget claim) — this holds even while §9.2's energy→a0 derivation is
 wired as a no-op.*
 
-**GUI behavior derived from the engine's declared costs** (no hardcoding):
-- Fields declared `QUERY_ONLY`/`REUSE_INTERMEDIATES` stay active after a run; others grey
-  out until "release" — generalizing the old "XIGMA keeps pulse energy and gamma active"
-  rule to a mechanism every engine declares (`FieldSpec` carries no editable flag; this
-  mapping is the sole source of grey-out state, §3.1).
-- **Cheap requery**: `spectrum_in_angular_range` is a plain Stage-2 query against the
-  cached table — no hardcoded n_energy caps inside the engine; render-time budgets and
-  debouncing live in the GUI layer.
+**GUI interaction model (global — no engine is real-time):**
+- **The analytical estimates panel is the only real-time view.** It re-evaluates
+  immediately on any input change (closed-form, microseconds).
+- **Every engine is Calculate-gated.** Any input change marks previously computed engine
+  results *stale* (visually outdated). Pressing Calculate re-runs the checked engines;
+  each engine's facade reuses its cache where hashes allow — xigma skips Stage 0/1 on
+  unchanged geometry, the MC just filters particles and rebins. A target change is a
+  *cheap re-Calculate*, never a live replot.
+- **Grey-out/release**: after a run, fields not declared `QUERY_ONLY`/`REUSE_INTERMEDIATES`
+  by the active engine grey out (locked) until "release" — generalizing the old "XIGMA
+  keeps pulse energy and gamma active" rule to a mechanism every engine declares
+  (`FieldSpec` carries no editable flag; this mapping is the sole source of grey-out
+  state, §3.1). Editable fields still require Calculate; their re-runs are just cheap.
+- **Charge is the one exception to staleness:** because every output is exactly linear in
+  N_e (§3.5), a charge edit rescales the displayed results immediately — a pure display
+  operation on existing `Results`, no engine run. Every other edit marks results stale.
+- **No live engine requery exists.** `spectrum_in_angular_range` is only ever invoked by
+  Calculate, against the cached table. The old OOM saga's *mechanism* (auto-firing on
+  keystroke) is structurally impossible; the `_MAX_LIVE_N_ENERGY_*` hardcap lesson does
+  not apply (a deliberate Calculate may legitimately be slow — see §12).
 - **Scans**: a scan over `QUERY_ONLY`/`REUSE_INTERMEDIATES` fields reuses cached stages;
   scans over `FULL_RERUN` fields rerun the affected stages per point. Implemented as a
   small headless helper over the facade.
@@ -529,7 +551,11 @@ the import-boundary check).
 - Geometry sketch panel (2D/3D): lab axes, electron ellipsoid, laser k0 direction,
   focusing ellipse, polarization ellipse, ghost foci at time delays (see §2.2). The same
   drawing module is available headless.
-- Grey-out/release behavior driven by the engine's declared recompute costs (§5).
+- Grey-out/release behavior driven by the engine's declared recompute costs (§5); any
+  input edit (except charge, which rescales instantly) marks engine results **stale**
+  until Calculate (§5 interaction model).
+- Calculate runs the checked engines in a worker thread with **per-engine progress/
+  status**; the analytical panel and the sketch stay responsive throughout.
 
 **Tab 2 — Outputs**
 - Sub-tabs per requested output. The collimated-spectrum output is visualized as the
@@ -696,7 +722,7 @@ duplicated (C4).
 | Crossing-angle and ellipticity→a0 have **no existing derivation** in the paper (confirmed by audit, not just undocumented) | Open-ended research tasks, not consult-and-implement: parameters are first-class in schema/architecture now; physics wired as explicit identity/no-op until derivations land; derivation runs in parallel (P14c, §9.2/§9.3); never blocks Phases 3a–6 |
 | Old-repo golden data encodes bugs | Goldens are transitional; closed-form identities + delta reference are the real anchors; goldens regenerated deliberately |
 | Chunking regressions (OOM class) | Chunk-invariance property tests from Phase 2 on; single shared auto-chunk + OOM-retry utility (porting algorithm + constants, not the old triplicated code) |
-| Collimated 3D-slice cost: live window edits trigger expensive Stage-2 (E,θx,θy) queries — the old OOM/CPU-pegging saga | `QUERY_ONLY` requery is quantized/debounced in the GUI render layer (render-time budgets, §5) rather than capped inside the engine; the old `_MAX_LIVE_N_ENERGY_*` lesson lives in the GUI thread |
+| Collimated 3D-slice cost: a deliberate Calculate with the collimated (E,θx,θy) output is inherently slow at high resolution (measured 27 s @ 64 energy bins on CPU in the old repo; linear in n_energy) | **Expected, not a defect** — no live auto-requery exists (engines are Calculate-gated, §5), so the old CPU-pegging mechanism is structurally impossible; the analytical panel stays real-time; per-engine progress indication; cache reuse (`QUERY_ONLY`/`REUSE_INTERMEDIATES`) minimizes repeated cost |
 | pint friction with CGS | pint confined to schema/serialization; kernels never see it; EM conversions hand-coded with tests vs known values |
 | GUI regrows into a monolith (already happened once: 1174 → 1685 lines) | Import-boundary check in CI (P12/B3): `gammaforge.gui` may not import engine stages/kernels — mechanical enforcement, not discipline |
 | Capability data regrows into a registry/protocol | P10 explicit guardrail: plain tuples/dicts on the Engine instance; any registry/negotiation layer is the old `ModelCapabilities` mistake recurring |
