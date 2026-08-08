@@ -830,6 +830,63 @@ be verified when Phase 5/7 turns the comparison on, not assumed now.
 
 ---
 
+## 2026-08-09 — Phase 4: `engines/analytical` lands (estimates, width breakdown, quadrature spectrum)
+
+Built in an isolated worktree/branch, concurrently with Phase 3b (§11: "Phases 4–6 must
+not wait on physics derivations") — verified beforehand that the parallel session's
+uncommitted 3b edits don't touch §4.3 or the Phase 4 table row.
+
+`engines/analytical/formulas.py`: `estimate_yield` (closed-form Gaussian-overlap yield,
+ported from the predecessor's SI/`scipy.special.erfcx` version onto this repo's CGS
+`GaussianElectronBeam`/`GaussianParaxialLaser`, with a hand-rolled `_erfcx` rather than a
+new `scipy` dependency — D037), `SpectrumWidthBreakdown` + `estimate_spectrum_width`
+(§4.3's four components — collimation, emittance, energy spread, nonlinearity — reported
+separately rather than pre-summed, with `.total` as `math.hypot` of the four so the
+quadrature-sum relationship is structural rather than something a caller must get right),
+and `angle_integrated_spectrum` (quadrature over the beam's Gaussian energy distribution,
+cost independent of `n_particles` by construction — the predecessor's own fix for a
+real 76.3 GiB OOM is preserved by never touching a macroparticle array at all). This is a
+**third, deliberately independent** copy of the linear-Compton kinematic shape already
+implemented in `engines.xigma.stages.angle_integrated_spectrum` and
+`validation.references.delta.single_electron_spectrum` — importing either would make
+§7's analytical-vs-xigma-vs-delta cross-check circular.
+
+`engines/analytical/engine.py`: `AnalyticalEngine`, filling `TOTAL_YIELD` and 1D
+`SPECTRUM` only (§4.3 is explicit that analytical does not produce the 3D
+`COLLIMATED_SPECTRUM` slice) via `io.target.auto_ranges`/`slice_axis_values`, reused
+unmodified from xigma's own facade rather than reimplemented. `SPECTRUM` is defined as
+`total_yield * (angle_integrated_spectrum's normalized shape)`, not two independently
+estimated quantities — D036 has the full reasoning — which makes
+`PhasespaceSlice.integrate() == total_yield` an **exact** identity (§7), verified to
+~1e-16 relative on the baseline scenario, not a tolerance. `theta_col` for the width
+breakdown is the geometric mean of `Target.theta_x_col`/`theta_y_col` (D038) rather than
+a duplicate schema field — the engine's own `Parameters` schema (`schema.py`) carries only
+`n_quad`, the one genuine knob nothing else already owns.
+
+**Verification.** Spot-checked `estimate_yield`/`estimate_spectrum_width` against the
+predecessor's own worked-example numbers, computed by actually running
+`ComptonSuite/src/gammaforge/models/analytical.py` in a throwaway venv (not committed):
+width matches to ~1e-11 relative (float precision), yield matches to ~1.9e-6 (explained —
+yield is the only quantity using `SIGMA_T_CGS`, and the two repos are separately-installed
+`pint` environments with slightly different CODATA constant tables; not a unit-conversion
+defect). Both spot-checks are pinned as regression tests
+(`tests/test_analytical.py::test_estimate_yield_reproduces_the_predecessors_worked_example`
+and the width equivalent) so they don't need the predecessor repo present to run again.
+Added a self-contained Thomson-limit closed-form anchor test (§7) that needs no
+predecessor comparison at all. Full suite: 313 passed (was 294 before this session).
+
+**What's still open** (§4.3's own "growth items," not attempted this pass, per D035):
+foci displacement, non-round-beam total yield, collimated-spectrum construction. `GRAND_PLAN.md`'s
+Phase 4 row is marked landed-with-exceptions, not closed, naming these explicitly.
+`engines/__init__.py`'s `ENGINES` registry is still not created — analytical follows
+xigma's own precedent (D018) of landing without one.
+
+`DECISIONS.md` gained D035–D038 (round-beam approximations kept / growth items open,
+the `SPECTRUM`-is-defined-not-reconciled rescale, hand-rolled `erfcx`, geometric-mean
+`theta_col`). `docs/GRAND_PLAN.md` bumped to v0.19 (§11's Phase 4 row updated).
+
+---
+
 ## How to update this file
 
 - One dated section per work session (or per meaningful chunk of a session).

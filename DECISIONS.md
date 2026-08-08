@@ -1126,3 +1126,119 @@ than a parameter that visibly does nothing, and it is the one that had no warnin
   warning has to reach whoever configures the laser, `io` may not import `engines`, and
   `validate` is already the warning surface for exactly this class of statement — so the
   marker sits with the warning and the engine-side comment cross-references it.
+
+---
+
+### D035 — analytical ports the predecessor's round-beam, no-displacement approximations unchanged; the growth items stay open
+
+**Decision:** `engines.analytical.formulas.estimate_yield`/`estimate_spectrum_width` carry
+over the predecessor's round-beam (geometric-mean waist) and undisplaced-focus
+approximations verbatim. §4.3's "growth items" — foci displacement, non-round-beam total
+yield, collimated-spectrum construction — are not attempted in this landing and are named
+as open in `PROGRESS.md` and `GRAND_PLAN.md` §11's Phase 4 row rather than the row being
+marked closed.
+
+**Rationale.** Neither the paper nor the predecessor derives an elliptical-beam overlap
+integral or a foci-displaced a0 term; inventing one now is exactly the P14c failure mode
+§9.2/§9.3 (D034) already names — a formula the source material does not contain, wired in
+silently. `laser.a0_peak()` (the pulse's own maximum, not the a0 at the electron bunch's
+actual position) stands in for the predecessor's `pulse.a0_interaction` for the same
+reason: it is the input the predecessor itself used, not a new approximation.
+
+**Rejected alternatives:**
+
+- *Derive an elliptical/displaced-focus overlap integral now, since it is "just" a
+  multi-dimensional Gaussian integral.* Plausible in principle, but it is new physics
+  content this repo's own review discipline (P14) requires be checked against the paper or
+  built with the author, not authored ad hoc inside an engine port.
+- *Mark Phase 4 closed and file the growth items as a separate future phase.* §11's own
+  Scope column already lists them under Phase 4; splitting them into an unlisted future
+  phase would make the plan doc's own table inaccurate rather than honest about what
+  landed.
+
+---
+
+### D036 — `SPECTRUM`'s grid integral is rescaled to `estimate_yield`'s total by construction, not as a discrepancy patch
+
+**Decision:** `engines.analytical.engine.AnalyticalEngine._fill`'s `SPECTRUM` branch scales
+`angle_integrated_spectrum`'s raw shape (evaluated at `InteractionParameters.N_e` = 1) by
+`total_yield / raw_integral`, where `raw_integral` is the **discrete trapezoid integral
+over the actual emitted energy grid** — not the shape's analytic infinite-domain value of
+1 — so that `PhasespaceSlice.integrate()` reproduces `total_yield` to float precision.
+
+**Rationale.** `angle_integrated_spectrum`'s raw output integrates to `InteractionParameters.N_e`, not to a
+photon count: the per-gamma kinematic shape integrates to 1 over its kinematic domain and
+the Gaussian energy PDF integrates to 1 over gamma, so the raw quadrature is "one
+scattering attempt per electron." `estimate_yield` supplies the actual per-electron
+scattering probability the kinematic shape has no way to know. `SPECTRUM` is therefore
+defined as `total_yield x (normalized shape)` — not two independently-estimated
+quantities forced into agreement after the fact, which is what the predecessor's own
+`# QUICK FIX, FLAGGED FOR FUTURE INVESTIGATION` comment was doing without naming it as
+the definition. §7 asks for `integral spectrum = total_yield` as an **exact identity**,
+not a tolerance — normalizing against the grid's own discrete integral (rather than the
+analytic value) is what makes it exact at any resolution, the same move D026/§9.1 made
+for the kernel normalization: fix it at the point it is produced, not with a permanent
+tolerance band. `test_spectrum_grid_integral_correction_factor_is_near_one`
+(`tests/test_analytical.py`) guards that the correction factor this applies stays close to
+1 — i.e. the auto-derived energy range is not silently masking real spectral weight by
+truncating the grid.
+
+**Rejected alternatives:**
+
+- *Leave `SPECTRUM` and `TOTAL_YIELD` as two independent estimates, tolerance-compared in
+  tests.* Matches §7's treatment of xigma/delta/kascade cross-validation, but analytical's
+  own two formulas do not claim to be independent measurements of the same thing — one is
+  a probability, the other a normalized shape of where that probability lands in energy —
+  so treating their disagreement as a tolerance to converge is a category error, not a
+  cross-validation.
+- *Normalize by the shape's analytic value of 1 instead of the discrete grid integral.*
+  Simpler, but leaves the identity only approximately true (to whatever the auto-range's
+  trapezoid discretization loses), which is exactly the exact-vs-tolerance distinction §7
+  draws.
+
+---
+
+### D037 — `erfcx` is hand-rolled from `math.erfc`, not a new `scipy` dependency
+
+**Decision:** `engines.analytical.formulas._erfcx` computes `exp(nu**2) * erfc(nu)`
+directly via `math.erfc` below `nu = 25`, and a standard asymptotic series above it,
+instead of calling `scipy.special.erfcx` (what the predecessor used).
+
+**Rationale.** `pyproject.toml` declares only `numpy` today; `io.bunch._chi2_6_cdf`
+already sets the precedent of writing out a closed-form special function rather than
+adding `scipy`, "so `gammaforge.io` keeps its dependency surface to what `pyproject.toml`
+already declares." The realistic argument range was checked by hand, not assumed: the
+baseline scenario (`validation.scenarios.BASELINE`) gives `nu ~ 0.06`, and the
+predecessor's own worked example gives `nu ~ 0.48` — both far below the `nu ~ 25` regime
+where `erfcx`'s overflow protection actually matters, so the direct-then-asymptotic
+hand-rolled version is safe and proportionate, not a numerically fragile shortcut.
+
+**Rejected alternatives:**
+
+- *Add `scipy` as a dependency.* Technically simpler and matches the predecessor exactly,
+  but breaks a stated dependency-surface precedent (`_chi2_6_cdf`'s own docstring) for a
+  regime this port never actually reaches — no operational benefit to offset the new
+  dependency.
+
+---
+
+### D038 — the spectrum-width breakdown's `theta_col` is the geometric mean of `Target`'s x/y collimation half-angles
+
+**Decision:** `engines.analytical.engine.AnalyticalEngine.run` computes
+`theta_col = sqrt(target.m("theta_x_col") * target.m("theta_y_col"))` and passes that
+single scalar to `estimate_spectrum_width`, rather than adding a `theta_col` field to
+`engines.analytical.schema.ANALYTICAL_SPECS`.
+
+**Rationale.** `io.target.Target` already owns `theta_x_col`/`theta_y_col` separately
+(§3.4); a second copy on analytical's own schema would duplicate state another module
+owns, the same rule `xigma/schema.py`'s own docstring states for why xigma's schema
+excludes the collimation window. The geometric mean matches the x/y-combining convention
+this same port already uses elsewhere for elliptical inputs — the laser waist
+(`sigma_lr0` in `estimate_yield`) and the angular-divergence term
+(`emit_width` in `estimate_spectrum_width`) — rather than introducing a new one.
+
+**Rejected alternatives:**
+
+- *Take `min(theta_x_col, theta_y_col)` (the tighter, more conservative aperture).*
+  Defensible, but inconsistent with every other x/y-combining choice this module already
+  makes, all of which use the geometric mean.

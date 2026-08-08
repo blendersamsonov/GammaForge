@@ -1,9 +1,20 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.16 — 2026-08-08
+**Status:** draft v0.19 — 2026-08-09
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 **Changelog**
+- **v0.19**: Phase 4 (`engines/analytical`, §4.3) **landed**, built concurrently with
+  Phase 3b in an isolated worktree/branch (§11's "Phases 4–6 must not wait on physics
+  derivations"). `estimate_yield`, `estimate_spectrum_width` (now returning its four
+  components separately, per §4.3's own text, rather than pre-summed), and
+  `angle_integrated_spectrum` are ported from the predecessor onto this repo's CGS
+  beam/laser types; `AnalyticalEngine` fills `TOTAL_YIELD` and 1D `SPECTRUM` with
+  `∫ SPECTRUM = TOTAL_YIELD` as an **exact** identity (§7), not a tolerance. §4.3's own
+  "growth items" — foci displacement, non-round-beam total yield, collimated-spectrum
+  construction — are **not** attempted in this landing and stay open (§11's Phase 4 row
+  below states this explicitly rather than being marked fully closed). `DECISIONS.md`
+  D035–D038; `PROGRESS.md` 2026-08-09.
 - **v0.16**: §9.1 **closed**, and §9.3 given the marker §9.2 already had — Phase 3b's
   code-side work, which was always the only part of 3b that did not depend on a derivation
   the paper lacks. The `1/(2π)` D026 derived is now applied at both places this repo
@@ -1048,7 +1059,7 @@ annotated at both equations.
 | **2.5. Stage 0 + minimal delta** | **Stage 0** (`integrate_trajectories`) and the **shared auto-chunk + OOM-retry utility** (§4.2), pulled forward from 3a because delta needs both; delta itself scoped to Stage-2 normalization arbitration, built on top of Stage 0 (§4.5) | Stage 0 tests green; chunk-invariance holds; delta produces independent spectra on baseline scenarios; identity harness (`kernel` vs `reference` vs `direct binning` vs delta) executable |
 | **3a. xigma engineering** — **landed 2026-08-08** | Stage 1/2 pure functions; Collision facade + stage cache; Engine wrapper; numpy kernel for Stages 1/2, cupy/numba gated like Stage 0 until real kernels exist (**Stage 0 and the chunking utility already built in 2.5**; D029); geometry/a0/ellipticity parameters wired as explicit identity/no-op placeholders (P14c) | Stage architecture tests green; placeholders documented |
 | **3b. Physics closure** — **§9.1 landed 2026-08-08; §9.2/§9.3 open, non-blocking** | ~2π resolution (§9.1 — **closed**: traced in 2.5, applied in 3b, D033), crossing-angle derivation (§9.3), ellipticity→a0 (§9.2) — **runs concurrently with Phases 4 and 5, not serially** | §9.1's constant set in Stage 2 and the identity harness re-gated against 1.0 rather than 2π — **met**; §9.2/§9.3 derivations landed if author completes them in parallel (never blocking 4–6) — **outstanding, and the paper contains no formula for either**, so both stay wired as documented no-ops with `validate()` warnings (D034) |
-| **4. analytical engine** | estimates + component breakdown; quadrature spectrum; growth items (foci displacement, non-round beam, collimated spectrum) | Closed-form limits match; validation anchor ready |
+| **4. analytical engine** — **estimates/breakdown/quadrature spectrum landed 2026-08-09; growth items open** | estimates + component breakdown; quadrature spectrum; growth items (foci displacement, non-round beam, collimated spectrum) | Closed-form limits match — **met** (Thomson-limit anchor test, §7); validation anchor ready — **met** for `TOTAL_YIELD`/`SPECTRUM`; growth items (foci displacement, non-round beam, collimated-spectrum construction) — **outstanding**, `DECISIONS.md` D035 |
 | **5. kascade port + delta full role** | minimal kascade behind interface **+ its Thomson-limit sanity check (B4)**; delta full cross-validation role | 4-method cross-validation runs; kascade sanity check passes |
 | **6. GUI** | schema-driven two-tab app; overlays + per-engine show/hide; save plots/HDF5; grey-out/release; sketch panel (headless module first); **import-boundary check enforced in CI (B3)** | GUI runs headless-smoke; all planned interactions work; boundary check green |
 | **7. Validation completion** | full scenario bank, convergence, chunk-invariance, closed-form identities, golden cross-checks | Full suite green; results reproducible; 3b closures integrated |
