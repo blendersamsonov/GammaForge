@@ -214,11 +214,19 @@ def integrate_trajectories(
         bunch.n_particles,
         integrate,
         chunk=chunk,
+        # No ceiling: the predecessor's measured chunk ceiling was for the *spectrum*
+        # path's s-axis, where per-launch overhead amortized by ~8-16. Stage 0 partitions
+        # particles, where no such measurement exists, and inventing one would be the
+        # cargo-culting the chunking module's own docstring warns the constants against.
         bytes_per_item=BYTES_PER_PARTICLE_STEP * n_steps,
         backend=backend,
     )
-    luminosity = np.concatenate([part[0] for part in parts])
-    a0_shape = np.concatenate([part[1] for part in parts])
+    # An empty bunch is reachable, not hypothetical: the prefilter discards every particle
+    # for a mistimed pulse or a bunch far wider than the spot. `np.concatenate([])` raises,
+    # which would make the prefilter turn a zero yield into an exception — the opposite of
+    # the pure optimization §3.2 promises.
+    luminosity = np.concatenate([part[0] for part in parts]) if parts else np.zeros(0)
+    a0_shape = np.concatenate([part[1] for part in parts]) if parts else np.zeros(0)
 
     return TrajectorySamples(
         gamma=bunch.gamma,

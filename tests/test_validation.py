@@ -391,6 +391,18 @@ def test_a_scenario_the_boundary_cannot_carry_is_refused():
     with pytest.raises(ValueError, match="beam.rho_z_gamma"):
         _scenario_payload(chirped, n_energy_bins=64)
 
+    # The target too: the predecessor takes one collimation half-angle, so an asymmetric
+    # collimator would be snapshotted as though the y half-angle equalled the x one.
+    from gammaforge.io.target import Target
+
+    asymmetric = replace(
+        scenarios.BASELINE,
+        target=Target(theta_x_col=Quantity(1.0, "mrad"), theta_y_col=Quantity(5.0, "mrad"),
+                      outputs=scenarios.BASELINE.target.outputs),
+    )
+    with pytest.raises(ValueError, match="theta_y_col"):
+        _scenario_payload(asymmetric, n_energy_bins=64)
+
 
 def test_every_axis_and_scalar_the_old_repo_reports_has_a_translation():
     assert set(_AXIS_TRANSLATION) == {"E_eV", "t_seconds", "x", "y", "theta_x", "theta_y"}

@@ -92,23 +92,22 @@ constraints (`GRAND_PLAN.md` §1 has the full table with provenance — P1–P15
 - **Validation:** `python -m gammaforge.validation.run` is the suite entry point (it runs
   what is runnable and says what it skipped); `gammaforge.validation.scenarios.SCENARIOS`
   is the shared bank — iterate it, don't hardcode a scenario name in a runner.
-- **Graphify:** once there's real code to search across, use the `graphify` skill for
-  codebase-wide queries instead of ad hoc grepping — not needed yet at Phase 0 scaffold
-  size, but worth reaching for once `gammaforge.io`/`engines` have real content.
+- **Graphify:** the repo is now big enough that a codebase-wide question is usually
+  better answered from the knowledge graph than by grepping. **The graph is not
+  committed** — `graphify-out/` is gitignored, so on a fresh clone it does not exist and
+  must be built once (invoke the `graphify` skill on the repo root). Once
+  `graphify-out/graph.json` is present: `graphify query "<question>"` for context,
+  `graphify path "<A>" "<B>"` for how two things relate, `graphify explain "<concept>"`
+  for one node. Each returns a scoped subgraph, far smaller than `GRAPH_REPORT.md` or raw
+  grep output; read the full report only for a broad architecture pass. Re-run
+  `graphify update .` after landing code — it is AST-only and costs nothing.
 
 ## Current status
 
-See `PROGRESS.md` for what phase is active and what's actually landed. Don't assume
-anything beyond Phase 0 scaffold exists without checking it first — most of the module
-files named in `GRAND_PLAN.md` are deliberately not created yet (see `DECISIONS.md`
-D003).
-
-## graphify
-
-This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
-
-Rules:
-- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
-- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
-- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
-- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+See `PROGRESS.md` for what phase is active and what's actually landed — it is the
+authority, and this paragraph is a summary that will go stale between updates. As of
+Phase 2.5: `gammaforge.io` is complete, the validation harness and its golden references
+exist, and `engines/xigma` holds Stage 0 and the chunking utility. Stages 1 and 2, the
+`Collision` facade, the `ENGINES` registry, the other two engines and the GUI are **not
+built** — most module files named in `GRAND_PLAN.md` are deliberately absent (`DECISIONS.md`
+D003), so check before assuming one exists.

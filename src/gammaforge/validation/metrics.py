@@ -65,15 +65,20 @@ def resample_to(x_ref, x_src, y_src):
                      np.asarray(y_src, float), left=0.0, right=0.0)
 
 
-#: Below this fraction of the *total* reference flux, a window carries nothing worth
-#: reporting a relative error on. It is deliberately not "a fraction of the mean window",
-#: which would make the floor shrink as the binning got finer and turn every empty tail bin
-#: into a large deviation. A spurious peak is therefore measured in units of a thousandth
-#: of the total yield, which is a number a tolerance can be set against.
-_FLUX_FLOOR_FRACTION = 1e-3
+#: A window carrying less than this fraction of the total flux is not a spectral feature —
+#: it is a grid edge or numerical residue, and a relative error on it says nothing. At or
+#: above it, the window is compared, whichever side the flux is on.
+#:
+#: Deliberately a fraction of the **total**, not of the mean window, so the threshold does
+#: not move when the binning is refined. And deliberately small: this number is the
+#: metric's *sensitivity*, so raising it buys quiet at the cost of blindness. At 1e-3 —
+#: where this briefly sat — a candidate that dropped a real feature worth 0.07% of the
+#: yield scored exactly zero on both reported numbers, which is the failure D023 was
+#: written to remove, reintroduced on the reference side.
+SIGNIFICANT_FLUX_FRACTION = 1e-4
 
 
-def window_integrated_deviation(x, y, y_ref, window, floor_fraction=_FLUX_FLOOR_FRACTION):
+def window_integrated_deviation(x, y, y_ref, window, significance=SIGNIFICANT_FLUX_FRACTION):
     """Compare two densities sampled on the same 1D grid ``x``.
 
     ``window`` is the reporting resolution, in ``x``'s own units: the width over which
@@ -114,15 +119,19 @@ def window_integrated_deviation(x, y, y_ref, window, floor_fraction=_FLUX_FLOOR_
     scale = max(total_ref, float(np.abs(flux).sum()))
     if scale <= 0.0:
         return 0.0, 0.0, n_windows
-    floor = floor_fraction * scale
-    deviation = np.abs(flux - flux_ref) / np.maximum(np.abs(flux_ref), floor)
+    threshold = significance * scale
+    # The same number guards the division and decides significance, which keeps the
+    # reported deviation interpretable at both ends: a window that is missing entirely
+    # reports 1.0, and spurious flux against a zero reference reports how many
+    # significance-units of it there are — never a ratio against an arbitrary epsilon.
+    deviation = np.abs(flux - flux_ref) / np.maximum(np.abs(flux_ref), threshold)
 
-    counted = (np.abs(flux_ref) > floor) | (np.abs(flux) > floor)
+    counted = (np.abs(flux_ref) > threshold) | (np.abs(flux) > threshold)
     if not np.any(counted):
         return 0.0, 0.0, n_windows
     max_window = float(deviation[counted].max())
 
-    weights = np.where(flux_ref > floor, flux_ref, 0.0)
+    weights = np.where(flux_ref > threshold, flux_ref, 0.0)
     total_weight = weights.sum()
     if total_weight <= 0.0:  # nothing in the reference to weight by; the maximum says it all
         return max_window, max_window, n_windows

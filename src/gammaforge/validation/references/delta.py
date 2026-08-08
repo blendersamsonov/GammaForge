@@ -48,14 +48,17 @@ __all__ = [
     "angle_integrated_spectrum",
     "single_electron_spectrum",
     "NormalizationCheck",
+    "captured_fraction",
     "check_normalization",
     "DEFAULT_CONE_FACTOR",
 ]
 
 #: How far out to integrate the angular grid, in units of the ``1/gamma`` radiation cone.
-#: The single-electron angular factor falls as ``r**-4`` past the cone, so four cone widths
-#: hold all but a fraction of a percent of the yield — and the residual is a *known*
-#: truncation, reported by :func:`check_normalization` rather than absorbed silently.
+#: The tail converges slowly — four cone widths hold about **92%** of the yield, not "all
+#: but a fraction of a percent" as this once claimed; see :func:`captured_fraction`, which
+#: computes the shortfall in closed form so it is corrected rather than assumed away.
+#: Four is a cost compromise: the grid is a double loop, and doubling the reach at fixed
+#: resolution quadruples the work to recover the next 6%.
 DEFAULT_CONE_FACTOR = 4.0
 
 
@@ -232,32 +235,56 @@ def check_normalization(
     """
     edge = float(np.max(samples.gamma) ** 2)
     s_edges = np.linspace(0.0, 1.05 * edge, n_bins + 1)
+    widths = np.diff(s_edges)
     s_centres = 0.5 * (s_edges[:-1] + s_edges[1:])
 
+    # Both spectra are densities sampled at bin *centres*, so the integral is the midpoint
+    # sum. `np.trapezoid` over centres — which this did — silently drops half of the first
+    # and last bin, and that bias landed in `deviation`, the §9.1 headline number, while
+    # `expected_ratio` carried no matching correction. It is also why `anchor_ratio`
+    # reported 0.9937 for a quantity documented as exactly one.
     total = samples.total_yield()
-    delta_total = float(np.trapezoid(
-        angle_integrated_spectrum(samples, s_edges, n_angles=n_angles, cone_factor=cone_factor),
-        s_centres,
+    delta_total = float(np.sum(
+        angle_integrated_spectrum(samples, s_edges, n_angles=n_angles, cone_factor=cone_factor)
+        * widths
     ))
-    anchor_total = float(np.trapezoid(single_electron_spectrum(samples, s_centres), s_centres))
+    anchor_total = float(np.sum(single_electron_spectrum(samples, s_centres) * widths))
 
     return NormalizationCheck(
         ratio=delta_total / total if total else math.inf,
         anchor_ratio=anchor_total / total if total else math.inf,
-        captured_fraction=_captured_fraction(samples, n_angles, cone_factor),
+        captured_fraction=captured_fraction(cone_factor),
         total_yield=total,
         n_angles=n_angles,
         cone_factor=cone_factor,
     )
 
 
-def _captured_fraction(samples: TrajectorySamples, n_angles: int, cone_factor: float) -> float:
-    """Fraction of the single-electron angular distribution inside the grid.
+def captured_fraction(cone_factor: float) -> float:
+    """Fraction of delta's own angular integrand inside a cone of ``cone_factor / gamma``.
 
-    ``int_0^R 2 pi r dr / (1 + g^2 r^2)^2 = pi/g^2 * R^2 g^2/(1 + R^2 g^2)`` against a full
-    integral of ``pi/g**2``, i.e. ``x/(1+x)`` with ``x = (cone_factor)**2`` — a closed form,
-    so the truncation is quoted rather than estimated. The square grid extends past the
-    inscribed disc, making this a conservative floor on what was really captured.
+    Closed form, so the truncation is quoted rather than estimated. With ``u = gamma^2 r^2``
+    and the azimuthal average ``<a_fac> = 1 - 2u/(1+u)^2``, the partial integral is::
+
+        int_0^X dOmega 3 gamma^2 <a_fac>/(1+u)^2
+            = 3 pi [ X/(1+X) - 1/3 + (1+X)^-2 - (2/3)(1+X)^-3 ]
+
+    against the full ``2 pi`` derived in the module docstring, so the fraction is that
+    bracket times ``3/2``. At ``X = 16`` (four cone widths) it is 0.917.
+
+    **The polarization factor has to be in here.** Integrating the Lorentz factor alone —
+    which gives the tidier ``X/(1+X)`` — overstates the capture (0.941 at four cone widths)
+    and, because it is the correction :func:`check_normalization` divides by, leaves a
+    residue in the reported deviation that varies with the cone. That residue then eats the
+    budget of the §9.1 tripwire for a reason having nothing to do with normalization.
+
+    This is the fraction inside a **disc**. The grid is square, so it reaches to
+    ``cone_factor * sqrt(2)`` in the corners and captures slightly more than this — leaving
+    a small *positive* residue in :attr:`NormalizationCheck.deviation` that shrinks as the
+    cone widens (measured +1.52% at four cone widths, +0.41% at eight). It is grid
+    geometry, not physics: a monoenergetic zero-divergence beam reproduces it to within
+    0.01 percentage points, so beam spread is not involved.
     """
     x = cone_factor**2
-    return x / (1.0 + x)
+    bracket = x / (1.0 + x) - 1.0 / 3.0 + (1.0 + x) ** -2 - (2.0 / 3.0) * (1.0 + x) ** -3
+    return 1.5 * bracket

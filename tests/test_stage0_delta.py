@@ -315,11 +315,58 @@ def test_delta_overcounts_stage_0_by_exactly_two_pi(baseline):
     assumes, and the beam's own divergence broadens the distribution slightly.
     """
     check = delta.check_normalization(baseline, n_angles=65, cone_factor=8.0)
-    # The anchor is exactly 1 in the continuum; the ~0.6% here is the trapezoid error of
-    # the shared 128-bin grid, which both sides of the ratio are computed on.
-    assert check.anchor_ratio == pytest.approx(1.0, rel=1e-2)
+    assert check.anchor_ratio == pytest.approx(1.0, rel=1e-4)
     assert check.ratio == pytest.approx(2.0 * math.pi * check.captured_fraction, rel=2e-2)
     assert abs(check.deviation) < 2e-2
+
+
+def test_an_empty_bunch_yields_zero_rather_than_raising():
+    """Reachable, not hypothetical — and if it raises, the prefilter is not neutral.
+
+    A mistimed pulse or a bunch far wider than the spot leaves the prefilter with nothing.
+    With the filter off the same configuration returns 0.0, so an exception here would mean
+    the filter turns a zero into a crash: the opposite of the pure optimization §3.2 claims.
+    """
+    interaction = scenarios.build(
+        replace(scenarios.BASELINE,
+                sampling=replace(scenarios.BASELINE.sampling, n_particles=64))
+    )
+    empty = interaction.bunch.select(np.zeros(interaction.bunch.n_particles, dtype=bool))
+    samples = integrate_trajectories(empty, interaction.laser, interaction.N_e, n_steps=8)
+    assert samples.n_particles == 0
+    assert samples.total_yield() == 0.0
+    assert samples.a0_shape.shape == (0,)
+
+
+def test_the_capture_correction_accounts_for_the_polarization_factor():
+    """``X/(1+X)`` is the Lorentz factor alone and overstates what the cone holds.
+
+    It is the correction the 2*pi arbitration divides by, so an error here shows up as a
+    cone-dependent drift in a number that is supposed to be a constant.
+    """
+    for cone in (2.0, 4.0, 8.0, 20.0):
+        x = cone**2
+        assert delta.captured_fraction(cone) < x / (1.0 + x)
+    assert delta.captured_fraction(4.0) == pytest.approx(0.9168, abs=1e-4)
+    assert delta.captured_fraction(1e4) == pytest.approx(1.0, abs=1e-6)
+
+
+def test_the_closed_form_anchor_really_is_one(baseline):
+    """It is an identity, so it should read as one — a trapezoid over bin centres did not.
+
+    Integrating a bin-centre density with the trapezoid rule drops half of the first and
+    last bin, which put a -0.6% bias on a quantity documented as exact and leaked it into
+    the section-9.1 headline number, where nothing corrected for it.
+    """
+    check = delta.check_normalization(baseline, n_angles=17, cone_factor=4.0)
+    assert check.anchor_ratio == pytest.approx(1.0, rel=1e-4)
+
+
+def test_the_grid_residue_shrinks_as_the_cone_widens(baseline):
+    """The leftover deviation is the square grid's corners, and it must behave like it."""
+    narrow = delta.check_normalization(baseline, n_angles=33, cone_factor=4.0).deviation
+    wide = delta.check_normalization(baseline, n_angles=65, cone_factor=8.0).deviation
+    assert 0.0 < wide < narrow
 
 
 def test_the_two_pi_is_stable_as_the_angular_grid_is_refined(baseline):

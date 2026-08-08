@@ -131,14 +131,19 @@ def identity_checks(scenarios: Sequence[Scenario]) -> list[Check]:
         samples = integrate_trajectories(
             interaction.bunch, interaction.laser, interaction.N_e, n_steps=64
         )
-        normalization = delta.check_normalization(samples, n_angles=33, cone_factor=4.0)
+        # Eight cone widths, not the module default of four: the square grid's corners
+        # leave a positive residue in `deviation` that shrinks with the cone, and at four
+        # it is +1.5% — three quarters of this gate's budget spent on grid geometry rather
+        # than on the normalization the gate is watching. At eight it is +0.4%, for about
+        # a second per scenario.
+        normalization = delta.check_normalization(samples, n_angles=49, cone_factor=8.0)
         checks.append(Check(
             name=f"{scenario.name} closed form = Stage 0 total",
             passed=abs(normalization.anchor_ratio - 1.0) <= 1e-2,
             detail=f"anchor ratio {normalization.anchor_ratio:.6f} (identity, up to binning)",
         ))
         checks.append(Check(
-            name=f"{scenario.name} delta/Stage 0 = 2*pi (\u00a79.1, open)",
+            name=f"{scenario.name} delta/Stage 0 = 2*pi (\u00a79.1 traced; constant pending)",
             passed=abs(normalization.deviation) <= 2e-2,
             detail=normalization.summary(),
         ))

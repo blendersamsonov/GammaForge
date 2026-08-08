@@ -47,3 +47,7 @@ venv/
 # graph.json + graph.html per build (C3). Rebuild with the graphify skill; `--update`
 # re-extracts only what changed, using the manifest inside this directory.
 graphify-out/
+
+# Machine-local agent settings (the graphify hook hardcodes an absolute binary path).
+# `settings.json` is the *shared* project file; anything machine-specific belongs here.
+.claude/settings.local.json

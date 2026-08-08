@@ -581,6 +581,53 @@ Empty windows are now anchored at a finite time and the zero span does the rest.
 
 ---
 
+## 2026-08-08 — Review round on Phase 2.5, and §9.1 written into the plan
+
+Plan bumped to **v0.13** (§9.1 rewritten — the ~2pi is traced, not open).
+`DECISIONS.md` **D026–D027**.
+
+A review of `42e9609..HEAD` returned nine findings. All nine reproduced, all nine fixed.
+`pytest` -> **262 passed**.
+
+**The two that were real defects rather than tidy-ups:**
+
+- **The window metric had gone blind again, on the other side.** D023 raised the flux floor
+  from `1e-6` of the *mean window* to `1e-3` of the *total*. Moving the denominator was the
+  fix and was argued for; multiplying the threshold by 16000 rode along unexamined. A
+  candidate dropping a real feature worth 0.07% of the yield scored **exactly zero** on
+  both reported numbers. Now `1e-4`, with the same number serving as significance test and
+  denominator guard; the cliff moved from 0.1% to 0.01% and a test pins it.
+- **Stage 0 crashed on an empty bunch** — `np.concatenate([])` raises, so the prefilter
+  turned a zero yield into an exception for any configuration where it discards
+  everything. Directly contradicts the §3.2 pure-optimization claim the suite asserts
+  elsewhere.
+
+**Two quadrature errors in delta's arbitration, both in the number that gates §9.1:**
+`_captured_fraction` integrated the Lorentz factor without the polarization factor delta's
+own integrand carries (0.941 claimed vs 0.917 true at four cone widths), and
+`check_normalization` trapezoid-integrated bin-centre densities, dropping half the end
+bins. The anchor now reads **1.000002** where it read 0.9937 for a quantity documented as
+exactly one.
+
+With both fixed the residue is `+0.41%` and finally has an explanation: the **square grid's
+corners** reach `sqrt(2)` beyond the disc the correction assumes. Confirmed by construction
+— a monoenergetic zero-divergence beam reproduces it to 0.01 percentage points, so beam
+spread is not involved. The identity gate moved to eight cone widths, where that residue is
+a fifth of its budget rather than three quarters.
+
+**And one process failure worth naming.** `.claude/settings.json` — written by the graphify
+tooling, hardcoding an absolute binary path as a hook on essentially every tool call — was
+committed by an unreviewed `git add -A`, together with an auto-appended `AGENTS.md` section
+claiming the repo "has a knowledge graph at graphify-out/" one commit after that directory
+was gitignored. Any other clone would have fired a nonexistent binary on every tool call.
+Moved to `.claude/settings.local.json` (gitignored) and the `AGENTS.md` claim corrected.
+`git add -A` after running a tool that writes config is the habit to break.
+
+`AGENTS.md`'s status paragraph was also stale ("don't assume anything beyond Phase 0
+exists") and now names what actually exists as of Phase 2.5.
+
+---
+
 ## How to update this file
 
 - One dated section per work session (or per meaningful chunk of a session).

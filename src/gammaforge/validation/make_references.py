@@ -112,7 +112,15 @@ _UNTRANSMITTED = {
 
 
 def _reject_untransmittable(scenario: Scenario, beam, laser) -> None:
-    unsupported = [
+    # The predecessor's models take a single collimation half-angle, so an asymmetric
+    # collimator cannot cross this boundary — and silently sending the x half-angle for
+    # both is exactly the mislabelling this guard exists to stop. Checked here rather than
+    # in the table below because the condition relates two fields instead of testing one
+    # against a default.
+    unsupported: list[str] = []
+    if scenario.target.m("theta_x_col") != scenario.target.m("theta_y_col"):
+        unsupported.append("target.theta_y_col (differs from theta_x_col)")
+    unsupported += [
         f"laser.{name}" for name, default in _UNTRANSMITTED["laser"].items()
         if laser.m(name) != default
     ] + [
@@ -142,6 +150,8 @@ def _scenario_payload(scenario: Scenario, n_energy_bins: int) -> dict:
         "n_particles": scenario.sampling.n_particles,
         "seed": scenario.sampling.seed,
         "n_energy_bins": n_energy_bins,
+        # One half-angle, because that is all the predecessor has. Safe only because
+        # `_reject_untransmittable` has already established the two are equal.
         "theta_col_rad": scenario.target.m("theta_x_col"),
         # xigma's Stage-1 table sizing knob. It is an engine parameter here (P5) and has no
         # place on a `Scenario`, but the old repo took it off its scenario object, so it is

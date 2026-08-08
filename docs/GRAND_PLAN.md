@@ -1,9 +1,16 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.12 — 2026-08-07
+**Status:** draft v0.13 — 2026-08-08
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 **Changelog**
+- **v0.13**: §9.1 rewritten — the ~2π is **traced, not open**. It is exactly `2π`, it is in
+  the paper at `eq:xsec` (inherited by `eq:main`), and it is not a porting artefact; the
+  derivation and evidence are in `DECISIONS.md` D026 and the manuscript is annotated at
+  both equations. What remains is an authoring choice about where the factor belongs, not
+  a computation, so the §11 exit criterion for Phase 3b and the §12 risk row are restated
+  accordingly. The identity harness reports the ratio against its derived value until the
+  choice lands (D025).
 - **v0.12**: Phase 2 implementation feedback, three items.
   **(a) `engines/base.py` lands in Phase 2, not 3a.** The §4.1 `Engine` protocol and the
   §5 `RecomputeCost` enum are what a "runners skeleton" is a skeleton *of*: without an
@@ -851,21 +858,33 @@ assumption was broken" test zoo.
 
 ## 9. Physics work items
 
-### 9.1 ~2π kernel normalization (BLOCKING physics task — "discrepancy to resolve")
+### 9.1 ~2π kernel normalization — **TRACED (Phase 2.5); one authoring decision left**
 
-- Status in old repo: three "spectrum from H" implementations
-  (`reference.spectrum_from_table`, `spectrum_from_particles.direct_binning_spectrum`,
-  `spectrum4d.spectrum_kernel_4d`) agree to ~15% with an unexplained ~2π absolute factor
-  at the kernel level; user-facing integrals (angular spectrum → total yield) were made
-  consistent.
-- Paper status: the paper *does* give one derived normalization (`eq:main`/`eq:Fmatrix`),
-  but its own validation study section is an unwritten placeholder — **the formula has
-  never been checked against independent numerics**. Converging code to the paper is
-  necessary but not sufficient (P14b).
-- Rebuild: **delta (Phase 2.5) is the independent arbiter.** Derive one authoritative
-  normalization, isolate it in one constant, converge all three paths, and encode the
-  identities (`angular spectrum` → `total yield`; `kernel` ≈ `reference` ≈ `direct
-  binning` to tight tolerance) as tests. Must be resolved in the rebuild, not deferred.
+**Resolved as an investigation.** The factor is exactly `2π`, it is in the **paper**, and
+it is not a porting artefact. `eq:xsec` is missing `1/(2π)`, and `eq:main`/`eq:Fmatrix`
+inherit it — one error, not two, since the second is the first times the `eq:jacobian`
+Jacobian. Full derivation and evidence: `DECISIONS.md` **D026**; the manuscript is
+annotated at both equations.
+
+- The check is two lines. `eq:collision` yields a photon count only if the frequency- and
+  angle-integrated cross-section is `σ_T`; from `eq:xsec` with `R → δ` it is `2π σ_T`.
+  Both `u`-integrals are elementary (`1` and `1/6`).
+- **Which side counts photons is settled.** Stage 0's total is `flux × cross-section ×
+  time`, and the closed-form single-electron spectrum reproduces it as an identity. Two
+  independent methods agree; the paper's differential form is the outlier, carrying an
+  extra azimuthal `2π`.
+- Old-repo status, now explained: it absorbed the same factor behind two self-consistent
+  rescales (both labelled *QUICK FIX*), and its headline `total_yield` came from the
+  luminosity sum — a path that never touches the kernel. That is why only *delta* ever
+  showed it.
+- **What remains is an authoring choice, not a computation:** where the `1/(2π)` belongs —
+  the prefactor, the normalization of `R`, or the definition of `Û`. Phase 3a sets Stage
+  2's constant once that lands; §4.2 already requires it to live in one module-level
+  location.
+- Until then the identity harness reports the ratio against its **derived** value (D025),
+  so the suite stays green while the question is open and turns red if the ratio moves.
+  Encoding it as "expected 1.0" would either make the suite permanently red or require
+  pasting in a constant nobody has justified (P14).
 
 ### 9.2 Laser energy→a0 with ellipticity (net-new derivation, parallel track)
 
@@ -931,7 +950,7 @@ assumption was broken" test zoo.
 | **2. Validation harness** | scenarios, runners skeleton, `make_references.py` + first golden snapshots from old repo; invariance-test scaffolding (chunk, prefilter, backend, seed — §7) | Golden generation runs; new-vs-golden comparisons execute |
 | **2.5. Stage 0 + minimal delta** | **Stage 0** (`integrate_trajectories`) and the **shared auto-chunk + OOM-retry utility** (§4.2), pulled forward from 3a because delta needs both; delta itself scoped to Stage-2 normalization arbitration, built on top of Stage 0 (§4.5) | Stage 0 tests green; chunk-invariance holds; delta produces independent spectra on baseline scenarios; identity harness (`kernel` vs `reference` vs `direct binning` vs delta) executable |
 | **3a. xigma engineering** | Stage 1/2 pure functions; Collision facade + stage cache; Engine wrapper; kernels (numpy/cupy/numba) for Stages 1/2 (**Stage 0 and the chunking utility already built in 2.5**); geometry/a0/ellipticity parameters wired as explicit identity/no-op placeholders (P14c) | Stage architecture tests green; placeholders documented |
-| **3b. Physics closure** | ~2π resolution (§9.1), crossing-angle derivation (§9.3), ellipticity→a0 (§9.2) — **runs concurrently with Phases 4 and 5, not serially** | §9.1 closed with delta arbitration + identity tests; §9.2/§9.3 derivations landed if author completes them in parallel (never blocking 4–6) |
+| **3b. Physics closure** | ~2π resolution (§9.1 — **traced in Phase 2.5**; what remains is the author's choice of where the `1/(2π)` belongs, then Stage 2's constant), crossing-angle derivation (§9.3), ellipticity→a0 (§9.2) — **runs concurrently with Phases 4 and 5, not serially** | §9.1's constant set in Stage 2 and the identity harness re-gated against 1.0 rather than 2π; §9.2/§9.3 derivations landed if author completes them in parallel (never blocking 4–6) |
 | **4. analytical engine** | estimates + component breakdown; quadrature spectrum; growth items (foci displacement, non-round beam, collimated spectrum) | Closed-form limits match; validation anchor ready |
 | **5. kascade port + delta full role** | minimal kascade behind interface **+ its Thomson-limit sanity check (B4)**; delta full cross-validation role | 4-method cross-validation runs; kascade sanity check passes |
 | **6. GUI** | schema-driven two-tab app; overlays + per-engine show/hide; save plots/HDF5; grey-out/release; sketch panel (headless module first); **import-boundary check enforced in CI (B3)** | GUI runs headless-smoke; all planned interactions work; boundary check green |
@@ -951,7 +970,7 @@ duplicated (C4).
 
 | Risk | Mitigation |
 |------|-----------|
-| ~2π normalization turns out to be a paper-level issue | Blocking item by design; delta (Phase 2.5) arbitrates independently — the paper formula is necessary-not-sufficient (its validation study is an unwritten placeholder); architecture isolates the constant to one location |
+| ~2π normalization turns out to be a paper-level issue | **It did** (Phase 2.5, D026): `eq:xsec` is missing `1/(2π)`. The mitigation worked as designed — delta arbitrated independently, the paper formula was treated as necessary-not-sufficient, and the constant is isolated to one location so setting it in Phase 3a is a one-line change |
 | Crossing-angle and ellipticity→a0 have **no existing derivation** in the paper (confirmed by audit, not just undocumented) | Open-ended research tasks, not consult-and-implement: parameters are first-class in schema/architecture now; physics wired as explicit identity/no-op until derivations land; derivation runs in parallel (P14c, §9.2/§9.3); never blocks Phases 3a–6 |
 | Old-repo golden data encodes bugs | Goldens are transitional; closed-form identities + delta reference are the real anchors; goldens regenerated deliberately |
 | Chunking regressions (OOM class) | Chunk-invariance property tests from Phase 2 on; single shared auto-chunk + OOM-retry utility (porting algorithm + constants, not the old triplicated code) |
