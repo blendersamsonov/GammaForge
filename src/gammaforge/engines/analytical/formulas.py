@@ -175,7 +175,20 @@ def angle_integrated_spectrum(gamma0: float, sigma_gamma: float, N_e: float, s, 
 
     ``n_quad``: quadrature points spanning +-6 ``sigma_gamma`` around ``gamma0`` —
     independent of ``n_particles``, so a generous default costs nothing.
+
+    Raises ``ValueError`` for ``sigma_gamma <= 0``: `gammaforge.io.bunch.validate` permits
+    a beam with exactly zero energy spread (only rejects negative), but the quadrature
+    grid this function builds is degenerate there (a zero-width Gaussian divided by its
+    own zero width) and would otherwise return `nan` silently rather than raising —
+    exactly the silent-fallback failure mode this repo's conventions reject in favor of
+    an explicit error (see `engines.xigma.stages._check_backend`'s docstring for the same
+    argument in a different context).
     """
+    if sigma_gamma <= 0.0:
+        raise ValueError(
+            f"angle_integrated_spectrum: sigma_gamma must be > 0 (got {sigma_gamma!r}) — "
+            "a zero-width energy spread makes the quadrature grid degenerate"
+        )
     s_arr = np.atleast_1d(np.asarray(s, dtype=np.float64))
 
     span = 6.0 * sigma_gamma

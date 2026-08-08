@@ -157,6 +157,16 @@ def test_angle_integrated_spectrum_zero_outside_kinematic_range():
     assert out[0] == 0.0
 
 
+def test_angle_integrated_spectrum_rejects_zero_energy_spread():
+    """`io.bunch.validate` permits `rel_energy_spread == 0` (only `< 0` raises), so
+    `sigma_gamma == 0` is a legal beam — but it makes this function's quadrature grid
+    degenerate (a zero-width Gaussian divided by its own zero width), which would
+    otherwise return `nan` silently. This repo's convention is an explicit error over a
+    silent fallback."""
+    with pytest.raises(ValueError, match="sigma_gamma"):
+        angle_integrated_spectrum(100.0, 0.0, 1.0, 0.5)
+
+
 def test_angle_integrated_spectrum_fast_at_reported_scale():
     """Regression guard for the OOM bug class the predecessor's refactor fixed (see
     `formulas.py`'s module docstring): no argument here scales with `n_particles`."""
@@ -214,6 +224,19 @@ def test_supported_outputs_matches_what_run_actually_fills():
 def test_unsupported_output_kinds_are_silently_omitted_not_errored():
     interaction = _interaction(
         outputs=(OutputRequest(OutputKind.TOTAL_YIELD), OutputRequest(OutputKind.ANGULAR_DISTRIBUTION, resolution=(3, 3)))
+    )
+    results = AnalyticalEngine().run(interaction, AnalyticalEngine.schema)
+    assert set(results.photon_slices) == {OutputKind.TOTAL_YIELD}
+
+
+def test_unsupported_temporal_envelope_request_does_not_crash():
+    """`io.target.auto_ranges`'s `TEMPORAL_ENVELOPE` branch requires a bunch and raises
+    without one; a `Target` requesting it alongside a supported output must not reach
+    that branch just because this engine happens to skip the kind (a regression this
+    engine's own review caught: filtering unsupported requests must happen before
+    `auto_ranges` runs, not after)."""
+    interaction = _interaction(
+        outputs=(OutputRequest(OutputKind.TOTAL_YIELD), OutputRequest(OutputKind.TEMPORAL_ENVELOPE, resolution=(8,)))
     )
     results = AnalyticalEngine().run(interaction, AnalyticalEngine.schema)
     assert set(results.photon_slices) == {OutputKind.TOTAL_YIELD}

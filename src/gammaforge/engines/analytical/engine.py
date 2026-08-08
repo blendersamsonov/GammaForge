@@ -7,6 +7,7 @@ cheap (`O(1)`/`O(n_quad)`), so nothing needs memoizing across queries within one
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import numpy as np
 
@@ -56,11 +57,16 @@ class AnalyticalEngine:
         theta_col = math.sqrt(target.m("theta_x_col") * target.m("theta_y_col"))
         width = estimate_spectrum_width(beam, metrics, theta_col)
 
-        ranges = auto_ranges(target, beam, interaction.laser)
+        # auto_ranges builds a range for every request up front, including kinds this
+        # engine will go on to skip — and its TEMPORAL_ENVELOPE branch requires a bunch
+        # (raises without one). Filtering to what this engine actually supports before
+        # calling it, rather than after, avoids both the crash and passing the bunch just
+        # to satisfy a branch never taken (which would cost O(n_particles) for a range
+        # this engine discards, defeating the whole point of being bunch-independent).
+        supported_requests = tuple(r for r in target.outputs if r.kind in SUPPORTED_OUTPUTS)
+        ranges = auto_ranges(replace(target, outputs=supported_requests), beam, interaction.laser)
         slices: dict[OutputKind, PhasespaceSlice] = {}
-        for request in target.outputs:
-            if request.kind not in SUPPORTED_OUTPUTS:
-                continue
+        for request in supported_requests:
             slices[request.kind] = self._fill(
                 request, ranges[request.kind], beam, total_yield, photon_energy, n_quad
             )

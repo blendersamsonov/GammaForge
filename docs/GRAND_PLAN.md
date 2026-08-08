@@ -728,7 +728,9 @@ The tabulated-overlap pipeline, restructured into composable stages:
 
 Closed-form estimates, no per-particle Monte Carlo:
 
-- `estimate_yield(beam, laser)`: total yield (closed form).
+- `estimate_yield(beam, laser, N_e)`: total yield (closed form). `N_e` is explicit
+  (`InteractionParameters.N_e`) rather than derived from `beam`, so the io-level cheap
+  charge-only rescale path (§5) stays correct.
 - `estimate_spectrum_width(beam, laser, theta_col)`: collimated width with a
   **per-component breakdown** — collimation `(γθ_col)⁴`, emittance/divergence
   `(γσ_θ)⁴`, energy spread `(σ_γ/γ)²`, nonlinearity `(a0²/2)²` — each reported
