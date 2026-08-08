@@ -2,9 +2,11 @@
 
 The physics assertions here are the ones §7 asks for: closed-form identities where the
 contract guarantees them, invariance where a knob must not matter, and convergence where
-a discretization must vanish. Where two methods genuinely disagree — the ``2 pi`` of §9.1
-— the test pins the *derived* value rather than the one that would be convenient, so the
-disagreement stays visible instead of being absorbed into a tolerance.
+a discretization must vanish. The ``2 pi`` of §9.1 used to be the exception — two methods
+that genuinely disagreed, with the test pinning the *derived* value rather than the
+convenient one so the disagreement stayed visible. Phase 3b closed it (`DECISIONS.md`
+D033), so those tests now pin one; what they still do is fail loudly if the factor comes
+back, which is the same job under a different expected number.
 """
 
 from __future__ import annotations
@@ -302,13 +304,15 @@ def test_delta_off_axis_is_redshifted_relative_to_on_axis(baseline):
     assert mean_energy(2.0 / float(np.mean(baseline.gamma))) < mean_energy(0.0)
 
 
-def test_delta_overcounts_stage_0_by_exactly_two_pi(baseline):
-    """§9.1, reduced to a derived number.
+def test_delta_counts_the_same_photons_as_stage_0(baseline):
+    """§9.1, closed (D033) — and the tripwire that keeps it closed.
 
-    ``int dOmega`` of delta's prefactor is ``2 pi`` analytically (see the module
-    docstring), so this pins the *derivation*, not an observation. The predecessor
-    recorded the same ratio as "~6.3x ... not yet explained"; reproducing it from an
-    independent CGS implementation rules out its coordinate normalization as the cause.
+    ``int dOmega`` of the paper's bare prefactor is ``2 pi`` analytically (delta's module
+    docstring), which is exactly the factor `delta.DIFFERENTIAL_PREFACTOR` now removes, so
+    two paths that count the same photons report the same number. The predecessor recorded
+    the uncorrected ratio as "~6.3x ... not yet explained"; reproducing it from an
+    independent CGS implementation is what ruled out its coordinate normalization as the
+    cause, and the assertion below is what would surface it again.
 
     The tolerance covers the angular grid's truncation, which `expected_ratio` already
     corrects for approximately — a square grid reaches past the disc the correction
@@ -316,8 +320,10 @@ def test_delta_overcounts_stage_0_by_exactly_two_pi(baseline):
     """
     check = delta.check_normalization(baseline, n_angles=65, cone_factor=8.0)
     assert check.anchor_ratio == pytest.approx(1.0, rel=1e-4)
-    assert check.ratio == pytest.approx(2.0 * math.pi * check.captured_fraction, rel=2e-2)
+    assert check.ratio == pytest.approx(check.captured_fraction, rel=2e-2)
     assert abs(check.deviation) < 2e-2
+    # Explicitly not 2*pi off: the thing this test exists to notice.
+    assert delta.DIFFERENTIAL_PREFACTOR == pytest.approx(3.0 / (2.0 * math.pi), rel=1e-14)
 
 
 def test_an_empty_bunch_yields_zero_rather_than_raising():
@@ -341,8 +347,8 @@ def test_an_empty_bunch_yields_zero_rather_than_raising():
 def test_the_capture_correction_accounts_for_the_polarization_factor():
     """``X/(1+X)`` is the Lorentz factor alone and overstates what the cone holds.
 
-    It is the correction the 2*pi arbitration divides by, so an error here shows up as a
-    cone-dependent drift in a number that is supposed to be a constant.
+    It is the correction the normalization arbitration divides by, so an error here shows
+    up as a cone-dependent drift in a number that is supposed to be a constant.
     """
     for cone in (2.0, 4.0, 8.0, 20.0):
         x = cone**2
@@ -369,17 +375,26 @@ def test_the_grid_residue_shrinks_as_the_cone_widens(baseline):
     assert 0.0 < wide < narrow
 
 
-def test_the_two_pi_is_stable_as_the_angular_grid_is_refined(baseline):
+def test_the_normalization_ratio_is_stable_as_the_angular_grid_is_refined(baseline):
     """A constant that survives refinement is a constant, not a discretization artefact."""
     coarse = delta.check_normalization(baseline, n_angles=17, cone_factor=4.0)
     fine = delta.check_normalization(baseline, n_angles=65, cone_factor=4.0)
     assert fine.ratio == pytest.approx(coarse.ratio, rel=2e-3)
 
 
-def test_widening_the_cone_captures_more_and_moves_towards_two_pi(baseline):
-    ratios = [delta.check_normalization(baseline, n_angles=n, cone_factor=c).ratio
-              for c, n in ((4.0, 33), (8.0, 65))]
-    assert ratios[0] < ratios[1] < 2.0 * math.pi
+def test_widening_the_cone_captures_more_and_moves_towards_one(baseline):
+    """A wider cone can only add photons, and cannot reach more than the cone holds.
+
+    The ceiling is `captured_fraction`, not 1: at eight cone widths the ratio is 0.981
+    against a capture of 0.977, and the ~0.4% it sits *above* the disc correction is the
+    square grid's corners reaching past it. Asserting against a bare 1.0 would leave a 2%
+    margin that anyone retuning the cone or angle count would trip over for no reason.
+    """
+    settings = ((4.0, 33), (8.0, 65))
+    checks = [delta.check_normalization(baseline, n_angles=n, cone_factor=c) for c, n in settings]
+    assert checks[0].ratio < checks[1].ratio
+    for check, (cone, _) in zip(checks, settings):
+        assert check.ratio == pytest.approx(delta.captured_fraction(cone), rel=2e-2)
 
 
 def test_delta_is_linear_in_charge(baseline):

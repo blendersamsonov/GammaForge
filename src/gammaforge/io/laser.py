@@ -21,12 +21,24 @@ configuration is then carried into the real 3D geometry by
 lab y-axis. The roll about k-hat is *determined by that composition order*, not a free
 parameter, which is exactly why the order is pinned rather than left to the caller.
 
-**Physics deliberately not implemented here (P14c).** The energy→a0 chain below is the
-standard **linear-polarization** relation. ``ellipticity`` is carried as a first-class
-parameter but is an **explicit no-op**: §9.2 records that the paper has no formula for it
-(its polarization object is a normalized coherence matrix with no scalar ellipticity), so
-inventing one here would be exactly the silent approximation P14 forbids.
-:func:`validate` warns on any nonzero value rather than letting it pass unremarked.
+**Physics deliberately not implemented here (P14c).** Two parameters are carried in full
+and consumed only in part, and both say so out loud rather than passing unremarked:
+
+* ``ellipticity`` is an **explicit no-op**. The energy→a0 chain below is the standard
+  **linear-polarization** relation; §9.2 records that the paper has no formula for the
+  elliptical case (its polarization object is a normalized coherence matrix with no
+  scalar ellipticity), so inventing one here would be exactly the silent approximation
+  P14 forbids.
+* ``theta_xz``/``theta_yz`` are **geometry-only**. The rotation above is applied
+  everywhere the pulse is sampled, so *where* and *when* a crossing beam overlaps the
+  bunch is right; the *emission* physics downstream of that sampling is still head-on
+  (§9.3 — the paper's angular-spectrum derivation is built for near-backscattering and
+  accurate to O(θ²) about the collinear axis). Concretely, xigma's Stage 0 holds its
+  relative-velocity factor at ``2c`` and its Stage-2 kernel measures angles from the
+  collinear axis, neither of which knows about a crossing angle.
+
+:func:`validate` warns on both rather than letting a caller assume otherwise. The two
+markers below are the one-line greps for "the derivation landed".
 """
 
 from __future__ import annotations
@@ -56,12 +68,23 @@ __all__ = [
     "lab_frame_axes",
     "validate",
     "ELLIPTICITY_IS_NOOP",
+    "EMISSION_IS_HEAD_ON",
 ]
 
 #: §9.2 is unresolved: the paper gives no energy→a0 relation for elliptical polarization.
 #: Until it lands, ``ellipticity`` is carried but changes nothing. Flipping this to False
 #: is the one-line marker for "the derivation landed" — grep for it.
 ELLIPTICITY_IS_NOOP = True
+
+#: §9.3 is unresolved: the paper's angular-spectrum derivation is built for
+#: near-backscattering, and warns against extending it without revisiting the geometry.
+#: ``theta_xz``/``theta_yz`` therefore rotate the *sampling* geometry (:func:`rotation_matrix`
+#: is applied in full) while the emission physics stays head-on — in xigma that is Stage
+#: 0's fixed ``RELATIVE_VELOCITY = 2.0`` and a Stage-2 kernel whose angles are measured
+#: from the collinear axis. This module cannot import an engine to say so, hence a marker
+#: here and a matching comment there. The same "flip to False when it lands" grep as
+#: :data:`ELLIPTICITY_IS_NOOP`.
+EMISSION_IS_HEAD_ON = True
 
 
 # ---------------------------------------------------------------------------
@@ -507,6 +530,14 @@ def validate(laser: GaussianParaxialLaser) -> list[str]:
             f"ellipticity = {laser.ellipticity:g} is carried but not applied: the "
             "energy->a0 chain assumes linear polarization until the derivation of §9.2 "
             "lands. Results are those of a linearly polarized pulse."
+        )
+    if EMISSION_IS_HEAD_ON and (laser.m("theta_xz") != 0.0 or laser.m("theta_yz") != 0.0):
+        warnings.append(
+            f"crossing angle (theta_xz = {laser.m('theta_xz'):g} rad, theta_yz = "
+            f"{laser.m('theta_yz'):g} rad) rotates the sampling geometry but not the "
+            "emission physics: the relative-velocity factor and the angular kernel are "
+            "head-on until the derivation of §9.3 lands. Overlap and timing are right; "
+            "the spectrum is that of a head-on collision."
         )
     if abs(laser.m("z_fx")) > laser.rayleigh_x() or abs(laser.m("z_fy")) > laser.rayleigh_y():
         warnings.append(

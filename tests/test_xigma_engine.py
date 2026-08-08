@@ -115,6 +115,45 @@ def test_total_yield_and_spectrum_integral_converge_to_the_same_number():
     assert errors[1] < 0.01
 
 
+def test_the_two_normalization_paths_inside_one_results_object_agree():
+    """`Results` mixes two independent spectral paths, and only this compares them.
+
+    `SPECTRUM` comes from `stages.angle_integrated_spectrum` — Stage 0's own closed form,
+    which never touches the table or its kernel constant. Every angular output comes from
+    the table kernel. Until §9.1 was closed (`DECISIONS.md` D033) those two disagreed by
+    ``2 pi`` *within a single `Results` object*, and nothing noticed: the engine tests here
+    check signs, axis order and shapes, and the one that compares magnitudes
+    (`test_total_yield_and_spectrum_integral_converge_to_the_same_number`) has both of its
+    sides on the non-table path.
+
+    Integrating `SPECTRAL_ANGULAR_DISTRIBUTION` back over its two angle axes has to
+    reproduce `SPECTRUM`. It lands ~13% low, and the deficit is understood: the auto-range
+    spans about ``+-4.6/gamma``, which a closed-form capture correction puts near 94% of the
+    cone, and a 25-point trapezoid over a peaked angular profile shaves the rest. Nothing
+    like a factor of 6.28 hides in that.
+    """
+    requests = (
+        OutputRequest(OutputKind.SPECTRUM, resolution=(80,)),
+        OutputRequest(OutputKind.SPECTRAL_ANGULAR_DISTRIBUTION, resolution=(80, 25, 25)),
+    )
+    interaction = _interaction(n_particles=4000, outputs=requests)
+    params = XigmaEngine.schema.with_values(
+        n_bins_gamma=32, n_bins_theta_x=24, n_bins_theta_y=24,
+        n_bins_a0_shape=64, n_bins_ahat=8, scheme="cic",
+    )
+    results = XigmaEngine().run(interaction, params)
+
+    spectrum = results.photon_slices[OutputKind.SPECTRUM]
+    cube = results.photon_slices[OutputKind.SPECTRAL_ANGULAR_DISTRIBUTION]
+    energy = spectrum.axes[Axis.ENERGY]
+    theta_x, theta_y = cube.axes[Axis.THETA_X], cube.axes[Axis.THETA_Y]
+
+    dN_dE = np.trapezoid(np.trapezoid(cube.distr, theta_y, axis=2), theta_x, axis=1)
+    ratio = float(np.trapezoid(dN_dE, energy)) / float(np.trapezoid(spectrum.distr, energy))
+
+    assert 0.75 < ratio < 1.05
+
+
 def test_angular_and_collimated_slices_are_nonnegative():
     requests = (
         OutputRequest(OutputKind.ANGULAR_DISTRIBUTION, resolution=(4, 4)),

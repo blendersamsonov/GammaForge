@@ -1,9 +1,22 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.15 — 2026-08-08
+**Status:** draft v0.16 — 2026-08-08
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 **Changelog**
+- **v0.16**: §9.1 **closed**, and §9.3 given the marker §9.2 already had — Phase 3b's
+  code-side work, which was always the only part of 3b that did not depend on a derivation
+  the paper lacks. The `1/(2π)` D026 derived is now applied at both places this repo
+  transcribes the paper's differential cross-section (Stage 2's kernel constant and delta's
+  prefactor), and the identity harness's delta leg is gated at **1** instead of at a derived
+  `2π`, which is §11's stated exit criterion for 3b. The constant was set from the derivation
+  and *then* confirmed by an absolute measurement — the table kernel's own angle-integrated
+  photon count against Stage 0's elementary total, which no pre-existing test could see
+  because every one of them is a ratio between two paths carrying the same factor.
+  Separately, a nonzero crossing angle now warns that only the *geometry* is applied: the
+  rotation is real, the emission physics is head-on, and §9.3's asymmetry with §9.2 (which
+  had a marker and a warning) was itself a P14c violation. `DECISIONS.md` D033, D034.
+  §9.2 and §9.3's derivations remain the author's, unstarted, and non-blocking.
 - **v0.15**: Stage 1 restructured, within the same Phase 3a — supersedes v0.14's item (a).
   Direct deposit onto `ahat` (v0.14) is replaced by a two-step pipeline: `deposit_shape_table`
   bins the a0-independent `a0_shape` onto a fine, uniform grid; `retarget_ahat` conservatively
@@ -928,7 +941,7 @@ assumption was broken" test zoo.
 
 ## 9. Physics work items
 
-### 9.1 ~2π kernel normalization — **TRACED (Phase 2.5); one authoring decision left**
+### 9.1 ~2π kernel normalization — **CLOSED (traced Phase 2.5, applied Phase 3b)**
 
 **Resolved as an investigation.** The factor is exactly `2π`, it is in the **paper**, and
 it is not a porting artefact. `eq:xsec` is missing `1/(2π)`, and `eq:main`/`eq:Fmatrix`
@@ -947,14 +960,21 @@ annotated at both equations.
   rescales (both labelled *QUICK FIX*), and its headline `total_yield` came from the
   luminosity sum — a path that never touches the kernel. That is why only *delta* ever
   showed it.
-- **What remains is an authoring choice, not a computation:** where the `1/(2π)` belongs —
-  the prefactor, the normalization of `R`, or the definition of `Û`. Phase 3a sets Stage
-  2's constant once that lands; §4.2 already requires it to live in one module-level
-  location.
-- Until then the identity harness reports the ratio against its **derived** value (D025),
-  so the suite stays green while the question is open and turns red if the ratio moves.
-  Encoding it as "expected 1.0" would either make the suite permanently red or require
-  pasting in a constant nobody has justified (P14).
+- **Applied in Phase 3b (`DECISIONS.md` D033).** Stage 2's constant is `1.5/(2π)` and
+  delta's prefactor is `3/(2π)` — one correction at the two places this repo transcribes
+  eq. `xsec`. The identity harness's delta leg is gated at **1**, not at a derived `2π`,
+  which supersedes D025's "report, don't correct" stance: the factor is no longer
+  unexplained, so reporting it no longer tells anyone anything.
+- **Order, because P14 turns on it:** the constant came from the derivation above, and was
+  *then* confirmed against an absolute measurement — the table kernel's own angle-integrated
+  photon count vs Stage 0's elementary total, which read `2π × 0.997` before the correction.
+  Every other Stage-2 check is a ratio between two paths carrying the same factor and is
+  blind to this by construction, so that measurement had to be built (`tests/test_stage1_stage2.py`).
+- **The one authoring choice left changes no number.** Where the `1/(2π)` belongs in the
+  manuscript — the prefactor, the normalization of `R`, or the definition of `Û` — is still
+  the author's; all three placements fix the same `d³N/(dω d²Ω)`, which is why the code did
+  not wait on it. The manuscript stays annotated rather than edited (D026), so the repo
+  knowingly computes corrected physics against an uncorrected typeset equation.
 
 ### 9.2 Laser energy→a0 with ellipticity (net-new derivation, parallel track)
 
@@ -977,6 +997,13 @@ annotated at both equations.
   derivation lands. Derivation proceeds with the author in parallel; validate against
   kascade's arbitrary-angle MC at intermediate angles; the angle enters the Stage-2
   kernels in one place. Never silently approximate (P14c).
+- **Marked as of Phase 3b (D034).** The trap here is subtler than §9.2's, because the
+  crossing angle is *partly* implemented: `rotation_matrix` is applied wherever the pulse is
+  sampled, so overlap, timing and the sampled a0 all respond to a tilt, while
+  `RELATIVE_VELOCITY` and the Stage-2 kernel's angles do not. A caller who tilts the beam
+  and sees the yield move will assume the physics followed. `EMISSION_IS_HEAD_ON` and a
+  `validate()` warning now say otherwise — the same one-line "flip when it lands" marker
+  §9.2 has carried since Phase 1.
 
 ### 9.4 Deferred (design for, don't build)
 
@@ -1020,7 +1047,7 @@ annotated at both equations.
 | **2. Validation harness** | scenarios, runners skeleton, `make_references.py` + first golden snapshots from old repo; invariance-test scaffolding (chunk, prefilter, backend, seed — §7) | Golden generation runs; new-vs-golden comparisons execute |
 | **2.5. Stage 0 + minimal delta** | **Stage 0** (`integrate_trajectories`) and the **shared auto-chunk + OOM-retry utility** (§4.2), pulled forward from 3a because delta needs both; delta itself scoped to Stage-2 normalization arbitration, built on top of Stage 0 (§4.5) | Stage 0 tests green; chunk-invariance holds; delta produces independent spectra on baseline scenarios; identity harness (`kernel` vs `reference` vs `direct binning` vs delta) executable |
 | **3a. xigma engineering** — **landed 2026-08-08** | Stage 1/2 pure functions; Collision facade + stage cache; Engine wrapper; numpy kernel for Stages 1/2, cupy/numba gated like Stage 0 until real kernels exist (**Stage 0 and the chunking utility already built in 2.5**; D029); geometry/a0/ellipticity parameters wired as explicit identity/no-op placeholders (P14c) | Stage architecture tests green; placeholders documented |
-| **3b. Physics closure** | ~2π resolution (§9.1 — **traced in Phase 2.5**; what remains is the author's choice of where the `1/(2π)` belongs, then Stage 2's constant), crossing-angle derivation (§9.3), ellipticity→a0 (§9.2) — **runs concurrently with Phases 4 and 5, not serially** | §9.1's constant set in Stage 2 and the identity harness re-gated against 1.0 rather than 2π; §9.2/§9.3 derivations landed if author completes them in parallel (never blocking 4–6) |
+| **3b. Physics closure** — **§9.1 landed 2026-08-08; §9.2/§9.3 open, non-blocking** | ~2π resolution (§9.1 — **closed**: traced in 2.5, applied in 3b, D033), crossing-angle derivation (§9.3), ellipticity→a0 (§9.2) — **runs concurrently with Phases 4 and 5, not serially** | §9.1's constant set in Stage 2 and the identity harness re-gated against 1.0 rather than 2π — **met**; §9.2/§9.3 derivations landed if author completes them in parallel (never blocking 4–6) — **outstanding, and the paper contains no formula for either**, so both stay wired as documented no-ops with `validate()` warnings (D034) |
 | **4. analytical engine** | estimates + component breakdown; quadrature spectrum; growth items (foci displacement, non-round beam, collimated spectrum) | Closed-form limits match; validation anchor ready |
 | **5. kascade port + delta full role** | minimal kascade behind interface **+ its Thomson-limit sanity check (B4)**; delta full cross-validation role | 4-method cross-validation runs; kascade sanity check passes |
 | **6. GUI** | schema-driven two-tab app; overlays + per-engine show/hide; save plots/HDF5; grey-out/release; sketch panel (headless module first); **import-boundary check enforced in CI (B3)** | GUI runs headless-smoke; all planned interactions work; boundary check green |
@@ -1040,7 +1067,7 @@ duplicated (C4).
 
 | Risk | Mitigation |
 |------|-----------|
-| ~2π normalization turns out to be a paper-level issue | **It did** (Phase 2.5, D026): `eq:xsec` is missing `1/(2π)`. The mitigation worked as designed — delta arbitrated independently, the paper formula was treated as necessary-not-sufficient, and the constant is isolated to one location so setting it in Phase 3a is a one-line change |
+| ~2π normalization turns out to be a paper-level issue | **It did** (Phase 2.5, D026): `eq:xsec` is missing `1/(2π)`. The mitigation worked as designed — delta arbitrated independently, the paper formula was treated as necessary-not-sufficient, and the constant was isolated to one location, so applying it in Phase 3b was the one-line change it was meant to be (D033). Residual: the manuscript is annotated, not corrected, so the repo and the typeset equation knowingly differ |
 | Crossing-angle and ellipticity→a0 have **no existing derivation** in the paper (confirmed by audit, not just undocumented) | Open-ended research tasks, not consult-and-implement: parameters are first-class in schema/architecture now; physics wired as explicit identity/no-op until derivations land; derivation runs in parallel (P14c, §9.2/§9.3); never blocks Phases 3a–6 |
 | Old-repo golden data encodes bugs | Goldens are transitional; closed-form identities + delta reference are the real anchors; goldens regenerated deliberately |
 | Chunking regressions (OOM class) | Chunk-invariance property tests from Phase 2 on; single shared auto-chunk + OOM-retry utility (porting algorithm + constants, not the old triplicated code) |

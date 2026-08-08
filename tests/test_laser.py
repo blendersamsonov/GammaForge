@@ -9,6 +9,7 @@ import pytest
 
 from gammaforge.io.laser import (
     ELLIPTICITY_IS_NOOP,
+    EMISSION_IS_HEAD_ON,
     ActiveRegion,
     GaussianParaxialLaser,
     LaserField,
@@ -357,3 +358,23 @@ def test_ellipticity_is_a_documented_no_op_not_a_silent_one():
     warnings = validate(make_laser(ellipticity=0.5))
     assert any("ellipticity" in warning for warning in warnings)
     assert not any("ellipticity" in warning for warning in validate(make_laser()))
+
+
+def test_a_crossing_angle_warns_that_only_the_geometry_is_applied():
+    """§9.3/P14c, the sibling of the ellipticity no-op — and the harder one to notice.
+
+    A crossing angle is not ignored: `rotation_matrix` carries it into every sampling
+    position, so overlap and timing genuinely change. What does not change is the
+    *emission* — xigma holds `RELATIVE_VELOCITY` at 2 and measures kernel angles from the
+    collinear axis. A caller who sees the geometry respond has every reason to assume the
+    physics did too, which is exactly why this one has to be said rather than inferred.
+    """
+    assert EMISSION_IS_HEAD_ON
+    tilted = make_laser(theta_xz=Q(0.2, "rad"))
+    warnings = validate(tilted)
+    assert any("crossing angle" in warning for warning in warnings)
+    assert any("crossing angle" in warning for warning in validate(make_laser(theta_yz=Q(0.2, "rad"))))
+    assert not any("crossing angle" in warning for warning in validate(make_laser()))
+    # The geometry really is applied — this is a warning about the physics, not about a
+    # parameter that does nothing.
+    assert not np.allclose(lab_frame_axes(0.2, 0.0, 0.0)[0], lab_frame_axes(0.0, 0.0, 0.0)[0])

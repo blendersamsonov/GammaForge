@@ -18,20 +18,24 @@ head-on electron of Lorentz factor ``gamma`` has its Compton edge at ``s = gamma
 Angles are the small-angle observation direction ``(theta_x, theta_y)`` in rad, and
 ``dOmega = dtheta_x dtheta_y`` to the same order.
 
-**The 2 pi (§9.1).** The predecessor recorded that this method's angle-integrated total
-ran "consistently ~6.3x" its table-free spectrum, "suspiciously close to 2*pi, not yet
-explained". It is not close to ``2 pi``; it is exactly ``2 pi``, and the integral is
-elementary. For one macroparticle of weight ``L``, with ``u = gamma**2 r**2`` and the
-azimuthal average ``<a_fac> = 1 - 2u/(1 + u)**2``::
+**The 2 pi (§9.1) — traced, then closed.** The predecessor recorded that this method's
+angle-integrated total ran "consistently ~6.3x" its table-free spectrum, "suspiciously
+close to 2*pi, not yet explained". It is not close to ``2 pi``; it is exactly ``2 pi``,
+and the integral is elementary. For one macroparticle of weight ``L``, with
+``u = gamma**2 r**2``, the azimuthal average ``<a_fac> = 1 - 2u/(1 + u)**2`` and the
+paper's own prefactor of ``3``::
 
     int dOmega  3 L gamma**2 <a_fac> / (1 + u)**2
         = 3 pi L int_0^inf du [ 1/(1+u)**2 - 2u/(1+u)**4 ]
         = 3 pi L [ 1 - 2*(1/6) ]
         = 2 pi L
 
-So :func:`resonance_spectrum`'s prefactor integrates to ``2 pi`` times the photon count
-Stage 0 assigned that particle, not to the count itself — see :func:`check_normalization`
-for which side of that is the photon number and which is the open question.
+That is ``2 pi`` times the photon count Stage 0 assigned the particle, not the count
+itself, and the two lines above are the whole proof that the paper's eq. *(xsec)* is short
+a ``1/(2 pi)`` (D026). :data:`DIFFERENTIAL_PREFACTOR` now carries that correction, so this
+module computes the *corrected* physics rather than the equation as typeset — see D033 for
+why a reference implementation follows the derivation and not the typo, and
+:func:`check_normalization`, which as of Phase 3b expects **one**.
 """
 
 from __future__ import annotations
@@ -51,7 +55,17 @@ __all__ = [
     "captured_fraction",
     "check_normalization",
     "DEFAULT_CONE_FACTOR",
+    "DIFFERENTIAL_PREFACTOR",
 ]
+
+#: The bare differential cross-section's prefactor, ``3 / (2 pi)`` (§9.1, D026/D033).
+#: The paper's eq. *(xsec)* reads ``3`` and is short a factor ``1/(2 pi)``; the module
+#: docstring's two elementary integrals are the derivation. delta implements the corrected
+#: value so that its angle-integral is a photon count — the same number Stage 0 counts
+#: directly — rather than ``2 pi`` of them. `engines.xigma.stages`'s
+#: ``KERNEL_NORMALIZATION_CONSTANT`` carries the identical correction for the table kernel,
+#: which is why the two remain directly comparable.
+DIFFERENTIAL_PREFACTOR = 3.0 / (2.0 * math.pi)
 
 #: How far out to integrate the angular grid, in units of the ``1/gamma`` radiation cone.
 #: The tail converges slowly — four cone widths hold about **92%** of the yield, not "all
@@ -85,7 +99,9 @@ def resonance_spectrum(
     gamma-integral collapse a table lookup performs, and delta never performs it.
 
     The histogram is returned as a density in ``s``, so integrating it over ``s`` and over
-    solid angle gives a photon count directly comparable with Stage 0's own total.
+    solid angle gives a photon count directly comparable with Stage 0's own total — and
+    since Phase 3b, equal to it, because :data:`DIFFERENTIAL_PREFACTOR` carries §9.1's
+    ``1/(2 pi)``. Before that correction this integrated to ``2 pi`` times the count.
     """
     gamma = samples.gamma
     ahat = samples.ahat()
@@ -100,7 +116,7 @@ def resonance_spectrum(
     cos_polarization = np.cos(psi_pol - np.arctan2(delta_y, delta_x)) ** 2
     polarization = 1.0 - 4.0 * cos_polarization * r_squared * gamma_squared * lorentz
 
-    weights = 3.0 * samples.luminosity * polarization * gamma_squared * lorentz
+    weights = DIFFERENTIAL_PREFACTOR * samples.luminosity * polarization * gamma_squared * lorentz
 
     s_edges = np.asarray(s_edges, dtype=float)
     histogram, _ = np.histogram(s_res, bins=s_edges, weights=weights)
@@ -166,18 +182,21 @@ class NormalizationCheck:
     """What delta says about the Stage-2 normalization, and how much to trust it.
 
     ``ratio`` is delta's angle-integrated photon count divided by Stage 0's own total
-    yield. The module docstring derives what it must be: ``2 pi``, exactly, before
-    truncation.
+    yield. It must be **one**, before truncation: two paths counting the same photons.
+    Until Phase 3b it was ``2 pi``, which is the §9.1 story in a single number — see the
+    module docstring for the derivation and D033 for the closure.
 
     ``anchor_ratio`` is the same quotient for the closed-form
     :func:`single_electron_spectrum`, which is **exactly one** by construction. It is
     computed anyway, because a number that is supposed to be exactly one is the cheapest
     check that the comparison itself is sound — if the anchor drifts, the arbitration is
-    not measuring what it claims to.
+    not measuring what it claims to. It has always read one, and it is now the *second*
+    quantity here that does; the two are still independent, since the anchor is a closed
+    form and ``ratio`` is a grid sum over a per-particle histogram.
 
     ``captured_fraction`` is how much of the angular distribution the grid covered, so a
     truncated integral is never mistaken for a normalization defect. It is what
-    :attr:`expected_ratio` corrects ``2 pi`` by.
+    :attr:`expected_ratio` reduces one by.
     """
 
     ratio: float
@@ -189,8 +208,8 @@ class NormalizationCheck:
 
     @property
     def expected_ratio(self) -> float:
-        """``2 pi``, reduced by what the finite grid could not see."""
-        return 2.0 * math.pi * self.captured_fraction
+        """One, reduced by what the finite grid could not see."""
+        return self.captured_fraction
 
     @property
     def deviation(self) -> float:
@@ -199,7 +218,7 @@ class NormalizationCheck:
 
     def summary(self) -> str:
         return (
-            f"delta/Stage 0 = {self.ratio:.6f} vs 2*pi*capture = {self.expected_ratio:.6f} "
+            f"delta/Stage 0 = {self.ratio:.6f} vs capture = {self.expected_ratio:.6f} "
             f"({self.deviation:+.2%}); closed-form anchor {self.anchor_ratio:.6f}; "
             f"{100.0 * self.captured_fraction:.2f}% of the cone captured on a "
             f"{self.n_angles}x{self.n_angles} grid out to {self.cone_factor}/gamma"
@@ -213,25 +232,27 @@ def check_normalization(
     n_angles: int = 33,
     cone_factor: float = DEFAULT_CONE_FACTOR,
 ) -> NormalizationCheck:
-    """Compare delta's absolute photon count with Stage 0's, and report — do not judge.
+    """Compare delta's absolute photon count with Stage 0's. Since Phase 3b: expect one.
 
-    This is the §9.1 arbitration reduced to one number, and the arbitration now has an
-    answer: the two differ by exactly ``2 pi`` (module docstring), reproduced here from a
-    clean CGS reimplementation, so the predecessor's ~6.3 was not an artefact of its
-    coordinate normalization.
+    This is the §9.1 arbitration reduced to one number, and it is now a *regression* check
+    rather than an open question. The history is worth keeping in view, because it is the
+    only reason to trust the answer:
 
-    **Which side is the photon count.** Stage 0's total is
+    **Which side was the photon count.** Stage 0's total is
     ``flux x cross-section x time``, summed — an elementary count that needs no
     convention. The closed-form :func:`single_electron_spectrum` integrates to exactly
     that same total, independently. Two agreeing methods against one, and the odd one out
-    is the one carrying a differential solid-angle measure — an extra ``2 pi`` is what an
-    azimuthal integral counted twice looks like.
+    was the one carrying a differential solid-angle measure — an extra ``2 pi`` is what an
+    azimuthal integral counted twice looks like. This function reproduced it from a clean
+    CGS reimplementation, so the predecessor's ~6.3 was not an artefact of its coordinate
+    normalization.
 
-    That is a diagnosis, not a patch. **No factor is applied here**: which normalization
-    xigma's Stage-2 kernel should carry is a statement about the paper's formalism (§9.1),
-    the kernel does not exist yet (Phase 3a), and P14 forbids inserting a constant that
-    makes a test pass. What this function does is turn an unexplained ratio into a derived
-    one, so the remaining question is about a convention rather than about a number.
+    **The factor is now applied at the source, not here** (D033). :data:`DIFFERENTIAL_PREFACTOR`
+    carries the ``1/(2 pi)`` D026 derived, so this ratio reads one and departures from one
+    are what the harness watches — including a departure of ``2 pi``, which would mean a
+    prefactor got reverted. P14's rule is intact: the constant was predicted from the
+    derivation and then confirmed against this number, not tuned until this number
+    cooperated.
     """
     edge = float(np.max(samples.gamma) ** 2)
     s_edges = np.linspace(0.0, 1.05 * edge, n_bins + 1)
@@ -270,7 +291,10 @@ def captured_fraction(cone_factor: float) -> float:
             = 3 pi [ X/(1+X) - 1/3 + (1+X)^-2 - (2/3)(1+X)^-3 ]
 
     against the full ``2 pi`` derived in the module docstring, so the fraction is that
-    bracket times ``3/2``. At ``X = 16`` (four cone widths) it is 0.917.
+    bracket times ``3/2``. At ``X = 16`` (four cone widths) it is 0.917. Both integrals are
+    written with the paper's bare prefactor ``3`` rather than
+    :data:`DIFFERENTIAL_PREFACTOR`, and may stay that way: this is a *ratio* of the two, so
+    §9.1's ``1/(2 pi)`` cancels out of it exactly.
 
     **The polarization factor has to be in here.** Integrating the Lorentz factor alone —
     which gives the tidier ``X/(1+X)`` — overstates the capture (0.941 at four cone widths)

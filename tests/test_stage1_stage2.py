@@ -8,8 +8,11 @@ through the regrid) plus placing mass where the chosen peak a0 actually puts it 
 near `ahat_max`, folded into the floor below `ahat_min`. Stage 2's job is the resonance
 condition: the spectrum it reports must depend on ahat the way the physics does (the
 nonlinear redshift), and it must agree with `delta` — an independent, table-free
-implementation of the same differential form — to within grid/interpolation error,
-entirely apart from the open §9.1 question both of them carry identically.
+implementation of the same differential form — to within grid/interpolation error.
+
+Most of those are ratios between two paths carrying the same normalization, which is what
+makes them robust and also what makes them blind: `test_the_table_kernel_angle_integrates_to_stage_0_total`
+is the one absolute check, and the one that pins §9.1's constant (`DECISIONS.md` D033).
 """
 
 from __future__ import annotations
@@ -31,7 +34,7 @@ from gammaforge.engines.xigma.stages import (
     spectrum_in_angular_range,
 )
 from gammaforge.validation import scenarios
-from gammaforge.validation.references.delta import resonance_spectrum
+from gammaforge.validation.references.delta import captured_fraction, resonance_spectrum
 
 
 def _samples(scenario, n_particles=20_000, **kwargs):
@@ -333,8 +336,9 @@ def test_spectrum_in_angular_range_photon_count_matches_the_cube_integral():
 
 
 # ---------------------------------------------------------------------------
-# Stage 2 vs delta: an identity gate insensitive to the open §9.1 question (both carry
-# the same pending factor, so their ratio is ~1 today and stays ~1 after 3b sets it).
+# Stage 2 vs delta: an identity gate insensitive to §9.1 (both carry the same factor, so
+# their ratio was ~1 before D033 set it and is ~1 after). The absolute normalization the
+# ratio cannot see gets its own test at the bottom of this section.
 # ---------------------------------------------------------------------------
 def test_stage2_kernel_agrees_with_delta_at_a_point():
     """CIC, not nearest: evaluating exactly at the beam's own angular centre — the natural
@@ -358,3 +362,53 @@ def test_stage2_kernel_agrees_with_delta_at_a_point():
 
     ratio = float(np.sum(kernel)) / float(np.sum(reference))
     assert ratio == pytest.approx(1.0, abs=0.1)
+
+
+def test_the_table_kernel_angle_integrates_to_stage_0_total(baseline):
+    """§9.1's closure, on the one quantity that can actually see it (`DECISIONS.md` D033).
+
+    Every other Stage-2 check in this file is a *ratio* between two paths that carry the
+    same normalization constant, so all of them stayed green through a factor of ``2 pi``
+    and would stay green through any other. This one is absolute: integrate the table
+    kernel over solid angle and over ``s``, and compare with Stage 0's elementary
+    ``flux x cross-section x time`` photon count. It is the same arbitration
+    `delta.check_normalization` performs for delta, applied to the kernel that actually
+    ships.
+
+    The sequence matters, and it was this one: D026 derived ``1/(2 pi)`` from two
+    elementary integrals; `KERNEL_NORMALIZATION_CONSTANT` was set to
+    ``1.5 / (2 pi)`` from that derivation; *then* this integral was measured. With the
+    uncorrected constant it read ``2 pi x 0.997`` on a 49x49 grid with 640 ``s`` bins — the
+    factor, and nothing but the factor. Nothing here was tuned to make a number come out
+    (P14).
+
+    **The tolerance is resolution, not doubt.** Both integrals are midpoint sums over grids
+    sized for a ten-second test: the angular one samples a ``1/gamma``-wide cone, and the
+    ``s`` one a spectrum narrower still. Refining either walks the ratio straight in —
+    measured on this fixture, 1.078 here, 1.015 at 21 angles, 1.006 at 21 angles and 480
+    ``s`` bins, 0.991 at 21 angles over six cone widths. ±15% covers the grid this test can
+    afford, and is nowhere near wide enough to blur the only distinction it exists to make,
+    which is between 1 and 6.28.
+    """
+    n_angles, cone = 17, 4.0
+    table = _table(baseline, shape_bins=(32, 24, 24, 64), scheme="cic")
+
+    edge = float(np.max(baseline.gamma) ** 2)
+    s_edges = np.linspace(0.0, 1.05 * edge, 241)
+    s_centers = 0.5 * (s_edges[:-1] + s_edges[1:])
+    widths = np.diff(s_edges)
+
+    half = cone / float(np.mean(baseline.gamma))
+    step = 2.0 * half / n_angles
+    offsets = -half + step * (np.arange(n_angles) + 0.5)
+    grid_x = float(np.mean(baseline.theta_x)) + offsets
+    grid_y = float(np.mean(baseline.theta_y)) + offsets
+
+    cube = angular_spectrum_from_table(table, grid_x, grid_y, s_centers)
+    photons = float(np.sum(cube * widths[None, None, :])) * step * step
+    # What the finite cone could not see — the same closed-form correction delta's own
+    # arbitration divides by, and for the same reason.
+    ratio = photons / baseline.total_yield() / captured_fraction(cone)
+
+    assert ratio == pytest.approx(1.0, rel=0.15)
+    assert ratio < 2.0  # i.e. nowhere near the 2*pi this used to be

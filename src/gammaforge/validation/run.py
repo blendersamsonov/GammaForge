@@ -10,11 +10,12 @@ honest about what it did rather than silently doing less:
 * **core invariants** — properties of `gammaforge.io` alone (bunch seed determinism, the
   prefilter discarding only particles the pulse never reaches). These run now.
 * **identities** — methods that must agree on the same number: Stage 0's total yield, the
-  closed-form single-electron spectrum, and delta's brute-force angular integral. The
-  third disagrees by exactly ``2 pi`` (§9.1, open) and is reported against that derived
-  value rather than against 1. A fourth leg compares Stage 2's own table kernel against
-  delta at one point — both carry the same pending factor, so unlike the third leg this
-  one is expected at ~1 *today*, and stays there once 3b sets the constant.
+  closed-form single-electron spectrum, and delta's brute-force angular integral. All
+  three now agree on 1: the third disagreed by exactly ``2 pi`` until Phase 3b closed §9.1
+  (`DECISIONS.md` D033), and this leg is what would catch that factor coming back. A
+  fourth leg compares Stage 2's own table kernel against delta at one point; both carry
+  the same §9.1 factor, so it read ~1 before the closure and reads ~1 after — it checks
+  deposition and interpolation, deliberately not the normalization.
 * **goldens** — every committed snapshot is loaded and its stored closed-form scalars are
   compared against what this repo computes for the same scenario. This is a real
   cross-implementation check with no engine in it: two independent codebases, the same
@@ -121,23 +122,27 @@ def identity_checks(scenarios: Sequence[Scenario]) -> list[Check]:
     Four legs exist today. Stage 0's total yield is an elementary
     ``flux x cross-section x time`` count; the closed-form single-electron spectrum
     integrates to that same number as an identity; delta's angular integral is the
-    independent brute-force path. The first two agree exactly, and delta comes out at
-    ``2 pi`` — the §9.1 discrepancy, derived rather than observed (see
-    `gammaforge.validation.references.delta`).
+    independent brute-force path. All three agree on one.
 
-    The 2 pi leg is reported against its **derived** value, so this section stays green
-    while the question is open and turns red if the ratio ever moves. Encoding it as
-    "expected 1.0, fails" would make the suite permanently red and therefore ignored;
-    encoding it as "expected 1.0, passes" would require pasting in a constant nobody has
-    justified (P14). Neither is what a harness is for.
+    **The delta leg is the §9.1 tripwire, and it changed meaning in Phase 3b.** It used to
+    report against a *derived* ``2 pi`` — green while the question was open, red if the
+    ratio moved — because encoding "expected 1.0" would have meant either a permanently red
+    suite or a constant nobody had justified (P14). D026 derived the factor and D033 applied
+    it at both transcriptions of the paper's cross-section, so the leg now reads what an
+    identity should read. What it watches is unchanged: a ratio that walks away from its
+    expected value, which after the closure includes a return to ``2 pi``.
 
     The fourth leg (Phase 3a) is Stage 2's own table kernel against delta, at one
-    observation point — both carry the *same* pending §9.1 factor, so their ratio is a
-    genuine identity today (~1), not another 2 pi-shaped gap, and it stays ~1 after 3b
-    sets the constant. It is what actually exercises `stages.deposit_shape_table`/
-    `stages.retarget_ahat`/`angular_spectrum_from_table` in the suite, at a scale
+    observation point. Both sides carry the *same* §9.1 factor, before and after the
+    closure, so this ratio was ~1 throughout and is deliberately blind to the
+    normalization — what it exercises is `stages.deposit_shape_table`/
+    `stages.retarget_ahat`/`angular_spectrum_from_table`, at a scale
     `python -m gammaforge.validation.run` can afford (see the module docstring for why
-    the engine itself is not wired in at full scenario-bank resolution yet).
+    the engine itself is not wired in at full scenario-bank resolution yet). The check that
+    the *absolute* kernel normalization is right — angle-integrating the table kernel and
+    comparing with Stage 0's count, the same arbitration delta gets here — needs a fine
+    ``s`` grid to converge and lives in
+    `tests/test_stage1_stage2.py::test_the_table_kernel_angle_integrates_to_stage_0_total`.
     """
     from ..engines.xigma.stages import (
         angular_spectrum_from_table,
@@ -169,18 +174,18 @@ def identity_checks(scenarios: Sequence[Scenario]) -> list[Check]:
             detail=f"anchor ratio {normalization.anchor_ratio:.6f} (identity, up to binning)",
         ))
         checks.append(Check(
-            name=f"{scenario.name} delta/Stage 0 = 2*pi (\u00a79.1 traced; constant pending)",
+            name=f"{scenario.name} delta/Stage 0 = 1 (\u00a79.1 closed, D033)",
             passed=abs(normalization.deviation) <= 2e-2,
             detail=normalization.summary(),
         ))
 
         # Fourth leg: Stage 2's table kernel against delta's particle-based histogram, at
-        # one observation point. Both carry the *same* pending section-9.1 factor
-        # (`stages.py`'s `KERNEL_NORMALIZATION_CONSTANT` is pi-free, and delta's own
-        # prefactor is what the derived 2*pi above comes from), so this ratio is ~1 today
-        # and stays ~1 once 3b sets the constant, unlike the two legs above. It checks
-        # deposition and interpolation, deliberately insensitive to the open authoring
-        # question. CIC, not the default `nearest`: evaluating exactly at the beam centre
+        # one observation point. Both carry the *same* section-9.1 factor
+        # (`stages.py`'s `KERNEL_NORMALIZATION_CONSTANT` and delta's `DIFFERENTIAL_PREFACTOR`
+        # are the same correction applied to the same equation), so this ratio read ~1
+        # before D033 and reads ~1 after: it checks deposition and interpolation, and is
+        # deliberately insensitive to the normalization the leg above watches.
+        # CIC, not the default `nearest`: evaluating exactly at the beam centre
         # aliases against a nearest-deposited table's own cell boundaries
         # (`tests/test_stage1_stage2.py` measured 0.5x-1.7x at nearest with 40-100 theta
         # bins; CIC holds within a few percent).

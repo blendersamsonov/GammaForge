@@ -17,7 +17,7 @@ Phase numbers/names match `docs/GRAND_PLAN.md` §11.
 | 2. Validation harness | 🟢 done — both exit criteria met (see 2026-08-07 Phase 2 session) |
 | 2.5. Stage 0 + minimal delta | 🟢 done — all four exit criteria met; §9.1 now a *derived* open question (see below) |
 | 3a. xigma engineering | 🟢 done — Stage 1/2, `Collision`, `XigmaEngine` landed 2026-08-08 (see below) |
-| 3b. Physics closure | ⚪ not started |
+| 3b. Physics closure | 🟡 §9.1 done (2026-08-08) — §9.2/§9.3 blocked on the author; the paper has no formula for either, and both are non-blocking for 4–6 by design |
 | 4. analytical engine | ⚪ not started |
 | 5. kascade port + delta full role | ⚪ not started |
 | 6. GUI | ⚪ not started |
@@ -757,6 +757,76 @@ D029) re-verified at the identity harness's 2000-particle scale with the new pip
 
 `docs/GRAND_PLAN.md` bumped to v0.15. `DECISIONS.md` gained D032 and a "superseded by D032"
 note prepended to D028 (left as historical record, not rewritten).
+
+---
+
+## 2026-08-08 — Phase 3b: §9.1 closed; §9.3 marked
+
+**§9.1 is done.** The `1/(2π)` D026 derived is now applied, at the two places this repo
+transcribes the paper's differential cross-section: `KERNEL_NORMALIZATION_CONSTANT` is
+`1.5/(2π)` and delta's new `DIFFERENTIAL_PREFACTOR` is `3/(2π)`. The identity harness's
+delta leg is gated at **1** — `NormalizationCheck.expected_ratio` dropped its `2π` and now
+reports against the captured fraction alone — which is §11's stated exit criterion for this
+phase. It reads 0.9813 against a capture of 0.9773 (+0.41%) on all three scenarios.
+
+**The measurement that licensed the change, and the one that could not.** Every Stage-2
+check that existed — including the fourth identity leg — is a *ratio* between two paths
+carrying the same normalization constant. All of them were green with the factor present
+and are green with it removed; they cannot see normalization at all. So the discriminating
+quantity had to be built: angle-integrate the table kernel over a cone and compare with
+Stage 0's elementary `flux × cross-section × time` photon count, the same arbitration delta
+already gets. Measured **before** touching the constant, on a 49×49 angular grid with 640
+`s` bins: `2π × 0.9966` — the factor and nothing but the factor, on a path independent of
+delta's. Order matters here and it was the right one (D026 derived → constant set from the
+derivation → measurement confirmed), which is the difference between P14-compliant and
+fitting a constant until a test passes.
+
+That check now lives in `tests/test_stage1_stage2.py::test_the_table_kernel_angle_integrates_to_stage_0_total`,
+at a resolution sized for a ~10s test (reads 1.078, ±15% tolerance; refining to 21 angles
+gives 1.015, and 21 angles × 480 `s` bins gives 1.006 — the residue is midpoint-rule
+convergence on two peaked integrands, and the distinction the test has to make is 1 vs 6.28).
+
+**A second thing the closure fixed, found on review.** `Results` mixes two spectral paths:
+`SPECTRUM` comes from Stage 0's closed form (never touches the table), everything angular
+comes from the table kernel. So before today xigma's own outputs were internally
+inconsistent by 2π *within one `Results` object* — and no test could see it, because the
+only engine test comparing magnitudes has both sides on the non-table path. Integrating
+`SPECTRAL_ANGULAR_DISTRIBUTION` back over its angle axes now reproduces `SPECTRUM` to 0.87
+(the rest is the auto-range's ~4.6/γ angular span and a 25-point trapezoid, both understood);
+`test_the_two_normalization_paths_inside_one_results_object_agree` pins it.
+
+**§9.3 got the marker §9.2 has had since Phase 1.** `io.laser.EMISSION_IS_HEAD_ON` +
+a `validate()` warning on nonzero `theta_xz`/`theta_yz`. This was a real P14c gap and a
+sneaky one: the crossing angle *is* half-implemented — `rotation_matrix` is applied wherever
+the pulse is sampled, so overlap, timing and the sampled a0 all move correctly with a tilt,
+while `RELATIVE_VELOCITY` stays 2 and the Stage-2 kernel keeps measuring angles from the
+collinear axis. Tilt the beam, watch the yield change, conclude the physics followed. Worse
+than a parameter that visibly does nothing, and it was the one with no warning.
+
+**Verification:** 294 tests pass (+3: the absolute-normalization check, the two-path engine
+check, and the crossing-angle warning); `python -m gammaforge.validation.run` green in ~3s
+with the delta leg re-gated; doc-staleness green. The golden *scalars* the suite compares are
+closed-form quantities (`a0_peak`, `n_electrons`, `n_photons` from the luminosity path), none
+of which passes through a kernel prefactor, so they are untouched. Golden *slice* comparison
+is absolute rather than shape-normalized and is not wired into the default run (D031) — see
+D033 for why the predecessor's slices are expected to be self-normalized and why that should
+be verified when Phase 5/7 turns the comparison on, not assumed now.
+
+**Blocked, and staying blocked (both non-blocking for Phases 4–6 by design):**
+- **§9.2 (ellipticity→a0)** — the paper has no formula; its polarization object is a
+  normalized coherence matrix with no scalar ellipticity. Author's derivation.
+- **§9.3 (crossing angle)** — genuinely absent from the paper, which warns against extending
+  the near-backscattering angular derivation without revisiting the geometry. Author's
+  derivation.
+- **The manuscript itself.** The repo now computes corrected physics against an
+  *uncorrected typeset* eq. `xsec` (annotated, not edited, per D026). Where the `1/(2π)`
+  belongs there — prefactor, normalization of `R`, or definition of `Û` — is the author's
+  call and changes no observable, which is why the code did not wait. Worth resolving in the
+  paper so the two stop diverging.
+
+`docs/GRAND_PLAN.md` bumped to v0.16 (§9.1 marked CLOSED, §9.3 marked, §11's 3b row and
+§12's risk row restated). `DECISIONS.md` gained D033 (§9.1 closure, superseding D025's
+"report, don't correct") and D034 (the crossing-angle marker).
 
 ---
 

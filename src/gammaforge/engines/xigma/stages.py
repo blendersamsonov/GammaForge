@@ -60,7 +60,9 @@ __all__ = [
 #: Relative-velocity factor for the near-backscattering geometry: electron and photon
 #: approach at ``2c``, so the flux an electron sees is twice what its own speed implies.
 #: Head-on is the only geometry whose physics is wired (§9.3 is an open derivation), and
-#: this constant is where a crossing angle will enter when it lands.
+#: this constant is where a crossing angle will enter when it lands. The user-facing half
+#: of that statement is `io.laser.EMISSION_IS_HEAD_ON`, which warns when a nonzero
+#: ``theta_xz``/``theta_yz`` is configured; the two are flipped together.
 RELATIVE_VELOCITY = 2.0
 
 #: Live bytes per (particle x step) in Stage 0's inner loop, for auto-chunking.
@@ -634,14 +636,22 @@ def retarget_ahat(
     )
 
 
-#: The pending §9.1 constant, isolated to this one location (§4.2). Pi-free by design —
-#: the predecessor's kernel math never carried a 2*pi anywhere; the ~2*pi gap is between
-#: this kernel and the table-free paths (`references/delta.py`'s module docstring), and
-#: which side is missing the factor is an open authoring question, not a computation.
-#: **Do not adjust this to force a golden or identity check to pass (P14)** — the
-#: identity harness reports the ratio against its derived value precisely so this can stay
-#: honest while the question is open (D025).
-KERNEL_NORMALIZATION_CONSTANT = 1.5
+#: The §9.1 constant, isolated to this one location (§4.2) and **set** as of Phase 3b
+#: (`DECISIONS.md` D033). The predecessor's kernel math was pi-free (`coef = 1.5`,
+#: transcribed from the paper's eq. *(main)* prefactor of ``6``); D026 derived that the
+#: paper's differential cross-section is short a factor ``1/(2 pi)``, which eq. *(main)*
+#: inherits, so the transcription inherits it too. ``1.5 / (2 pi)`` is that correction, and
+#: nothing else — the same factor `references/delta.py` now applies to its own transcription
+#: of the same equation.
+#:
+#: **This value was derived and then confirmed, never fitted (P14).** The prediction came
+#: from D026's two elementary integrals; the confirmation is that the kernel's own
+#: angle-integrated photon count matches Stage 0's elementary ``flux x cross-section x
+#: time`` total, which it missed by ``2 pi`` before
+#: (`tests/test_stage1_stage2.py::test_the_table_kernel_angle_integrates_to_stage_0_total`).
+#: Do not adjust it to make a check pass; if a check disagrees, that is a physics finding
+#: to escalate (§0), not a number to tune.
+KERNEL_NORMALIZATION_CONSTANT = 1.5 / (2.0 * math.pi)
 
 
 def _interp_gamma(table: Table, g: np.ndarray) -> np.ndarray:

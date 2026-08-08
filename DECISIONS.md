@@ -600,6 +600,11 @@ route §3.4 already established for autoranging, not an attribute read off a con
 
 ### D025 — Delta's ``2 pi`` is derived and reported, not corrected
 
+> **Superseded by D033 (Phase 3b).** The factor is now applied rather than reported, and
+> the identity harness expects one. What follows is the reasoning that was correct while
+> the question was open — kept as the record of why the suite was gated at `2 pi` for two
+> phases, not as live policy.
+
 **Decision:** `validation.references.delta` keeps the predecessor's differential prefactor
 unchanged. `check_normalization` reports the ratio against ``2 pi``, and the identity
 section of `run.py` passes while that ratio holds and fails if it moves.
@@ -1018,3 +1023,106 @@ scaled copy of the source — which stops being true the moment the target law i
 non-uniform shape rather than "wherever this particular a0_peak's data happens to land."
 The whole point of this entry is wanting that fixed, physically-motivated shape, so the
 pure-rescale trick is no longer available regardless of its cost.
+
+---
+
+### D033 — §9.1 closed: both transcriptions of the paper's cross-section carry `1/(2 pi)`; the identity harness now expects one
+
+**Decision:** Phase 3b's §9.1 leg is done. `engines.xigma.stages.KERNEL_NORMALIZATION_CONSTANT`
+is `1.5 / (2 pi)` and `validation.references.delta.DIFFERENTIAL_PREFACTOR` is `3.0 / (2 pi)`
+— one correction, applied at the two places this repo transcribes the paper's differential
+cross-section. `NormalizationCheck.expected_ratio` drops its `2 pi` and reports against the
+captured fraction alone, so `validation/run.py`'s delta leg is gated at **one** rather than
+at a derived `2 pi`. D025's "report the factor, do not absorb it" is superseded: the factor
+is no longer unexplained, so reporting it is no longer the honest option.
+
+**The order this happened in is the whole justification.** D026 derived the factor from two
+elementary integrals, with no code involved. The constants were then set *from that
+derivation*. Only afterwards was the discriminating quantity measured: angle-integrate the
+table kernel over an 8/gamma cone and compare with Stage 0's elementary
+`flux x cross-section x time` photon count. With the uncorrected constant that ratio was
+`2 pi x 0.9966` on a 49x49 angular grid with 640 `s` bins — the factor and nothing but the
+factor, on a path independent of delta's. P14 forbids inserting a constant that makes a
+test pass; predicting a constant and then finding the measurement where the prediction put
+it is the opposite procedure, and the only one that licenses the change.
+
+**Why an absolute check had to be built for this.** Every Stage-2 test that existed before
+this entry — including `run.py`'s fourth identity leg — is a *ratio* between two paths
+carrying the same normalization, so all of them were green with the factor present and are
+green with it removed. They cannot see normalization at all, by construction (D029 says so
+explicitly, and that was correct). `tests/test_stage1_stage2.py::test_the_table_kernel_angle_integrates_to_stage_0_total`
+is the one that can. It runs on a grid sized for a ten-second test and is therefore loose
+(+-15%, reading 1.078; refining to 21 angles gives 1.015, and to 21 angles with 480 `s` bins
+1.006) — but the distinction it has to make is between 1 and 6.28, and no plausible grid
+error touches that.
+
+**One consumer of the fix is `Results` itself, and it was not obvious.** `Collision` fills
+`SPECTRUM` from `stages.angle_integrated_spectrum` — Stage 0's closed form, which never
+touches the table or its constant — and every angular output from the table kernel. Before
+this entry those two paths disagreed by `2 pi` *inside a single `Results` object*, and no
+test could see it: the engine tests check signs, shapes and axis order, and the one that
+compares magnitudes has both sides on the non-table path.
+`tests/test_xigma_engine.py::test_the_two_normalization_paths_inside_one_results_object_agree`
+now integrates `SPECTRAL_ANGULAR_DISTRIBUTION` back over its angle axes and compares with
+`SPECTRUM`; it lands at 0.87, the deficit being the auto-range's ~4.6/gamma angular span
+(a ~94% capture) plus a 25-point trapezoid over a peaked profile.
+
+**A known unexercised comparison, for Phase 5/7.** `validation.metrics.compare_slices` — and
+therefore `validation.golden.compare_to_golden` on *distributions* — compares **absolute**
+values, not normalized shapes. It only runs when engines are passed to `run_suite`, which
+`main()` does not do (D031), so nothing in the routine suite exercises it today. D026 records
+that the predecessor's xigma adapter rescaled its angular spectrum by
+`total_yield / full_integral`, which should make its committed golden slices effectively
+self-normalized and therefore agnostic to this change — but that is an inference from the old
+repo's comments, not something measured here. Verify it when the golden slice comparison is
+first turned on, rather than discovering it as a surprise then; §11's Phase-7 exit criterion
+("3b closures integrated") is where it lands.
+
+**What is *not* claimed.** The paper still typesets the uncorrected eq. *(xsec)*, annotated
+per D026. This repo now computes the corrected physics, which is a deliberate, recorded
+code/paper divergence rather than the silent kind §0 exists to prevent — a reference
+implementation follows the derivation, not the typo. Editing the manuscript is the author's
+call, and *where* the factor is placed there (the prefactor, the normalization of *R*, or
+the definition of *U*) does not change any observable: all three placements fix the same
+`d3N/(dw d2Omega)`, which is why the code did not need to wait on that choice.
+
+**Rejected alternatives:**
+
+- *Correct only the kernel and leave delta transcribing the paper as typeset.* Keeps delta
+  a literal transcription, which has some value — but then §11's Phase-3b exit criterion
+  ("the identity harness re-gated against 1.0 rather than 2 pi") is unreachable, and the
+  suite's headline identity permanently reports a discrepancy that is understood, corrected
+  elsewhere, and no longer telling anyone anything.
+- *Fold the factor into `Table.H` at deposition, or into Stage 0's luminosity.* Would make
+  every downstream number right with one edit, and put the §9.1 constant somewhere §4.2
+  explicitly says it must not live. Stage 0's total yield is the one quantity here that is
+  independently, elementarily correct; multiplying it by a cross-section convention would
+  destroy the arbitration that settled the question in the first place.
+
+---
+
+### D034 — A crossing angle warns that only the geometry is applied (§9.3's half of P14c)
+
+**Decision:** `io.laser.EMISSION_IS_HEAD_ON` joins `io.laser.ELLIPTICITY_IS_NOOP` as a
+module-level marker, and `io.laser.validate` warns when `theta_xz` or `theta_yz` is nonzero.
+
+**Rationale.** §9.2 and §9.3 are both open derivations the paper does not contain, and P14c
+requires both to be visible rather than silently approximated — but only §9.2 was. The
+asymmetry was easy to miss precisely because the crossing angle is *partly* implemented:
+`io.laser.rotation_matrix` is applied everywhere the pulse is sampled, so overlap, timing
+and the a0 an electron actually sees all respond correctly to a tilt. What does not respond
+is the emission — `engines.xigma.stages.RELATIVE_VELOCITY` is fixed at 2, and the Stage-2
+kernel measures angles from the collinear axis. A caller who tilts the beam and watches the
+yield change has every reason to conclude the physics followed. That is a worse failure mode
+than a parameter that visibly does nothing, and it is the one that had no warning.
+
+**Rejected alternatives:**
+
+- *Reject a nonzero crossing angle outright.* The geometry half is real and useful (§2.2
+  pins the rotation convention for exactly this reason), and near-backscattering is where
+  the derivation is valid — a small tilt is a legitimate configuration, not an error.
+- *Put the marker in `engines/xigma/stages.py`, next to `RELATIVE_VELOCITY`.* That is where
+  the limitation physically lives, and the constant's comment now points both ways. But the
+  warning has to reach whoever configures the laser, `io` may not import `engines`, and
+  `validate` is already the warning surface for exactly this class of statement — so the
+  marker sits with the warning and the engine-side comment cross-references it.
