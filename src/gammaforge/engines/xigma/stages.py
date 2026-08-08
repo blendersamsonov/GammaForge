@@ -1,8 +1,10 @@
 """xigma's pipeline as composable pure functions (GRAND_PLAN.md §4.2).
 
-Stage 0 — :func:`integrate_trajectories` — is what this module holds today. Stages 1 and 2
-(H-table deposition and the spectrum kernels) arrive in Phase 3a; Stage 0 is pulled
-forward because delta needs it (§4.5).
+Stage 0 (:func:`integrate_trajectories`), Stage 1 (:func:`deposit_shape_table`, onto the
+a0-independent :attr:`TrajectorySamples.a0_shape` axis), the retarget step
+(:func:`retarget_ahat`, a conservative regrid onto the physical, non-uniform ``ahat`` axis
+for one specific peak a0 — `DECISIONS.md` D032) and Stage 2 (:func:`spectrum_from_table`,
+:func:`angular_spectrum_from_table`, :func:`spectrum_in_angular_range`) all live here.
 
 **Every stage is a pure function.** State lives in the `Collision` facade (Phase 3a), not
 here, so validation can call these directly and a stage can be reasoned about without
@@ -22,6 +24,7 @@ was exactly what replaced ``c``. Here everything is CGS and the ``c`` is simply 
 
 from __future__ import annotations
 
+import itertools
 import math
 from dataclasses import dataclass
 
@@ -38,6 +41,20 @@ __all__ = [
     "photon_density_scale",
     "RELATIVE_VELOCITY",
     "BYTES_PER_PARTICLE_STEP",
+    "ShapeTable",
+    "Table",
+    "deposit_shape_table",
+    "retarget_ahat",
+    "spectrum_from_table",
+    "angular_spectrum_from_table",
+    "spectrum_in_angular_range",
+    "angle_integrated_spectrum",
+    "KERNEL_NORMALIZATION_CONSTANT",
+    "DEFAULT_SHAPE_BINS",
+    "DEFAULT_RETARGET_BINS",
+    "DEFAULT_AHAT_MIN",
+    "DEFAULT_AHAT_MAX",
+    "DEFAULT_AHAT_DECADES",
 ]
 
 #: Relative-velocity factor for the near-backscattering geometry: electron and photon
@@ -119,6 +136,19 @@ class TrajectorySamples:
     def retargeted_ahat(self, a0_peak: float) -> np.ndarray:
         """``ahat`` as it would be for a pulse of a different peak a0, no rerun needed."""
         return a0_peak**2 * self.a0_shape
+
+    def retargeted_luminosity(self, a0_peak: float) -> np.ndarray:
+        """``luminosity`` as it would be for a pulse of a different peak a0, no rerun needed.
+
+        ``luminosity`` integrates the *actual* local a0 (not the normalized ratio
+        `a0_shape` does), so unlike `a0_shape` it is not already peak-independent — but
+        for the same envelope shape, ``a0_local(t) = a0_peak * envelope(t)`` is exactly
+        linear in ``a0_peak``, so ``luminosity`` (proportional to ``sum(a0_local**2)``)
+        scales as ``a0_peak**2`` exactly, the identical relation that makes `ahat`'s
+        rescale exact. This is what lets both photon count *and* redshift for a
+        different pulse energy come from cached Stage 0 samples with no rerun.
+        """
+        return (a0_peak / self.a0_peak) ** 2 * self.luminosity
 
 
 def integrate_trajectories(
@@ -237,6 +267,531 @@ def integrate_trajectories(
         a0_peak=a0_peak,
         n_steps=n_steps,
     )
+
+
+#: Default bin counts for :func:`deposit_shape_table`'s four axes, in ``(gamma, theta_x,
+#: theta_y, a0_shape)`` order. The ``a0_shape`` axis is deliberately fine — it is bounded
+#: and a0-peak-independent, so there is no dynamic-range reason to keep it small the way
+#: the old direct-onto-``ahat`` deposit's fourth axis had to be.
+DEFAULT_SHAPE_BINS = (48, 48, 48, 96)
+
+#: Defaults for :func:`retarget_ahat`'s fixed, non-uniform target grid, tuned against this
+#: repo's scenario bank (`DECISIONS.md` D032) rather than re-derived from the predecessor's
+#: ``DEFAULT_A0_MAX``/``retarget_a0`` defaults, which were sized for a different bank.
+DEFAULT_RETARGET_BINS = 32
+DEFAULT_AHAT_MIN = 0.0
+DEFAULT_AHAT_MAX = 0.5
+DEFAULT_AHAT_DECADES = 1.0
+
+
+def _uniform_edges(values: np.ndarray, n_bins: int, margin: float, floor_zero: bool = False) -> np.ndarray:
+    """``n_bins + 1`` uniform edges spanning ``values``, padded by ``margin`` of the span.
+
+    A degenerate span (every sample identical — a monoenergetic, zero-divergence beam is
+    a real scenario, not a hypothetical one) would otherwise produce a zero-width grid
+    that every sample lands exactly on the edge of; padded by ``margin`` of the value's
+    own scale instead so the grid always has a real width.
+    """
+    lo, hi = float(np.min(values)), float(np.max(values))
+    span = hi - lo
+    pad = margin * span if span > 0.0 else margin * max(abs(lo), 1.0)
+    lo, hi = lo - pad, hi + pad
+    if floor_zero:
+        lo = max(lo, 0.0)
+    return np.linspace(lo, hi, n_bins + 1)
+
+
+def _validate_edges_and_shape(edges: tuple[np.ndarray, ...], H: np.ndarray, name: str) -> None:
+    """Shared structural check for :class:`ShapeTable` and :class:`Table`: ``H``'s shape
+    matches the edge counts, and every axis's edges are strictly increasing. Says nothing
+    about *uniform* spacing — `Table`'s ``ahat_edges`` deliberately is not (§4.2)."""
+    expected = tuple(e.size - 1 for e in edges)
+    if H.shape != expected:
+        raise ValueError(f"{name}: H.shape {H.shape} does not match edge counts {expected}")
+    for e in edges:
+        if np.any(np.diff(e) <= 0.0):
+            raise ValueError(f"{name}: edges must be strictly increasing")
+
+
+@dataclass(frozen=True)
+class ShapeTable:
+    """Stage 1's output: a 4D photon-weight density over ``(gamma, theta_x, theta_y,
+    a0_shape)`` — peak-a0-agnostic on its axis, since ``a0_shape`` is by construction
+    independent of any actual pulse (`TrajectorySamples.a0_shape`).
+
+    Not agnostic in *mass*: ``H`` is deposited with ``samples.luminosity`` at
+    ``source_a0_peak`` (the pulse Stage 0 actually ran), and luminosity itself scales as
+    ``a0_peak**2`` for the same cached trajectories
+    (`TrajectorySamples.retargeted_luminosity`) — the same relation that makes ``ahat``'s
+    rescale exact. Querying at a different peak a0 needs :func:`retarget_ahat` to rescale
+    ``H``'s total mass, not just relabel the axis.
+
+    Every axis stays uniform (unlike the ``ahat`` axis of the `Table` this feeds into), so
+    :attr:`bin_volume` is a single scalar, same as `Table`'s used to be.
+    """
+
+    gamma_edges: np.ndarray
+    theta_x_edges: np.ndarray
+    theta_y_edges: np.ndarray
+    a0_shape_edges: np.ndarray
+    H: np.ndarray
+    total_weight: float
+    scheme: str
+    source_a0_peak: float
+
+    def __post_init__(self) -> None:
+        _validate_edges_and_shape(
+            (self.gamma_edges, self.theta_x_edges, self.theta_y_edges, self.a0_shape_edges), self.H, "ShapeTable"
+        )
+
+    @property
+    def gamma_centers(self) -> np.ndarray:
+        return 0.5 * (self.gamma_edges[:-1] + self.gamma_edges[1:])
+
+    @property
+    def theta_x_centers(self) -> np.ndarray:
+        return 0.5 * (self.theta_x_edges[:-1] + self.theta_x_edges[1:])
+
+    @property
+    def theta_y_centers(self) -> np.ndarray:
+        return 0.5 * (self.theta_y_edges[:-1] + self.theta_y_edges[1:])
+
+    @property
+    def a0_shape_centers(self) -> np.ndarray:
+        return 0.5 * (self.a0_shape_edges[:-1] + self.a0_shape_edges[1:])
+
+    @property
+    def bin_volume(self) -> float:
+        """Cell volume, constant because every axis here is a uniform grid."""
+        return float(
+            (self.gamma_edges[-1] - self.gamma_edges[0])
+            * (self.theta_x_edges[-1] - self.theta_x_edges[0])
+            * (self.theta_y_edges[-1] - self.theta_y_edges[0])
+            * (self.a0_shape_edges[-1] - self.a0_shape_edges[0])
+            / (self.H.shape[0] * self.H.shape[1] * self.H.shape[2] * self.H.shape[3])
+        )
+
+
+@dataclass(frozen=True)
+class Table:
+    """Stage 2's input: a 4D photon-weight density over ``(gamma, theta_x, theta_y,
+    ahat)``, for one specific peak a0.
+
+    ``H`` is a **density** (weight per unit cell volume). Unlike `ShapeTable`, the ``ahat``
+    axis is generally **non-uniform** — :func:`retarget_ahat` builds it dense near
+    ``ahat_max`` and coarse toward ``ahat_min`` (`DECISIONS.md` D032), so there is no
+    single scalar cell volume; :attr:`ahat_widths` and :attr:`gamma_theta_cell_area` are
+    what :func:`spectrum_from_table` actually needs.
+    """
+
+    gamma_edges: np.ndarray
+    theta_x_edges: np.ndarray
+    theta_y_edges: np.ndarray
+    ahat_edges: np.ndarray
+    H: np.ndarray
+    total_weight: float
+    scheme: str
+
+    def __post_init__(self) -> None:
+        _validate_edges_and_shape(
+            (self.gamma_edges, self.theta_x_edges, self.theta_y_edges, self.ahat_edges), self.H, "Table"
+        )
+
+    @property
+    def gamma_centers(self) -> np.ndarray:
+        return 0.5 * (self.gamma_edges[:-1] + self.gamma_edges[1:])
+
+    @property
+    def theta_x_centers(self) -> np.ndarray:
+        return 0.5 * (self.theta_x_edges[:-1] + self.theta_x_edges[1:])
+
+    @property
+    def theta_y_centers(self) -> np.ndarray:
+        return 0.5 * (self.theta_y_edges[:-1] + self.theta_y_edges[1:])
+
+    @property
+    def ahat_centers(self) -> np.ndarray:
+        return 0.5 * (self.ahat_edges[:-1] + self.ahat_edges[1:])
+
+    @property
+    def ahat_widths(self) -> np.ndarray:
+        """Per-bin ``ahat`` width, shape ``(n_ahat,)`` — non-uniform, unlike every other
+        axis here, so this is an array rather than a scalar."""
+        return np.diff(self.ahat_edges)
+
+    @property
+    def gamma_theta_cell_area(self) -> float:
+        """The still-uniform ``theta_x * theta_y`` cell area (gamma is interpolated, not
+        integrated over, in :func:`spectrum_from_table` — see :func:`_interp_gamma`)."""
+        return float(
+            (self.theta_x_edges[-1] - self.theta_x_edges[0]) / self.H.shape[1]
+            * (self.theta_y_edges[-1] - self.theta_y_edges[0]) / self.H.shape[2]
+        )
+
+
+def _cell_fractions(values: np.ndarray, edges: np.ndarray, n_bins: int) -> np.ndarray:
+    """Continuous cell coordinate of ``values`` in ``edges``, in units of one bin width."""
+    return (values - edges[0]) / (edges[-1] - edges[0]) * n_bins
+
+
+def _deposit_nearest(coords: tuple[np.ndarray, ...], weight: np.ndarray, n_bins: tuple[int, ...]) -> np.ndarray:
+    idx = [np.clip(np.floor(c).astype(np.int64), 0, n - 1) for c, n in zip(coords, n_bins)]
+    flat = np.ravel_multi_index(idx, n_bins)
+    return np.bincount(flat, weights=weight, minlength=int(np.prod(n_bins))).reshape(n_bins)
+
+
+def _deposit_cic(coords: tuple[np.ndarray, ...], weight: np.ndarray, n_bins: tuple[int, ...]) -> np.ndarray:
+    """Cloud-in-cell: each sample splits its weight over its 16 neighbouring cells.
+
+    Cell-centred convention (predecessor's, §4.2): a sample's continuous coordinate is
+    shifted by ``-0.5`` so it interpolates between cell *centres*. ``edge='clamp'``
+    always — overflow folds into the boundary cell rather than discarding weight, which
+    is what keeps a CIC deposit's total exactly equal to a nearest deposit's for the same
+    samples (both conserve weight; only where it lands differs).
+    """
+    n_axes = len(coords)
+    shifted = [c - 0.5 for c in coords]
+    low = [np.floor(s).astype(np.int64) for s in shifted]
+    frac = [s - lo for s, lo in zip(shifted, low)]
+
+    flat_size = int(np.prod(n_bins))
+    H_flat = np.zeros(flat_size, dtype=np.float64)
+    for corner in itertools.product((0, 1), repeat=n_axes):
+        idx = []
+        w = weight
+        for axis, bit in enumerate(corner):
+            i = np.clip(low[axis] + bit, 0, n_bins[axis] - 1)
+            f = frac[axis] if bit else (1.0 - frac[axis])
+            idx.append(i)
+            w = w * f
+        flat = np.ravel_multi_index(idx, n_bins)
+        H_flat += np.bincount(flat, weights=w, minlength=flat_size)
+    return H_flat.reshape(n_bins)
+
+
+def deposit_shape_table(
+    samples: TrajectorySamples,
+    *,
+    n_bins: tuple[int, int, int, int] = DEFAULT_SHAPE_BINS,
+    scheme: str = "nearest",
+    margin: float = 0.02,
+) -> ShapeTable:
+    """Stage 1: bin Stage 0's per-particle samples into the 4D ``a0_shape`` table ``H``.
+
+    Peak-a0-agnostic: bins directly onto ``samples.a0_shape`` (already independent of any
+    actual pulse) with ``samples.luminosity`` as the deposited weight, so one deposit
+    serves every peak a0 a caller might later want via :func:`retarget_ahat` — unlike the
+    single-stage ``ahat``-axis deposit this replaces, which needed a fresh deposit per
+    peak a0 (`DECISIONS.md` D028, superseded by D032).
+
+    ``scheme`` is ``"nearest"`` (one cell per sample) or ``"cic"`` (cloud-in-cell, 16
+    neighbours per sample) — both conserve total weight exactly; CIC trades a discretized
+    ``H`` for a smoother one, at 16x the deposition cost.
+    """
+    if scheme not in ("nearest", "cic"):
+        raise ValueError(f"deposit_shape_table: scheme must be 'nearest' or 'cic', got {scheme!r}")
+
+    gamma_edges = _uniform_edges(samples.gamma, n_bins[0], margin)
+    theta_x_edges = _uniform_edges(samples.theta_x, n_bins[1], margin)
+    theta_y_edges = _uniform_edges(samples.theta_y, n_bins[2], margin)
+    a0_shape_edges = _uniform_edges(samples.a0_shape, n_bins[3], margin, floor_zero=True)
+    edges = (gamma_edges, theta_x_edges, theta_y_edges, a0_shape_edges)
+
+    coords = tuple(
+        _cell_fractions(values, e, n)
+        for values, e, n in zip(
+            (samples.gamma, samples.theta_x, samples.theta_y, samples.a0_shape), edges, n_bins
+        )
+    )
+    deposit = _deposit_nearest if scheme == "nearest" else _deposit_cic
+    H_raw = deposit(coords, samples.luminosity, n_bins)
+
+    bin_volume = float(np.prod([e[-1] - e[0] for e in edges]) / np.prod(n_bins))
+    return ShapeTable(
+        gamma_edges=gamma_edges,
+        theta_x_edges=theta_x_edges,
+        theta_y_edges=theta_y_edges,
+        a0_shape_edges=a0_shape_edges,
+        H=H_raw / bin_volume,
+        total_weight=float(H_raw.sum()),
+        scheme=scheme,
+        source_a0_peak=samples.a0_peak,
+    )
+
+
+def _ahat_target_edges(ahat_min: float, ahat_max: float, n_bins: int, decades: float) -> np.ndarray:
+    """``n_bins + 1`` non-uniform ``ahat`` edges, log-spaced in distance from the top:
+    finest near ``ahat_max`` (where the redshift correction is significant), coarsest near
+    ``ahat_min`` (folded floor bin — §4.2, `DECISIONS.md` D032)::
+
+        v_i = (ahat_max - ahat_min) * 10**(-decades * i / n_bins),  i = 0..n_bins
+        ahat_i = ahat_max - v_i
+
+    ``i=0`` lands exactly on ``ahat_min`` (``v_0`` is the full span). The raw ``i=n_bins``
+    value lands within ``10**-decades`` of ``ahat_max``, not exactly on it; snapped to
+    ``ahat_max`` exactly below, matching how the predecessor's ``retarget_a0`` used
+    ``np.linspace(a0_min, a0_max, n+1)``, which lands exactly on both ends. **This widens
+    the single top bin** — negligibly at ``decades >= 3`` (the widening is a factor of
+    ``10**-decades`` of the span), but visibly at the ``decades=1`` this repo's scenario
+    bank actually uses (`DECISIONS.md` D032): the top bin ends up wider than its immediate
+    neighbour, not narrower. A deliberate, bounded exception to the "finer toward the top"
+    trend at the very last bin, not a bug — every other bin still shrinks monotonically.
+    """
+    if ahat_max <= ahat_min:
+        raise ValueError(f"_ahat_target_edges: ahat_max ({ahat_max}) must exceed ahat_min ({ahat_min})")
+    if decades <= 0.0:
+        raise ValueError(f"_ahat_target_edges: decades must be positive, got {decades}")
+    i = np.arange(n_bins + 1)
+    v = (ahat_max - ahat_min) * 10.0 ** (-decades * i / n_bins)
+    edges = ahat_max - v
+    edges[-1] = ahat_max
+    return edges
+
+
+def retarget_ahat(
+    shape_table: ShapeTable,
+    a0_peak: float,
+    *,
+    ahat_min: float = DEFAULT_AHAT_MIN,
+    ahat_max: float = DEFAULT_AHAT_MAX,
+    n_bins: int = DEFAULT_RETARGET_BINS,
+    decades: float = DEFAULT_AHAT_DECADES,
+) -> Table:
+    """Stage 1.5: conservative (mass-preserving) regrid of a `ShapeTable`'s ``a0_shape``
+    axis onto the fixed, non-uniform ``ahat`` axis Stage 2 actually queries, for one
+    specific peak a0 (`DECISIONS.md` D032, supersedes D028).
+
+    Cheap and independent of ``n_particles`` — a ``shape_table.a0_shape_edges.size x
+    n_bins``-sized tensordot, not a re-deposit — so a `Collision` can cache the shape
+    deposit once and retarget many peak-a0 values from it.
+
+    Adapted from the predecessor's ``retarget_a0`` (overlap-weighted 1D histogram regrid,
+    conservative under the same piecewise-uniform-density assumption deposition itself
+    makes), with two differences: the target grid is :func:`_ahat_target_edges`'s
+    non-uniform law instead of a plain ``linspace``, and the deposited mass is rescaled by
+    ``(a0_peak / shape_table.source_a0_peak)**2``
+    (:meth:`TrajectorySamples.retargeted_luminosity`'s relation) — needed because this
+    ``retarget_ahat`` is meant to serve a genuinely different peak a0 than the one Stage 0
+    ran at, unlike the predecessor's, which only ever retargeted onto its own run's laser.
+    """
+    if ahat_max <= ahat_min:
+        raise ValueError(f"retarget_ahat: ahat_max ({ahat_max}) must exceed ahat_min ({ahat_min})")
+    a0_peak = float(a0_peak)
+
+    # Exact: ahat = a0_peak**2 * a0_shape, and a0_shape is peak-independent by construction.
+    source_edges = shape_table.a0_shape_edges * a0_peak**2
+    target_edges = _ahat_target_edges(ahat_min, ahat_max, n_bins, decades)
+
+    # Extend both outer target edges to +-inf for overlap purposes only: source mass below
+    # ahat_min folds into the floor bin, and — symmetrically — source mass above ahat_max
+    # (a0_peak large enough to push the rescaled source past the configured ceiling) folds
+    # into the top bin rather than being silently dropped.
+    edges_ext = target_edges.copy()
+    edges_ext[0] = -np.inf
+    edges_ext[-1] = np.inf
+
+    src_lo, src_hi = source_edges[:-1], source_edges[1:]
+    src_width = src_hi - src_lo
+    tgt_lo, tgt_hi = edges_ext[:-1], edges_ext[1:]
+
+    lo = np.maximum(src_lo[:, None], tgt_lo[None, :])
+    hi = np.minimum(src_hi[:, None], tgt_hi[None, :])
+    overlap = np.clip(hi - lo, 0.0, None)
+    # W[i, j]: fraction of source bin i's mass assigned to target bin j.
+    W = overlap / np.clip(src_width, 1e-300, None)[:, None]
+
+    # The source (a0_shape) axis stays uniform in this design — deposit_shape_table only
+    # ever builds it via _uniform_edges — so a single scalar width is exact here, unlike
+    # the predecessor's identically-shaped `da_source = table.grid.widths[3]`, which was
+    # only safe because its source was uniform too (never a general non-uniform case).
+    da_source = shape_table.a0_shape_edges[1] - shape_table.a0_shape_edges[0]
+    luminosity_rescale = (a0_peak / shape_table.source_a0_peak) ** 2
+
+    mass_source = shape_table.H * da_source * luminosity_rescale  # density -> mass, at this a0_peak
+    mass_target = np.tensordot(mass_source, W, axes=([3], [0]))
+    target_width = np.diff(target_edges)
+    H_target = mass_target / target_width
+
+    # Truncate trailing ahat bins the rescaled source never reaches: their mass is exactly
+    # zero (W's overlap is exactly zero where no source bin overlaps a target bin), so
+    # dropping them changes nothing spectrum_from_table's cell sum would have computed —
+    # only how many always-zero terms it evaluates. One-sided: the floor bin (index 0)
+    # always catches whatever folded below ahat_min, so only the top can be empty.
+    marginal = H_target.sum(axis=(0, 1, 2))
+    populated = np.nonzero(marginal > 0.0)[0]
+    last = int(populated[-1]) if populated.size else 0
+    H_target = H_target[..., : last + 1]
+    target_edges = target_edges[: last + 2]
+
+    return Table(
+        gamma_edges=shape_table.gamma_edges,
+        theta_x_edges=shape_table.theta_x_edges,
+        theta_y_edges=shape_table.theta_y_edges,
+        ahat_edges=target_edges,
+        H=H_target,
+        total_weight=shape_table.total_weight * luminosity_rescale,
+        scheme=shape_table.scheme,
+    )
+
+
+#: The pending §9.1 constant, isolated to this one location (§4.2). Pi-free by design —
+#: the predecessor's kernel math never carried a 2*pi anywhere; the ~2*pi gap is between
+#: this kernel and the table-free paths (`references/delta.py`'s module docstring), and
+#: which side is missing the factor is an open authoring question, not a computation.
+#: **Do not adjust this to force a golden or identity check to pass (P14)** — the
+#: identity harness reports the ratio against its derived value precisely so this can stay
+#: honest while the question is open (D025).
+KERNEL_NORMALIZATION_CONSTANT = 1.5
+
+
+def _interp_gamma(table: Table, g: np.ndarray) -> np.ndarray:
+    """``table.H`` linearly interpolated along gamma at a per-cell query point ``g``.
+
+    ``g`` carries one query value per ``(theta_x, theta_y, ahat)`` cell — the resonance
+    condition inverted at that cell's own angle and ahat (§4.2) — so this is not a single
+    1D interpolation but ``n_theta_x * n_theta_y * n_ahat`` of them, batched. A query
+    outside the tabulated gamma range gets zero: the bunch's gamma distribution simply did
+    not populate a resonance there, which is physical, not a boundary artefact to
+    extrapolate past.
+    """
+    gc = table.gamma_centers
+    in_range = (g >= gc[0]) & (g <= gc[-1])
+    idx = np.clip(np.searchsorted(gc, g) - 1, 0, len(gc) - 2)
+    idx_hi = idx + 1
+    frac = np.where(in_range, (g - gc[idx]) / (gc[idx_hi] - gc[idx]), 0.0)
+
+    tx_idx, ty_idx, a_idx = np.meshgrid(
+        np.arange(table.H.shape[1]), np.arange(table.H.shape[2]), np.arange(table.H.shape[3]), indexing="ij"
+    )
+    lo = table.H[idx, tx_idx, ty_idx, a_idx]
+    hi = table.H[idx_hi, tx_idx, ty_idx, a_idx]
+    return np.where(in_range, lo * (1.0 - frac) + hi * frac, 0.0)
+
+
+def spectrum_from_table(table: Table, theta_x: float, theta_y: float, s, *, psi_pol: float = 0.0) -> np.ndarray:
+    """Stage 2: ``d2N / (ds dOmega)`` at one observation direction, over an array of ``s``.
+
+    The brute-force grid quadrature the predecessor kept as its validation-only
+    reference, ported here as the production numpy path instead of its 550-line GPU
+    importance sampler (`DECISIONS.md` D029): correct and checkable over fast but
+    trust-level-C in the predecessor's own audit (3x-30x variance in sparse/narrow-angle
+    configs). It sums Stage 1's table over its own ``(theta_x, theta_y, ahat)`` cells,
+    inverting the resonance condition at each cell to find the gamma an electron there
+    would need to radiate a photon of energy ``s`` toward ``(theta_x, theta_y)``, and
+    interpolates ``H`` at that gamma (:func:`_interp_gamma`).
+
+    ``g``/``prefac`` are recomputed inside the ahat loop implicitly — this function never
+    factors ahat out of the resonance condition — because the resonance shifts with ahat
+    (the nonlinear redshift) and an ahat-independent shortcut was a real, since-fixed bug
+    in the predecessor (its docstrings flag it explicitly).
+    """
+    s_arr = np.atleast_1d(np.asarray(s, dtype=float))
+    tx_c = table.theta_x_centers[:, None, None]
+    ty_c = table.theta_y_centers[None, :, None]
+    a_c = table.ahat_centers[None, None, :]
+
+    r_sq = (tx_c - theta_x) ** 2 + (ty_c - theta_y) ** 2
+    cos_pol_sq = np.cos(psi_pol - np.arctan2(ty_c - theta_y, tx_c - theta_x)) ** 2
+    theta_cell_area = table.gamma_theta_cell_area
+    # ahat is generally non-uniform (§4.2, D032), so its width is a per-bin array — folded
+    # into the sum below rather than factored out as a scalar the way theta's still is.
+    ahat_widths = table.ahat_widths[None, None, :]
+
+    out = np.zeros(s_arr.shape[0])
+    for k, s_val in enumerate(s_arr):
+        # s <= 0 is not a resonance to invert (the formula's own 1/s and 1/s**2 factors
+        # are singular there) — zero photon energy is zero photons, and `out` is already
+        # zero, so there is nothing to compute.
+        if s_val <= 0.0:
+            continue
+        inv_base = 1.0 / s_val - r_sq
+        # A resonance exists only where inv_base > 0 (g_sq would otherwise be negative or
+        # infinite); `valid` gates every quantity built from it, including the gamma this
+        # cell would query `H` at, so an invalid cell contributes exactly zero rather than
+        # a stray extrapolated lookup.
+        valid = inv_base > 0.0
+        g_sq = (1.0 + a_c) / np.where(valid, inv_base, 1.0)
+        g = np.where(valid, np.sqrt(g_sq), 0.0)
+        gth_sq_inv = 1.0 / (1.0 + r_sq * g_sq) ** 2
+        a_fac = 1.0 - 4.0 * cos_pol_sq * r_sq * g_sq * gth_sq_inv
+        prefac = np.where(valid, a_fac * g**5 * gth_sq_inv / (1.0 + a_c), 0.0)
+        H_val = _interp_gamma(table, g)
+        out[k] = (
+            KERNEL_NORMALIZATION_CONSTANT
+            * float(np.sum(H_val * prefac * ahat_widths))
+            * theta_cell_area
+            / s_val**2
+        )
+    return out if np.ndim(s) else out[0]
+
+
+def angular_spectrum_from_table(
+    table: Table, theta_x_grid, theta_y_grid, s, *, psi_pol: float = 0.0
+) -> np.ndarray:
+    """Stage 2: :func:`spectrum_from_table` evaluated over a grid of observation points.
+
+    Feeds `OutputKind.SPECTRAL_ANGULAR_DISTRIBUTION` and `OutputKind.COLLIMATED_SPECTRUM`
+    (§3.4) — the two differ only in the requested range, not in this function. Shape
+    ``(len(theta_x_grid), len(theta_y_grid), len(s))``.
+    """
+    tx = np.atleast_1d(np.asarray(theta_x_grid, dtype=float))
+    ty = np.atleast_1d(np.asarray(theta_y_grid, dtype=float))
+    s_arr = np.atleast_1d(np.asarray(s, dtype=float))
+    out = np.empty((tx.size, ty.size, s_arr.size))
+    for i, x in enumerate(tx):
+        for j, y in enumerate(ty):
+            out[i, j, :] = spectrum_from_table(table, float(x), float(y), s_arr, psi_pol=psi_pol)
+    return out
+
+
+def angle_integrated_spectrum(samples: TrajectorySamples, s) -> np.ndarray:
+    """``dN/ds``, angle-integrated in closed form — `Collision.spectrum`'s actual output.
+
+    The same linear-Compton shape as
+    `gammaforge.validation.references.delta.single_electron_spectrum`
+    (``1.5 * (1 - 2y(1-y))`` for ``y = s / gamma**2``), **deliberately reimplemented here
+    rather than imported.** delta exists to check this engine independently (§4.5); if it
+    imported its own reference formula back from the engine it checks, or this engine
+    imported from `validation`, the check would be circular in the first case and invert
+    the package's dependency direction in the second. Matches the predecessor's actual
+    production path (`TabulatedEngine.spectrum(s)` /
+    ``spectrum_from_particles.angle_integrated_spectrum``), which used this exact table-
+    free linear shape rather than Stage 1/2's nonlinear resonance — where ahat matters
+    this is a stated approximation, not the full physics (mirrors delta's own caveat).
+    """
+    s_values = np.atleast_1d(np.asarray(s, dtype=float))
+    gamma_squared = (samples.gamma**2)[:, None]
+    y = s_values[None, :] / gamma_squared
+    shape = np.where((y < 0.0) | (y > 1.0), 0.0, 1.5 * (1.0 - 2.0 * y * (1.0 - y)))
+    spectrum = np.sum(samples.luminosity[:, None] * shape / gamma_squared, axis=0)
+    return spectrum if np.ndim(s) else spectrum[0]
+
+
+def spectrum_in_angular_range(
+    table: Table,
+    theta_x_range: tuple[float, float],
+    theta_y_range: tuple[float, float],
+    s_edges: np.ndarray,
+    *,
+    resolution: tuple[int, int] = (33, 33),
+    psi_pol: float = 0.0,
+) -> tuple[np.ndarray, np.ndarray, float]:
+    """Stage 2: the windowed on-demand query the `Collision` facade wraps.
+
+    Builds the observation grid from ``theta_x_range``/``theta_y_range`` at ``resolution``
+    and calls :func:`angular_spectrum_from_table`, then marginalizes over angle (for a 1D
+    ``dN/ds`` density in the window) and over everything (for the scalar photon count in
+    the window). Returns ``(cube, dN_ds, n_photons)``.
+    """
+    tx = np.linspace(theta_x_range[0], theta_x_range[1], resolution[0])
+    ty = np.linspace(theta_y_range[0], theta_y_range[1], resolution[1])
+    s_edges = np.asarray(s_edges, dtype=float)
+    s_centers = 0.5 * (s_edges[:-1] + s_edges[1:])
+
+    cube = angular_spectrum_from_table(table, tx, ty, s_centers, psi_pol=psi_pol)
+    dN_ds = np.trapezoid(np.trapezoid(cube, ty, axis=1), tx, axis=0)
+    n_photons = float(np.trapezoid(dN_ds, s_centers))
+    return cube, dN_ds, n_photons
 
 
 def _check_backend(backend: str) -> None:

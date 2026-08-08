@@ -12,11 +12,11 @@ Phase numbers/names match `docs/GRAND_PLAN.md` §11.
 
 | Phase | Status |
 |-------|--------|
-| 0. Scaffold | 🟢 done (pending only the pre-3a/6 worktree re-check, C4) |
+| 0. Scaffold | 🟢 done — C4 re-checked 2026-08-08, still clean (see below) |
 | 1. Core | 🟢 done — all exit criteria met (see 2026-08-07 session below) |
 | 2. Validation harness | 🟢 done — both exit criteria met (see 2026-08-07 Phase 2 session) |
 | 2.5. Stage 0 + minimal delta | 🟢 done — all four exit criteria met; §9.1 now a *derived* open question (see below) |
-| 3a. xigma engineering | ⚪ not started |
+| 3a. xigma engineering | 🟢 done — Stage 1/2, `Collision`, `XigmaEngine` landed 2026-08-08 (see below) |
 | 3b. Physics closure | ⚪ not started |
 | 4. analytical engine | ⚪ not started |
 | 5. kascade port + delta full role | ⚪ not started |
@@ -625,6 +625,138 @@ Moved to `.claude/settings.local.json` (gitignored) and the `AGENTS.md` claim co
 
 `AGENTS.md`'s status paragraph was also stale ("don't assume anything beyond Phase 0
 exists") and now names what actually exists as of Phase 2.5.
+
+---
+
+## 2026-08-08 — Phase 3a: xigma engineering (Stage 1/2, `Collision`, `XigmaEngine`)
+
+C4 re-checked first (`docs/GRAND_PLAN.md` §11's pre-3a note): all eight ComptonSuite
+`worktree-*` branches (4 local, 4 remote) still show 0 commits ahead of `master`. Clean;
+proceeded.
+
+**Stage 1** (`engines/xigma/stages.py::deposit_table`, `Table`): 4D histogram over
+`(gamma, theta_x, theta_y, ahat)`, nearest and CIC, both weight-conserving by
+construction (`tests/test_stage1_stage2.py`). Bins directly onto the physical `ahat`
+(`TrajectorySamples.retargeted_ahat`) rather than a separate shape axis rebinned later —
+the predecessor's `retarget_a0`/`a0_kind` apparatus is not ported; a benchmark
+(`test_deposition_is_cheap_next_to_stage_0`) confirms a fresh deposit from cached Stage 0
+samples is cheaper than Stage 0 itself, so there was nothing left for a rebin to save
+(`DECISIONS.md` D028).
+
+**Stage 2** (`spectrum_from_table`, `angular_spectrum_from_table`,
+`spectrum_in_angular_range`): the numpy production kernel ports the predecessor's
+brute-force grid quadrature (its validation-only `reference.py`), not its ~550-line GPU
+importance sampler — the predecessor's own audit already rated that sampler trust-level
+C. `cupy`/`numba` are gated exactly like Stage 0's `_check_backend` until real kernels
+exist. The pending §9.1 constant (`KERNEL_NORMALIZATION_CONSTANT = 1.5`) is isolated to
+one module-level location and is pi-free, matching the predecessor's own kernel math
+exactly (D029).
+
+**A discretization artefact found while building the Stage2-vs-delta identity check, not
+by review:** evaluating `spectrum_from_table` exactly at a beam's own angular centre
+against a `scheme="nearest"` table aliases against that table's own cell boundaries —
+measured ratios from 0.48 to 1.67 against `delta` across theta-bin counts 10-150 at fixed
+particle count. `scheme="cic"` holds within a few percent across the same range. Both the
+new identity leg and the regression test use CIC for exactly this reason; `nearest` stays
+the schema default.
+
+**`Collision`** (`collision.py`): owns one fixed `(InteractionParameters, Parameters)`
+pair and memoizes `TrajectorySamples`/`Table` on itself — not a hash-keyed cross-call
+staleness detector. That mechanism belongs to Phase 6's GUI grey-out model, which needs a
+live object surviving repeated edits; nothing in this phase has that, so building the
+detector now would be exactly the speculative machinery P6 rejects (D030). `run()` fills
+`TOTAL_YIELD`, `SPECTRUM`, `ANGULAR_DISTRIBUTION`, `SPECTRAL_ANGULAR_DISTRIBUTION`,
+`COLLIMATED_SPECTRUM`; `TEMPORAL_ENVELOPE`/`SPATIAL_DISTRIBUTION`/`MACROPARTICLE_DUMP`
+are omitted (no per-step diagnostics in `TrajectorySamples`, no photon-macroparticle
+population to dump) — `run()` fills what it can and skips the rest, per the `Engine`
+contract, not a silent gap.
+
+**`XigmaEngine`** (`engine.py`): conforms to the `Engine` protocol
+(`test_xigma_engine_conforms_to_the_engine_protocol`). `recompute_costs` declares only
+`n_e` (bunch charge) — handled at the `io` level without an engine run at all — because
+every other cheap path §5 illustrates needs a caller that keeps one `Collision` alive
+across edits, which does not exist yet (D030). **Not passed to `validation.run.main()`'s
+default `run_suite()` call:** the scenario bank's default output resolution
+(`COLLIMATED_SPECTRUM` at 64x16x16) measured 36.6s for one slice at 100k particles against
+this phase's numpy kernel — real Calculate cost (§12), not something a routine suite run
+should pay repeatedly. `run.py::identity_checks` gained a fourth leg instead — Stage 2's
+table kernel against `delta` at one point, both carrying the identical pending §9.1
+factor, so the ratio is a genuine ~1 identity today rather than another open question
+(D031).
+
+**Verification:** 283 tests pass (up from 262 at the end of Phase 2.5 — 21 new, split
+across `tests/test_stage1_stage2.py` and `tests/test_xigma_engine.py`); doc-staleness
+guard green against four new `DECISIONS.md` entries (D028-D031); `python -m
+gammaforge.validation.run` still runs in ~3s and reports `ALL CHECKS PASS`, now with a
+fourth identity leg per scenario.
+
+`docs/GRAND_PLAN.md` bumped to v0.14 (§4.2 rewritten to match what was actually built,
+§5's illustrative table annotated with what is and is not wired yet, §11's Phase 3a row
+marked landed). `DECISIONS.md` gained D028-D031.
+
+**Carried forward, not started:** Phase 3b (the §9.1 authoring choice, §9.2/§9.3
+derivations); cupy/numba Stage 1/2 kernels; the `ENGINES` registry (still deliberately
+deferred, D018 — one engine is not enough reason to build it); wiring `XigmaEngine` into
+the default validation suite run (needs either real kernels or a suite-appropriate output
+resolution, D031).
+
+---
+
+## 2026-08-08 — Stage 1 restructured: shape deposit + non-uniform ahat retarget (D032)
+
+Same-day follow-on to the Phase 3a session above, prompted by the project author (a
+physicist) questioning why the direct-onto-`ahat` deposit didn't reuse the predecessor's
+`retarget_a0` regrid mechanism. Working through it surfaced that D028's dismissal was
+right about the mechanism (the predecessor's fixed-target-range regrid, built for
+cross-run comparability) but missed the actual physics reason to want a fixed, *non-uniform*
+target grid: the redshift correction `ahat` drives only matters near a pulse's peak, and a
+grid that just follows wherever the sampled data spans resolves the peak no better than the
+bulk.
+
+**Landed**, planned in full via `/plan` before any code changed (`docs/GRAND_PLAN.md` v0.15,
+`DECISIONS.md` D032, superseding D028):
+
+- `stages.ShapeTable` + `deposit_shape_table`: Stage 1 now bins onto `a0_shape` (already
+  peak-independent) on a fine, uniform grid — one deposit per `TrajectorySamples`, reusable
+  for any peak a0.
+- `stages.retarget_ahat`: a conservative, overlap-weighted regrid (adapted from the
+  predecessor's `retarget_a0`, `deposition.py:423-511` in the old repo) onto a fixed,
+  non-uniform `ahat` axis — `stages._ahat_target_edges`'s "log-spaced in distance from the
+  top" formula, bin width shrinking monotonically toward `ahat_max`. Two exact rescales:
+  the source edges by `a0_peak**2`, the deposited mass by
+  `(a0_peak/source_a0_peak)**2` (the same relation `retargeted_luminosity` established).
+  Truncates trailing target bins the source never reaches (exactly zero mass, not
+  approximately) — measured a real speedup, most configurations populate only a handful of
+  the 32 target bins.
+- **Grid defaults tuned against the actual scenario bank, not assumed.** The predecessor-
+  matched starting point (`ahat_max=0.5`, `decades=3`) put bin 0 alone wider than
+  `near_a0_max`'s entire `ahat` range — every scenario would have collapsed into the floor
+  bin, defeating the whole change. Swept `decades` numerically against the bank's measured
+  `ahat` distributions before landing on `decades=1.0`, which resolves `near_a0_max` across
+  real bins while correctly leaving `low_a0` in the floor (its `ahat` genuinely is small
+  enough that the redshift barely matters there).
+- `Table.bin_volume` (a single scalar, only valid for a uniform grid) removed; replaced by
+  `ahat_widths` (per-bin array) + `gamma_theta_cell_area`, folded into
+  `spectrum_from_table`'s cell sum directly.
+- `Collision` gained a `_shape_table` singleton cache alongside `_tables`, mirroring
+  `build_overlap`'s pattern — `retarget_ahat`'s cost is independent of `n_particles`, so
+  multiple peak-a0 queries on one `Collision` now pay the expensive shape deposit once, not
+  per query (a genuine improvement D028's "nothing needs this yet" correctly declined to
+  build machinery for, since nothing called it repeatedly at the time).
+- `schema.py` gained `n_bins_a0_shape`, `ahat_min`, `ahat_max`, `ahat_decades`; `n_bins_ahat`
+  kept its key but its default moved 12 -> 32 and its meaning shifted (deposit count ->
+  retarget-grid count).
+
+**Verification:** 291 tests pass (up from 283 — one file (`test_stage1_stage2.py`)
+substantially rewritten around the two-stage API plus new retarget/truncation/floor-fold
+tests, `test_xigma_engine.py` updated for the two-level cache); doc-staleness guard green
+against D032 and two now-historical backtick fixes in D028/D031; `python -m
+gammaforge.validation.run` still green in ~3s, the fourth identity leg (Stage 2 vs `delta`,
+D029) re-verified at the identity harness's 2000-particle scale with the new pipeline
+(ratios 0.98-1.00 across the three scenarios).
+
+`docs/GRAND_PLAN.md` bumped to v0.15. `DECISIONS.md` gained D032 and a "superseded by D032"
+note prepended to D028 (left as historical record, not rewritten).
 
 ---
 

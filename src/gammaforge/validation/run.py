@@ -12,7 +12,9 @@ honest about what it did rather than silently doing less:
 * **identities** — methods that must agree on the same number: Stage 0's total yield, the
   closed-form single-electron spectrum, and delta's brute-force angular integral. The
   third disagrees by exactly ``2 pi`` (§9.1, open) and is reported against that derived
-  value rather than against 1.
+  value rather than against 1. A fourth leg compares Stage 2's own table kernel against
+  delta at one point — both carry the same pending factor, so unlike the third leg this
+  one is expected at ~1 *today*, and stays there once 3b sets the constant.
 * **goldens** — every committed snapshot is loaded and its stored closed-form scalars are
   compared against what this repo computes for the same scenario. This is a real
   cross-implementation check with no engine in it: two independent codebases, the same
@@ -21,14 +23,24 @@ honest about what it did rather than silently doing less:
 The engine sections (cross-engine consistency, chunk/backend/prefilter invariance, the
 closed-form identity tests) are `invariance.engine_checks` and `golden.compare_to_golden`
 applied to a registered engine. They are not stubbed here: an empty engine list prints as
-an empty engine list, and the section appears when an engine does.
+an empty engine list, and the section appears when an engine does. **`XigmaEngine`
+exists** (Phase 3a, `engines/xigma/engine.py`) but is not passed to `run_suite` by
+`main()` below: the scenario bank's `_DEFAULT_OUTPUTS` resolution
+(`COLLIMATED_SPECTRUM` at 64x16x16, tuned for the predecessor's GPU importance sampler)
+takes tens of seconds per slice against this phase's numpy brute-force kernel
+(`DECISIONS.md` D031) — real for a deliberate Calculate (§12), not for a suite run meant
+to be exercised routinely. `tests/test_xigma_engine.py` and `tests/test_stage1_stage2.py`
+exercise it at a suite-appropriate scale instead.
 """
 
 from __future__ import annotations
 
+import math
 import sys
 from dataclasses import replace
 from typing import Iterable, Sequence
+
+import numpy as np
 
 from ..engines.base import Engine
 from .golden import available_goldens, compare_to_golden, load_golden
@@ -106,7 +118,7 @@ IDENTITY_PARTICLES = 2000
 def identity_checks(scenarios: Sequence[Scenario]) -> list[Check]:
     """The §7 identity harness: methods that must agree, and by how much they do not.
 
-    Three legs exist today. Stage 0's total yield is an elementary
+    Four legs exist today. Stage 0's total yield is an elementary
     ``flux x cross-section x time`` count; the closed-form single-electron spectrum
     integrates to that same number as an identity; delta's angular integral is the
     independent brute-force path. The first two agree exactly, and delta comes out at
@@ -118,9 +130,23 @@ def identity_checks(scenarios: Sequence[Scenario]) -> list[Check]:
     "expected 1.0, fails" would make the suite permanently red and therefore ignored;
     encoding it as "expected 1.0, passes" would require pasting in a constant nobody has
     justified (P14). Neither is what a harness is for.
+
+    The fourth leg (Phase 3a) is Stage 2's own table kernel against delta, at one
+    observation point — both carry the *same* pending §9.1 factor, so their ratio is a
+    genuine identity today (~1), not another 2 pi-shaped gap, and it stays ~1 after 3b
+    sets the constant. It is what actually exercises `stages.deposit_shape_table`/
+    `stages.retarget_ahat`/`angular_spectrum_from_table` in the suite, at a scale
+    `python -m gammaforge.validation.run` can afford (see the module docstring for why
+    the engine itself is not wired in at full scenario-bank resolution yet).
     """
-    from ..engines.xigma.stages import integrate_trajectories
+    from ..engines.xigma.stages import (
+        angular_spectrum_from_table,
+        deposit_shape_table,
+        integrate_trajectories,
+        retarget_ahat,
+    )
     from .references import delta
+    from .references.delta import resonance_spectrum
     from .scenarios import build
 
     checks = []
@@ -147,6 +173,30 @@ def identity_checks(scenarios: Sequence[Scenario]) -> list[Check]:
             passed=abs(normalization.deviation) <= 2e-2,
             detail=normalization.summary(),
         ))
+
+        # Fourth leg: Stage 2's table kernel against delta's particle-based histogram, at
+        # one observation point. Both carry the *same* pending section-9.1 factor
+        # (`stages.py`'s `KERNEL_NORMALIZATION_CONSTANT` is pi-free, and delta's own
+        # prefactor is what the derived 2*pi above comes from), so this ratio is ~1 today
+        # and stays ~1 once 3b sets the constant, unlike the two legs above. It checks
+        # deposition and interpolation, deliberately insensitive to the open authoring
+        # question. CIC, not the default `nearest`: evaluating exactly at the beam centre
+        # aliases against a nearest-deposited table's own cell boundaries
+        # (`tests/test_stage1_stage2.py` measured 0.5x-1.7x at nearest with 40-100 theta
+        # bins; CIC holds within a few percent).
+        shape_table = deposit_shape_table(samples, n_bins=(32, 48, 48, 64), scheme="cic")
+        table = retarget_ahat(shape_table, samples.a0_peak)
+        edge = float(np.max(samples.gamma) ** 2)
+        s_edges = np.linspace(0.0, 1.05 * edge, 150)
+        s_centers = 0.5 * (s_edges[:-1] + s_edges[1:])
+        kernel_total = float(np.sum(angular_spectrum_from_table(table, [0.0], [0.0], s_centers)))
+        delta_total = float(np.sum(resonance_spectrum(samples, s_edges, 0.0, 0.0)))
+        ratio = kernel_total / delta_total if delta_total else math.inf
+        checks.append(Check(
+            name=f"{scenario.name} Stage 2 kernel = delta (single point, pi-agnostic)",
+            passed=abs(ratio - 1.0) <= 0.1,
+            detail=f"kernel/delta = {ratio:.4f} at (theta_x, theta_y) = (0, 0)",
+        ))
     return checks
 
 
@@ -171,7 +221,11 @@ def run_suite(engines: Iterable[Engine] = (), scenarios: Sequence[Scenario] = SC
 
     report.section("engines")
     if not engines:
-        report.note("no engines registered yet (Phase 3a onwards) — nothing to run")
+        report.note(
+            "no engines passed to run_suite() — `main()` below does not pass XigmaEngine "
+            "by default (see the module docstring: full scenario-bank resolution is slow "
+            "against this phase's numpy kernel); pass engines=[...] to exercise this section"
+        )
         return report
 
     for engine in engines:

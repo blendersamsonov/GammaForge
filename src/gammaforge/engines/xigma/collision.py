@@ -1,0 +1,188 @@
+"""The `Collision` facade (GRAND_PLAN.md §4.2): the one stateful object in xigma.
+
+Owns one fixed `InteractionParameters` + xigma `Parameters` pair and memoizes what its
+stages produce from them — Stage 0's `TrajectorySamples`, Stage 1's `ShapeTable` (at most
+once, peak-a0-agnostic), and Stage 1.5's retargeted `Table` per requested peak a0
+(`DECISIONS.md` D032) — so calling `spectrum`/`angular_spectrum`/`spectrum_in_angular_range`
+more than once, or asking `run()` for several outputs that all need the same table, does
+the expensive work exactly once. `XigmaEngine.run()` (`engine.py`) builds one `Collision`
+per call; notebooks may hold one across several queries.
+
+**What this does not do.** It does not detect "only field X changed" across *different*
+`InteractionParameters` instances — that cross-call staleness/reuse policy is §5's GUI
+grey-out mechanism, which needs a live object surviving repeated edits and belongs to
+Phase 6, not here. A `Collision` is cheap to reuse, not smart about being replaced
+(`DECISIONS.md` D030).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+import numpy as np
+
+from ...io.interaction import InteractionParameters
+from ...io.laser import fit_gaussian_paraxial
+from ...io.results import Axis, PhasespaceSlice, Results
+from ...io.schema import Parameters
+from ...io.target import OutputKind, OutputRequest, auto_ranges, slice_axis_values
+from .stages import (
+    ShapeTable,
+    Table,
+    TrajectorySamples,
+    angle_integrated_spectrum,
+    angular_spectrum_from_table,
+    deposit_shape_table,
+    integrate_trajectories,
+    retarget_ahat,
+    spectrum_in_angular_range as _spectrum_in_angular_range,
+)
+
+__all__ = ["Collision"]
+
+#: `OutputKind`s this Collision can fill today. `TEMPORAL_ENVELOPE`/`SPATIAL_DISTRIBUTION`
+#: need Stage 0 diagnostics `TrajectorySamples` does not carry (per-step position/time,
+#: not just the trajectory-averaged quantities it keeps, §4.2); `MACROPARTICLE_DUMP` has
+#: no photon-macroparticle population to dump (xigma is a tabulated-density engine, not an
+#: MC one). All three are omitted, not silently approximated — `run()` fills only what a
+#: request asks for and this set covers, same contract as any engine (P10).
+_SUPPORTED = frozenset({
+    OutputKind.TOTAL_YIELD,
+    OutputKind.SPECTRUM,
+    OutputKind.ANGULAR_DISTRIBUTION,
+    OutputKind.SPECTRAL_ANGULAR_DISTRIBUTION,
+    OutputKind.COLLIMATED_SPECTRUM,
+})
+
+
+@dataclass
+class Collision:
+    """One interaction, xigma's own knobs, and the stages they produce."""
+
+    interaction: InteractionParameters
+    params: Parameters
+
+    _samples: TrajectorySamples | None = field(default=None, init=False, repr=False)
+    _shape_table: ShapeTable | None = field(default=None, init=False, repr=False)
+    _tables: dict[float, Table] = field(default_factory=dict, init=False, repr=False)
+
+    def build_overlap(self) -> TrajectorySamples:
+        """Stage 0, memoized: every other method funnels through this."""
+        if self._samples is None:
+            self._samples = integrate_trajectories(
+                self.interaction.bunch,
+                self.interaction.laser,
+                self.interaction.N_e,
+                n_steps=self.params.get_int("n_steps"),
+                threshold=self.params.get_float("threshold"),
+            )
+        return self._samples
+
+    def _shape(self) -> ShapeTable:
+        """Stage 1, memoized: peak-a0-agnostic, so this runs at most once per `Collision`
+        regardless of how many distinct peak a0 values `_table()` is asked for."""
+        if self._shape_table is None:
+            self._shape_table = deposit_shape_table(
+                self.build_overlap(),
+                n_bins=(
+                    self.params.get_int("n_bins_gamma"),
+                    self.params.get_int("n_bins_theta_x"),
+                    self.params.get_int("n_bins_theta_y"),
+                    self.params.get_int("n_bins_a0_shape"),
+                ),
+                scheme=self.params.get_choice("scheme"),
+            )
+        return self._shape_table
+
+    def _table(self, a0_peak: float | None = None) -> Table:
+        """Stage 1.5, memoized per requested peak a0 (`a0_peak=None` means the pulse's
+        own). Cheap regardless of ``n_particles`` — a small regrid, not a re-deposit —
+        because the expensive part, Stage 1's shape deposit, runs at most once via
+        `_shape` no matter how many peak-a0 values are retargeted from it."""
+        key = self.build_overlap().a0_peak if a0_peak is None else a0_peak
+        if key not in self._tables:
+            self._tables[key] = retarget_ahat(
+                self._shape(),
+                key,
+                ahat_min=self.params.get_float("ahat_min"),
+                ahat_max=self.params.get_float("ahat_max"),
+                n_bins=self.params.get_int("n_bins_ahat"),
+                decades=self.params.get_float("ahat_decades"),
+            )
+        return self._tables[key]
+
+    # -- queries --------------------------------------------------------
+    def spectrum(self, s) -> np.ndarray:
+        """``dN/ds``, table-free (§4.3-adjacent — this is Stage 0's own closed form)."""
+        return angle_integrated_spectrum(self.build_overlap(), s)
+
+    def angular_spectrum(self, s, theta_x, theta_y, *, psi_pol: float = 0.0) -> np.ndarray:
+        """Stage 2, at the pulse's own peak a0: ``d3N / (ds dtheta_x dtheta_y)``."""
+        return angular_spectrum_from_table(self._table(), theta_x, theta_y, s, psi_pol=psi_pol)
+
+    def spectrum_in_angular_range(
+        self, theta_x_range, theta_y_range, s_edges, *, resolution=(33, 33), psi_pol: float = 0.0
+    ):
+        """The windowed on-demand query (§4.2) — cheap once `build_overlap`/`_table` ran."""
+        return _spectrum_in_angular_range(
+            self._table(), theta_x_range, theta_y_range, s_edges, resolution=resolution, psi_pol=psi_pol
+        )
+
+    # -- Results assembly -------------------------------------------------
+    def run(self, requests: tuple[OutputRequest, ...]) -> Results:
+        """Fill every requested output this Collision supports; skip the rest (P10)."""
+        target = self.interaction.target
+        ranges = auto_ranges(target, self.interaction.beam, self.interaction.laser, self.interaction.bunch)
+        metrics = fit_gaussian_paraxial(self.interaction.laser)
+        photon_energy = metrics.photon_energy()
+        # `psi_pol` is a `GaussianParaxialLaser` field, not part of the `LaserField`
+        # protocol (P15) — read through the descriptive fit, same as every other laser
+        # metric this facade uses, rather than assuming the concrete implementation.
+        psi_pol = metrics.m("psi_pol")
+
+        slices: dict[OutputKind, PhasespaceSlice] = {}
+        for request in requests:
+            if request.kind not in _SUPPORTED:
+                continue
+            slices[request.kind] = self._fill(request, ranges[request.kind], photon_energy, psi_pol)
+        return Results(photon_slices=slices)
+
+    def _fill(
+        self, request: OutputRequest, ranges: dict[Axis, tuple[float, float]], photon_energy: float, psi_pol: float
+    ) -> PhasespaceSlice:
+        kind = request.kind
+        if kind is OutputKind.TOTAL_YIELD:
+            return PhasespaceSlice(axes={}, distr=np.asarray(self.build_overlap().total_yield()))
+
+        if kind is OutputKind.SPECTRUM:
+            values = slice_axis_values(request, ranges)
+            s = values[Axis.ENERGY] / (4.0 * photon_energy)
+            dN_ds = self.spectrum(s)
+            return PhasespaceSlice(axes=values, distr=dN_ds / (4.0 * photon_energy))
+
+        if kind is OutputKind.ANGULAR_DISTRIBUTION:
+            values = slice_axis_values(request, ranges)
+            s = self._energy_quadrature_grid()
+            cube = self.angular_spectrum(s, values[Axis.THETA_X], values[Axis.THETA_Y], psi_pol=psi_pol)
+            distr = np.trapezoid(cube, s, axis=-1)
+            return PhasespaceSlice(axes=values, distr=distr)
+
+        if kind in (OutputKind.SPECTRAL_ANGULAR_DISTRIBUTION, OutputKind.COLLIMATED_SPECTRUM):
+            values = slice_axis_values(request, ranges)
+            s = values[Axis.ENERGY] / (4.0 * photon_energy)
+            cube = self.angular_spectrum(s, values[Axis.THETA_X], values[Axis.THETA_Y], psi_pol=psi_pol)
+            # angular_spectrum_from_table returns (theta_x, theta_y, s); §3.4/`SLICE_AXES`
+            # orders this output (energy, theta_x, theta_y).
+            distr = np.moveaxis(cube, 2, 0) / (4.0 * photon_energy)
+            return PhasespaceSlice(axes=values, distr=distr)
+
+        raise AssertionError(f"Collision._fill: {kind} is in _SUPPORTED but has no branch")
+
+    def _energy_quadrature_grid(self, n: int = 64) -> np.ndarray:
+        """An ``s`` grid spanning the populated resonance, for the outputs that integrate
+        over energy rather than slicing it (`ANGULAR_DISTRIBUTION`). ``s = gamma**2`` is
+        already the Compton edge in these units (§9.1's convention), so this needs no
+        photon energy to convert anything — unlike `SPECTRUM`'s axis, which is stored in
+        erg and does."""
+        edge = float(np.max(self.build_overlap().gamma) ** 2)
+        return np.linspace(0.0, 1.2 * edge, n)

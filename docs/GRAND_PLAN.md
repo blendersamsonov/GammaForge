@@ -1,9 +1,44 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.13 — 2026-08-08
+**Status:** draft v0.15 — 2026-08-08
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 **Changelog**
+- **v0.15**: Stage 1 restructured, within the same Phase 3a — supersedes v0.14's item (a).
+  Direct deposit onto `ahat` (v0.14) is replaced by a two-step pipeline: `deposit_shape_table`
+  bins the a0-independent `a0_shape` onto a fine, uniform grid; `retarget_ahat` conservatively
+  regrids it onto a **fixed, non-uniform** `ahat` axis — dense near `ahat_max`, coarse toward
+  `ahat_min` — for one specific peak a0. Physics motivation: the redshift correction only
+  matters where `ahat` is comparable to 1 (near a pulse's peak); a grid that just follows
+  wherever the sampled data spans gives no more resolution there than anywhere else. This is
+  the predecessor's `retarget_a0` regrid mechanism after all, with a different target-grid
+  law than its plain `linspace`, and D028's "nothing here needs it" conclusion is superseded
+  by D032 accordingly. `Table.bin_volume` (a single scalar, valid only for a uniform grid) is
+  removed; `spectrum_from_table` now folds a per-bin `ahat_widths` array into its cell sum
+  instead. Full reasoning, the target-grid formula, and how its defaults were tuned against
+  the actual scenario bank: `DECISIONS.md` D032.
+- **v0.14**: Phase 3a landed (Stage 1/2, `Collision`, `XigmaEngine`), four items restated
+  against what was actually built rather than what §4.2/§5 anticipated.
+  **(a) No `retarget_a0`/`a0_kind` rebin.** `deposit_table` computes
+  `TrajectorySamples.retargeted_ahat` and re-deposits from cached Stage 0 samples instead
+  — measured cheap relative to Stage 0, so the predecessor's conservative-regrid apparatus
+  buys nothing here (`DECISIONS.md` D028).
+  **(b) Stage 2's numpy kernel is the predecessor's brute-force grid quadrature
+  (`reference.py`'s), not its GPU importance sampler** — the sampler was the predecessor's
+  own trust-level-C path (3x-30x variance in sparse configs), not something to import as
+  this phase's only implementation. `cupy`/`numba` stay gated exactly like Stage 0's until
+  real kernels exist (D029).
+  **(c) §5's illustrative recompute-cost row for pulse energy is walked back.** "Stage 1
+  a0-axis retarget (no re-deposition)" assumed the ported mechanism (a); restated below as
+  "Stage 1 re-deposit from cached Stage 0 samples". The tier (`REUSE_INTERMEDIATES`) is
+  unchanged, but `XigmaEngine.recompute_costs` does not claim it yet — that needs a caller
+  that keeps one `Collision` alive across edits, which is Phase 6, not 3a (D030).
+  **(d) `XigmaEngine` is not passed to `run_suite()` by `validation.run.main()`.** The
+  scenario bank's default output resolution is sized for the predecessor's GPU kernel and
+  costs tens of seconds per slice against this phase's numpy one — real Calculate cost
+  (§12), not something a routine suite run should pay. A fourth identity-harness leg
+  (Stage 2 kernel vs delta at one point, both carrying the identical pending §9.1 factor)
+  exercises Stage 1/2 in the suite instead (D031).
 - **v0.13**: §9.1 rewritten — the ~2π is **traced, not open**. It is exactly `2π`, it is in
   the paper at `eq:xsec` (inherited by `eq:main`), and it is not a porting artefact; the
   derivation and evidence are in `DECISIONS.md` D026 and the manuscript is annotated at
@@ -595,8 +630,11 @@ class Engine(Protocol):
   GUI to enable/disable output checkboxes. `recompute_costs` drives grey-out/release and
   cheap requery (§5).
 - Engines omit unsupported outputs from their results; the GUI renders what came back.
-- A small registry (`ENGINES`) with lazy optional-dependency registration: xigma needs
-  cupy/numba, everything else is pure.
+- A small registry (*ENGINES*) with lazy optional-dependency registration is anticipated —
+  xigma needs cupy/numba, everything else is pure — but still not built as of Phase 3a:
+  `run_suite`/`XigmaEngine` are both usable without one, and a registry holding exactly one
+  entry is the speculative machinery P10 rejects (D018). Reconsider once a second engine
+  or the GUI needs to enumerate them.
 
 ### 4.2 xigma engine (`engines/xigma/`) — first-class
 
@@ -614,23 +652,50 @@ The tabulated-overlap pipeline, restructured into composable stages:
   dead `build_table_streaming`); port the *algorithm and the hard-won constants* (the
   `_MAX_S_CHUNK` cap history, halve-and-retry policy), not the triplicated code, and
   retire the unwired manual-chunk design.
-- **Stage 1 — H-table deposition** (`stages.py::deposit_table`): pure function;
-  nearest/CIC deposition of `(gamma, θx, θy, a0)` into the 4D overlap table `H`.
-  Includes `retarget_a0` (a0 rescale without re-deposition) and the a0_shape vs ahat
-  distinction.
+- **Stage 1 — shape deposition** (`stages.py::deposit_shape_table`): pure function;
+  nearest/CIC deposition of `(gamma, θx, θy, a0_shape)` into a 4D density table
+  (`ShapeTable.H`) — onto Stage 0's a0-independent `a0_shape`, not onto `ahat` directly, so
+  one deposit serves any peak a0.
+- **Retarget — conservative regrid** (`stages.py::retarget_ahat`): pure function; turns a
+  `ShapeTable` plus one peak a0 into the `Table` (`(gamma, θx, θy, ahat)`, Stage 2's actual
+  input) via overlap-weighted mass transfer onto a **fixed, non-uniform** `ahat` axis —
+  dense near `ahat_max`, coarse toward `ahat_min`, everything below folded into one floor
+  bin — because the redshift correction `ahat` drives is only significant near a pulse's
+  peak, and a grid that just follows wherever the data spans gives no more resolution there
+  than anywhere else. This *is* the predecessor's `retarget_a0`/`a0_kind` regrid, with a
+  different target-grid law than its plain `linspace` (`DECISIONS.md` D032, superseding
+  D028's decision not to port it). Cheap and independent of `n_particles`, so `Collision`
+  caches the shape deposit once and retargets many peak-a0 values from it.
 - **Stage 2 — spectrum queries** (`stages.py::spectrum_from_table`,
-  `angular_spectrum_from_table`, `spectrum_in_angular_range`): pure functions; the
-  GPU/CPU kernels. **One authoritative normalization, arbitrated against delta** (§9.1)
-  — the ~2π discrepancy is resolved here, and the constant is isolated in one
-  module-level location.
-- **`Collision` facade** (`collision.py`): the one stateful object. Owns (beam, laser,
-  bunch, target, engine params) and the stage cache. Methods are thin wrappers:
-  `build_overlap()`, `spectrum(s)`, `angular_spectrum(...)`,
-  `spectrum_in_angular_range(...)`, `run(output_requirements) -> Results`. Cache keys
-  are hashes of the inputs each stage consumed (§5). Notebooks use the facade; validation
-  uses the pure functions directly.
-- **`Engine` wrapper** (`engine.py`): the thin `run()` used by the GUI — builds the
-  interaction, calls the facade, returns `Results`. Opaque by contract (P3).
+  `angular_spectrum_from_table`, `spectrum_in_angular_range`): pure functions. The numpy
+  path ports the predecessor's brute-force grid quadrature (its validation-only
+  `reference.py`), not its GPU importance sampler — trust-level C in the predecessor's own
+  audit, not something to import as this phase's only implementation (D029). `cupy`/
+  `numba` are gated like Stage 0's until real kernels exist. **One authoritative
+  normalization, isolated in one module-level location**
+  (`stages.KERNEL_NORMALIZATION_CONSTANT`) and arbitrated against delta (§9.1) — the
+  constant itself is pi-free and unchanged from the predecessor's kernel math; the ~2π
+  question is which side of the table-free/table-based split the missing factor belongs
+  to, still open (D029, §9.1).
+- **`Collision` facade** (`collision.py`): the one stateful object. Owns one fixed
+  (`InteractionParameters`, xigma `Parameters`) pair and memoizes what its stages produce
+  from them. Methods are thin wrappers: `build_overlap()`, `spectrum(s)`,
+  `angular_spectrum(...)`, `spectrum_in_angular_range(...)`,
+  `run(output_requirements) -> Results`. Caching is **per-instance memoization**, not
+  cross-call hash-keyed staleness detection — the latter needs a live consumer that keeps
+  one `Collision` across edits and decides what to keep, which is Phase 6's GUI grey-out
+  mechanism, not built here (D030). Notebooks use the facade; validation uses the pure
+  functions directly.
+- **`Engine` wrapper** (`engine.py`): the thin `run()` used by the GUI — builds one
+  `Collision` per call, returns `Results`. Opaque by contract (P3).
+  `recompute_costs` declares only bunch charge (`n_e`) as cheap — handled at the `io`
+  level (`InteractionParameters.with_charge`/`Results.scaled`), no engine run at all —
+  since the collimation-window/pulse-energy cheap paths §5 illustrates need a caller that
+  reuses one `Collision`, which nothing does yet (D030). `XigmaEngine` is not passed to
+  `validation.run.main()`'s default `run_suite()` call: the scenario bank's default output
+  resolution costs tens of seconds per slice against this phase's numpy kernel — real
+  Calculate cost (§12), not a routine-suite cost (D031). The validation identity harness
+  exercises Stage 1/2 at a suite-appropriate scale instead (§9.1).
 - **Geometry note:** `theta_xz`/`theta_yz`/`psi_focus`/`psi_pol` are first-class schema
   parameters from day one, but the *physics* of non-head-on geometry is wired as an
   identity/no-op until §9.3's derivation lands (P14c) — never silently approximate.
@@ -704,14 +769,19 @@ single-stage MC would not fit it. The mechanism is now **generic + engine-declar
   records the hash of exactly the inputs it consumed; reuse happens iff hashes match.
   Invalidation is **exact by construction** — no heuristic staleness.
 
-**Illustrative xigma mapping** (engine-declared data, not a global table):
+**Illustrative xigma mapping** (engine-declared data, not a global table; **as of Phase
+3a, only the bunch-charge row is actually wired** — `XigmaEngine.recompute_costs`
+declares `n_e` alone, because it is handled at the `io` level without an engine run at
+all regardless of which engine is active. The rest describe what would be cheap *if* a
+caller kept one `Collision` alive across edits, which is Phase 6's grey-out mechanism,
+not Phase 3a's — `DECISIONS.md` D030):
 
 | Field group (examples) | Cost tier | Why |
 |------------------------|-----------|-----|
 | beam sizes, emittances, Twiss, drift | FULL_RERUN | feeds Stage 0 + Stage 1 |
 | γ0, energy spread, chirp, dispersion | REUSE_INTERMEDIATES | Stage 1 re-deposition; Stage 0 hash unchanged |
 | laser spot, duration, beta_ff, geometry angles | FULL_RERUN | feeds Stage 0 + Stage 1 |
-| pulse energy → a0, ellipticity | REUSE_INTERMEDIATES | Stage 1 a0-axis retarget (no re-deposition) |
+| pulse energy → a0, ellipticity | REUSE_INTERMEDIATES | Stage 1 re-deposit from cached Stage 0 samples (measured cheap, D028 — not the predecessor's a0-axis retarget) |
 | bunch charge (N_e) | QUERY_ONLY | outputs are exactly linear in N_e (§3.5) — instant rescale, no stage rerun |
 | collimation window | QUERY_ONLY | Stage 2 requery against cached table |
 | output grid (bins per output) | QUERY_ONLY | Stage 2 requery |
@@ -949,7 +1019,7 @@ annotated at both equations.
 | **1. Core** | `io/`: schema, units/conventions (CGS), constants; bunch (`Bunch` + `GaussianElectronBeam`); laser (incl. `LaserField` protocol + `GaussianParaxialLaser` as its sole implementation, `fit_gaussian_paraxial`, elliptical+astigmatic model, geometry angles — §3.3/P15); target (auto-ranges + `OutputKind` vocabulary §3.4); interaction (incl. `N_e` scalar + `SamplingSpec` §3.5); sampling + prefilter (§3.2); results contract (incl. `PhotonMacroparticles` §3.6); YAML + `.ele` I/O; HDF5 results writer | Round-trip tests; schema validation tests; CGS conversion tests vs known values; `LaserField` protocol conformance test for `GaussianParaxialLaser` (period-averaged + period-resolved at arbitrary points); `fit_gaussian_paraxial` identity test on a `GaussianParaxialLaser` input; geometry round-trip test (R⁻¹ recovers head-on angles, §2.2) |
 | **2. Validation harness** | scenarios, runners skeleton, `make_references.py` + first golden snapshots from old repo; invariance-test scaffolding (chunk, prefilter, backend, seed — §7) | Golden generation runs; new-vs-golden comparisons execute |
 | **2.5. Stage 0 + minimal delta** | **Stage 0** (`integrate_trajectories`) and the **shared auto-chunk + OOM-retry utility** (§4.2), pulled forward from 3a because delta needs both; delta itself scoped to Stage-2 normalization arbitration, built on top of Stage 0 (§4.5) | Stage 0 tests green; chunk-invariance holds; delta produces independent spectra on baseline scenarios; identity harness (`kernel` vs `reference` vs `direct binning` vs delta) executable |
-| **3a. xigma engineering** | Stage 1/2 pure functions; Collision facade + stage cache; Engine wrapper; kernels (numpy/cupy/numba) for Stages 1/2 (**Stage 0 and the chunking utility already built in 2.5**); geometry/a0/ellipticity parameters wired as explicit identity/no-op placeholders (P14c) | Stage architecture tests green; placeholders documented |
+| **3a. xigma engineering** — **landed 2026-08-08** | Stage 1/2 pure functions; Collision facade + stage cache; Engine wrapper; numpy kernel for Stages 1/2, cupy/numba gated like Stage 0 until real kernels exist (**Stage 0 and the chunking utility already built in 2.5**; D029); geometry/a0/ellipticity parameters wired as explicit identity/no-op placeholders (P14c) | Stage architecture tests green; placeholders documented |
 | **3b. Physics closure** | ~2π resolution (§9.1 — **traced in Phase 2.5**; what remains is the author's choice of where the `1/(2π)` belongs, then Stage 2's constant), crossing-angle derivation (§9.3), ellipticity→a0 (§9.2) — **runs concurrently with Phases 4 and 5, not serially** | §9.1's constant set in Stage 2 and the identity harness re-gated against 1.0 rather than 2π; §9.2/§9.3 derivations landed if author completes them in parallel (never blocking 4–6) |
 | **4. analytical engine** | estimates + component breakdown; quadrature spectrum; growth items (foci displacement, non-round beam, collimated spectrum) | Closed-form limits match; validation anchor ready |
 | **5. kascade port + delta full role** | minimal kascade behind interface **+ its Thomson-limit sanity check (B4)**; delta full cross-validation role | 4-method cross-validation runs; kascade sanity check passes |

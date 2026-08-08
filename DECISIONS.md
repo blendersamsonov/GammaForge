@@ -743,3 +743,278 @@ instead*. That treats a reporting defect as a calibration question. The problem 
 that 0.07% passed a 2% gate — it should — but that the metric announced perfect agreement
 where there was a real difference, which makes it useless for tracking drift and a false
 pass under any tighter tolerance later.
+
+---
+
+### D028 — `deposit_table` bins directly onto `ahat`; the predecessor's fixed-range `retarget_a0`/`a0_kind` regrid is not ported, but the underlying peak-independence it exploited is — for both `ahat` and `luminosity`
+
+**Superseded by D032**, within the same session: the physics argument for *why* a fixed,
+non-uniform target grid earns its cost (concentrating resolution near `ahat_max`, where
+the redshift correction is significant) reverses this entry's "nothing in this repo needs
+[the regrid]" conclusion. `deposit_table`/`Table.ahat_edges`-as-direct-deposit-target,
+named throughout below, no longer exist — replaced by `stages.deposit_shape_table` +
+`stages.retarget_ahat`. Left below as the historical record of the reasoning that held for
+the rest of this Phase 3a session, not as a description of current code.
+
+`GRAND_PLAN.md` §4.2 named `retarget_a0` (a0-axis rebin, no re-deposition) as in-scope for
+Stage 1. What is *not* built is the predecessor's Grid4D/W-matrix conservative regrid —
+a mechanism for squeezing tables from different peak-a0 runs onto one *fixed* target bin
+range so they stayed mutually comparable, which nothing in this repo needs (each
+`Collision` builds its own table fresh, D030). What *is* kept, and is the actual physics
+the predecessor's mechanism rested on: for a fixed envelope shape,
+``a0_local(t) = a0_peak * envelope(t)`` is exactly linear in the peak, so both
+`TrajectorySamples.ahat` (`a0_peak**2 * a0_shape`) and `TrajectorySamples.luminosity`
+(proportional to ``sum(a0_local**2)``) scale as ``a0_peak**2`` for the *same cached
+trajectories* — `retargeted_ahat`/`retargeted_luminosity` are that rescale, and
+`stages.deposit_table(samples, a0_peak=...)` deposits both, so a different pulse energy's
+redshift *and* total photon count are a fresh Stage 1 deposit from cached Stage 0 samples,
+no rerun.
+
+(`retargeted_luminosity` was missing from the first cut of this decision — `deposit_table`
+deposited the retargeted `ahat` but the *original* `luminosity`, so a retargeted table's
+`total_weight` did not move with `a0_peak` at all. Caught by a question about exactly this
+reasoning; `tests/test_stage1_stage2.py::
+test_retargeted_luminosity_matches_a_fresh_stage_0_run_at_that_a0_peak` cross-checks the
+fix against an actual second Stage 0 run at a doubled pulse energy, agreeing to 0.1%.)
+
+**Why re-deposit rather than rescale the existing table in place.** Because the ahat axis
+and the samples deposited into it scale by the *same* factor, a table retargeted to a new
+peak a0 could in principle be produced by rescaling `Table.ahat_edges` alone (binning is
+invariant under a uniform positive rescale of both data and edges by the same factor) —
+touching no array at all, cheaper than even a fresh deposit. Not built: nothing calls
+`deposit_table(a0_peak=...)` from production code today (`Collision._table()` always asks
+for the pulse's own a0), the trick does not hold in the degenerate zero-divergence-beam
+branch of `_uniform_edges` (its fallback padding does not scale linearly), and a fresh
+deposit is already measured cheap next to Stage 0
+(`test_deposition_is_cheap_next_to_stage_0`, *DEFAULT_TABLE_BINS*, 50k particles). Revisit
+if a real caller (a pulse-energy scan) needs the extra speed.
+
+**Consequence for §5.** The illustrative recompute-cost table's "pulse energy → a0 |
+REUSE_INTERMEDIATES | Stage 1 a0-axis retarget (no re-deposition)" row assumed the ported
+regrid mechanism. `GRAND_PLAN.md` v0.14 restates it as "Stage 1 re-deposit from cached
+Stage 0 samples (measured cheap)" — same tier, different mechanism. `XigmaEngine.
+recompute_costs` (`engine.py`) does not yet claim this tier for pulse energy regardless
+(see D030): the `REUSE_INTERMEDIATES` claim needs a live consumer that knows a laser edit
+was pulse-energy-only and maps it to the corresponding `a0_peak`, and none exists until a
+GUI or scan helper does that mapping.
+
+**Rejected alternative:** *port `retarget_a0`/Grid4D/`a0_kind` verbatim*. Would add a
+W-matrix conservative-regrid module with no measured cost it avoids, contradicting the
+predecessor's own two build-then-delete-then-reject pattern this project already tracks
+for other speculative machinery (P6/P7/P9/P10/P11).
+
+---
+
+### D029 — Stage 2's numpy kernel ports the predecessor's brute-force grid quadrature, not the GPU importance sampler; `KERNEL_NORMALIZATION_CONSTANT` isolates the pending §9.1 factor
+
+`stages.spectrum_from_table`/`angular_spectrum_from_table`/`spectrum_in_angular_range`
+port the predecessor's *reference.py*'s `spectrum_from_table` — a direct sum over the
+table's own `(theta_x, theta_y, ahat)` cells with quadrilinear-in-gamma interpolation
+(`stages._interp_gamma`) — as the **production** numpy path, not the ~550-line
+*cupyx.jit*/CPU-`numba` ring-and-arc importance sampler (*spectrum4d.py*/
+*spectrum4d_cpu.py*). The predecessor's own audit (*xigma_passport.md* §8) already rated
+that sampler trust-level C, with 3x-30x variance in sparse/narrow-angle configurations —
+porting it would import a known-noisy path as this phase's only implementation, with no
+GPU to validate it against yet.
+
+`cupy`/`numba` backends are gated exactly like Stage 0's `_check_backend` (`stages.py`,
+Phase 2.5): declared in `schema.py`'s `scheme`/eventual-backend vocabulary but rejected at
+call time until a real kernel exists, rather than silently falling back to numpy under a
+GPU-sounding flag.
+
+**The pending §9.1 constant** (`stages.KERNEL_NORMALIZATION_CONSTANT = 1.5`) is pi-free,
+matching the predecessor's own kernel math exactly (its `coef=1.5`, explicitly documented
+pi-free in both *spectrum4d.py* and *reference.py*). The predecessor's ~2π gap is *not*
+inside this constant — it is the same gap D025/D026 already traced, between this
+kernel's differential form and the table-free `angle_integrated_spectrum` shape, both of
+which this repo's engine now computes (`stages.angle_integrated_spectrum` for
+`Collision.spectrum`, the table kernel for everything else). `run.py::identity_checks`'s
+fourth leg (Stage 2 kernel vs `delta.resonance_spectrum` at one point) measures ~1.00
+across the scenario bank precisely because both sides carry the identical pending factor —
+evidence the constant is isolated correctly, not evidence the §9.1 question is closed.
+
+**A resolution artefact, found while testing this constant, not caused by it: evaluating
+`spectrum_from_table` exactly at a beam's own angular centre against a `scheme="nearest"`
+table aliases against that table's cell boundaries** — measured ratios from 0.48 to 1.67
+against `delta` across theta-bin counts 10-150 at fixed particle count
+(`tests/test_stage1_stage2.py`). `scheme="cic"` (already in scope, §4.2) removes it,
+holding within a few percent from 40 to 250 theta bins. `run.py`'s fourth identity leg and
+the `test_stage1_stage2.py` regression test both use CIC for this reason; `nearest` stays
+the schema default (cheaper, and Stage 1's own conservation is scheme-independent).
+
+**Rejected alternative:** *port the GPU sampler now, run it CPU-side via cupy's numpy
+fallback or a hand rewrite*. Copies a known-noisy algorithm before there is hardware to
+validate it against, and duplicates ~550 lines this phase's exit criteria (`GRAND_PLAN.md`
+§11, "Stage architecture tests green; placeholders documented") do not ask for.
+
+---
+
+### D030 — `Collision`'s cache is per-instance memoization only; no cross-call staleness detection
+
+`Collision.build_overlap()`/`_table()` memoize on `self` — one `Collision` is built from
+one fixed `InteractionParameters` + xigma `Parameters`, and calling either method twice
+returns the cached value. There is no hash-based "did the caller's *new* interaction
+differ only in field X" detection across *different* `Collision` instances.
+
+**Why.** §5's GUI grey-out/cheap-requery model needs a live object that survives repeated
+edits and decides, per edit, which cached stage to keep — that consumer is Phase 6 (or a
+scan helper), and building the cross-call detector now with nothing to drive it is the
+speculative machinery P6 rejects. What *is* needed now — sharing Stage 0/1 work across the
+several outputs one `run()` call requests — is exactly what per-instance memoization
+gives, and `XigmaEngine.run()` builds one `Collision` per call, matching P3's "opaque by
+contract."
+
+**Consequence:** `XigmaEngine.recompute_costs` (`engine.py`) declares only `n_e` (handled
+at the `io` level, `InteractionParameters.with_charge`/`Results.scaled`, §3.5 — no engine
+run at all) as cheap. Collimation-window and pulse-energy cheap paths from §5's
+illustrative table are not claimed: they are true only if the *caller* keeps reusing one
+`Collision`, which nothing in this phase does yet. Everything else defaults `FULL_RERUN`
+(`base.py`'s documented default), which is the honest statement of what Phase 3a actually
+wired.
+
+**Rejected alternative:** *hash-key every stage's inputs now, so `Collision` can detect
+"only pulse energy changed" across instances*. Requires a policy for constructing that key
+from an arbitrary `LaserField` (P15) that the protocol does not provide, has no test or
+caller to justify it in this phase, and would very likely need reworking once Phase 6
+defines what the GUI actually keeps alive across a Calculate.
+
+---
+
+### D031 — `XigmaEngine` is not passed to `run_suite()` by `validation.run.main()`
+
+The engine exists (`engines/xigma/engine.py`) and is tested
+(`tests/test_xigma_engine.py`, `tests/test_stage1_stage2.py`), but
+`python -m gammaforge.validation.run` does not exercise it: `main()` still calls
+`run_suite()` with no engines, same as before this phase.
+
+**Why.** `run_suite(engines=[...])` already works — `invariance.engine_checks` and
+`golden.compare_to_golden` are engine-generic (Phase 2) — but `run_engine` runs an engine
+against the scenario's own `Target.outputs`, which is `scenarios._DEFAULT_OUTPUTS`:
+`COLLIMATED_SPECTRUM` at `(64, 16, 16)` and `ANGULAR_DISTRIBUTION` at `(64, 64)`, sized for
+the predecessor's GPU importance sampler (§12's own risk row: "measured 27s @ 64 energy
+bins on CPU... linear in n_energy"). This phase's numpy kernel is also linear in the
+*angular* grid size (a plain Python loop over observation points, §4.2/D029), so
+`COLLIMATED_SPECTRUM` alone measured 36.6s at that resolution and 100k particles — times
+`engine_checks`' four full runs per scenario, times three scenarios, `python -m
+gammaforge.validation.run` would go from ~3s to tens of minutes. That is real, expected
+Calculate cost for a deliberate query (§12: "expected, not a defect"), not a defect in a
+suite meant to be run routinely.
+
+`run.py::identity_checks` gained a fourth leg instead (D029): Stage 2's table kernel
+against `delta` at one point, at the identity harness's existing 2000-particle,
+small-table scale — the thing that actually exercises `stages.deposit_shape_table`/
+`stages.retarget_ahat` (D032)/`angular_spectrum_from_table` in the routine suite.
+
+**Rejected alternatives:** *wire the engine in at a reduced, suite-only resolution* — would
+need a second, ad-hoc `Target` variant that no golden or scenario elsewhere uses, and
+still would not be testing what the scenario bank's actual outputs cost; *reduce
+`_DEFAULT_OUTPUTS`'s resolution to something numpy can afford* — would silently change what
+every future engine (including a real GPU xigma) is validated against, for a limitation of
+this phase's kernel alone. Revisit once cupy/numba land (D029) or Phase 7's "full scenario
+bank" exit criterion is actually being worked.
+
+---
+
+### D032 — Stage 1 deposits onto `a0_shape`, not `ahat`; a conservative regrid (`retarget_ahat`) onto a fixed, non-uniform `ahat` axis replaces the direct deposit — supersedes D028
+
+Discussion with the project's author (a physicist) surfaced that D028's direct-onto-`ahat`
+deposit was wrong for where the resonance physics actually needs resolution. `ahat` enters
+`s_res = gamma**2/(1+ahat+gamma**2*r**2)`; the redshift only matters where `ahat` is
+comparable to 1, near a pulse's peak, while the bulk of a bunch's trajectories sit at much
+smaller `ahat` where the correction barely perturbs anything. A grid whose bin density
+follows wherever the sampled data happens to span (D028's `_uniform_edges` on the raw
+`ahat` array) puts no more resolution near the peak than anywhere else. A **fixed**,
+non-uniform target grid — dense near `ahat_max`, coarse toward `ahat_min`, everything below
+`ahat_min` folded into one floor bin — is the right shape, and reaching it over the whole
+a0-independent population (not tied to one pulse) is exactly what the predecessor's
+`retarget_a0` conservative regrid was for (D028 declined to port it, on the grounds that
+nothing needed a *fixed target range* — true for cross-run comparability, the predecessor's
+own stated reason, but not for concentrating resolution, which D028 did not consider).
+
+**What changed, concretely:**
+
+- **`stages.ShapeTable`** (new type, not a `kind` string flag — matches this codebase's
+  existing aversion to stringly-typed discriminators, `Axis`/`OutputKind` enums,
+  `io/schema.py`'s "never a stringly dict") replaces direct deposit onto `ahat`.
+  `stages.deposit_shape_table` bins Stage 0's `TrajectorySamples.a0_shape` (already
+  peak-independent, already bounded — no dynamic-range problem) onto a fine, uniform,
+  linear grid (`DEFAULT_SHAPE_BINS = (48, 48, 48, 96)`), with native `luminosity` as the
+  deposited weight and the run's own `a0_peak` recorded as `source_a0_peak`. One deposit
+  per `TrajectorySamples`, reusable for any peak a0.
+- **`stages.retarget_ahat`** (adapted from the predecessor's `retarget_a0`, verbatim
+  overlap-weighted-mass-transfer structure — `deposition.py:423-511` in the old repo) turns
+  a `ShapeTable` plus one peak a0 into the `Table` (unchanged name, now exclusively the
+  `ahat`-axis, Stage-2-ready result) Stage 2 queries. Two rescales, both exact: the source
+  edges scale by `a0_peak**2` (`ahat = a0_peak**2 * a0_shape`), and the deposited mass
+  rescales by `(a0_peak / source_a0_peak)**2` — the same relation `retargeted_luminosity`
+  (D028) already established, needed here because, unlike the predecessor's `retarget_a0`
+  (which only ever retargeted onto its own run's laser), this one is meant to serve a
+  genuinely different peak a0 than the one Stage 0 ran at.
+- **Target grid law** (`stages._ahat_target_edges`), log-spaced in distance from the top —
+  bin width shrinking monotonically toward `ahat_max`, the opposite of what a plain
+  logarithmic axis gives (constant *relative* width means bins widen in absolute terms
+  toward the top; this repo wants the reverse, dense absolute resolution at the top):
+  ```
+  v_i = (ahat_max - ahat_min) * 10**(-decades * i / n_bins),  i = 0..n_bins
+  ahat_i = ahat_max - v_i                                     (edges[-1] snapped to ahat_max)
+  ```
+  The snap widens the single top bin — negligible at `decades >= 3`, visible at the
+  `decades=1` default below (the top bin ends up *wider* than its neighbour, a deliberate,
+  bounded exception `tests/test_stage1_stage2.py::
+  test_ahat_target_edges_bin_widths_shrink_toward_the_top` checks explicitly, not a defect).
+- **Defaults, tuned against the actual scenario bank**, not re-derived from the
+  predecessor's *DEFAULT_A0_MAX*/`retarget_a0` defaults, which were sized for a different
+  bank: `ahat_max = 0.5` (kept — the predecessor's value, generous headroom over this
+  bank's measured `ahat` maxima: `baseline` 0.019, `low_a0` 0.0019, `near_a0_max` 0.095),
+  `ahat_min = 0.0`, `n_bins_ahat = 32` (kept). **`ahat_decades = 1.0`, down from an initial
+  `decades=3` (matching the predecessor's implicit concentration) that was checked
+  numerically and rejected**: at `decades=3`, bin 0 alone spans `[0, 0.097]` — wider than
+  `near_a0_max`'s entire `ahat` range — so every scenario in the bank collapsed into the
+  floor bin, resolving nothing and defeating the entire point of the change. Swept
+  `decades` against the bank's actual mean/max `ahat` (measured this session) before
+  picking `1.0`: `near_a0_max` spreads across bins 1-2 (real structure), while `low_a0`
+  correctly stays concentrated near the floor — its `ahat` (max 0.0019) genuinely is small
+  enough that the redshift correction barely matters there, which is squashing working as
+  intended, not a resolution failure.
+- **Truncation.** Target `ahat` bins the rescaled source data's true maximum never reaches
+  carry **exactly zero** mass (the overlap-weighted transfer cannot place mass where no
+  source bin overlaps) — `retarget_ahat` sums the regridded mass over the other three axes,
+  finds the last populated `ahat` bin, and slices the mass array/`ahat_edges` down to it before
+  returning (keeping >= 1 bin in the degenerate all-zero case). Free: `spectrum_from_table`'s
+  cell sum is unaffected in value, only in how many always-zero terms it evaluates —
+  `tests/test_stage1_stage2.py::test_retarget_ahat_truncation_does_not_change_the_kernel_output`
+  checks the truncated and explicitly-zero-padded tables agree exactly. Measured effect: the
+  fourth `run.py::identity_checks` leg (D029) and the `XigmaEngine.run()` smoke test both got
+  noticeably faster, since most configurations populate only a handful of the 32 target bins.
+- **`Table`'s old *bin_volume* property removed** (no longer generally correct once `ahat_edges` is
+  non-uniform; confirmed unused by production code). `Table` gained `ahat_widths`
+  (per-bin array, `np.diff(ahat_edges)`) and `gamma_theta_cell_area` (the still-uniform
+  2-axis scalar) in its place; `spectrum_from_table` folds `ahat_widths` into the cell sum
+  itself rather than multiplying one global scalar in afterward.
+- **`Collision`** gained a `_shape_table` singleton cache (mirrors `build_overlap`'s
+  pattern) alongside the existing `_tables` dict; `_table(a0_peak)` now calls
+  `retarget_ahat(self._shape(), a0_peak, ...)`. A genuine improvement over D028's
+  "re-deposit from scratch per `a0_peak`": `retarget_ahat`'s cost is independent of
+  `n_particles`, so multiple `_table()` calls on one `Collision` (e.g. a future pulse-energy
+  scan) now pay the `n_particles`-scale deposit cost once, not per `a0_peak` — exactly the
+  win D028 said nothing currently needed. Cache-key staleness (a grid-shape parameter
+  changing without a new `a0_peak` on a long-lived `Collision`) falls under D030's
+  already-documented scope ("cheap to reuse, not smart about being replaced") without new
+  reasoning — the new `n_bins_a0_shape`/`ahat_min`/`ahat_max`/`ahat_decades` parameters are
+  not a new gap, just more instances of the same one.
+- **`schema.py`** gained `n_bins_a0_shape` (default 96), `ahat_min` (0.0), `ahat_max` (0.5),
+  `ahat_decades` (1.0); `n_bins_ahat`'s existing key is kept but its default moves 12 -> 32
+  and its meaning shifts from "direct-deposit bin count" to "retarget target-grid bin
+  count." The cross-field constraint `ahat_max > ahat_min` has no home in `FieldSpec` (no
+  cross-field hook exists in `io/schema.py`) and is enforced inside `retarget_ahat`/
+  `_ahat_target_edges` at call time instead, matching where the predecessor put the
+  identical check — not worth building general cross-field schema validation for one case.
+
+**Rejected alternative:** *rescale the existing direct-deposit table's edges in place for a
+new peak a0, without a full regrid* (D028's own closing suggestion, since binning is
+invariant under a uniform positive rescale of both data and target edges by the same
+factor). Would have been cheaper still, but only works when the target grid *is* just a
+scaled copy of the source — which stops being true the moment the target law is a fixed,
+non-uniform shape rather than "wherever this particular a0_peak's data happens to land."
+The whole point of this entry is wanting that fixed, physically-motivated shape, so the
+pure-rescale trick is no longer available regardless of its cost.

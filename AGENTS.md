@@ -106,8 +106,12 @@ constraints (`GRAND_PLAN.md` §1 has the full table with provenance — P1–P15
 
 See `PROGRESS.md` for what phase is active and what's actually landed — it is the
 authority, and this paragraph is a summary that will go stale between updates. As of
-Phase 2.5: `gammaforge.io` is complete, the validation harness and its golden references
-exist, and `engines/xigma` holds Stage 0 and the chunking utility. Stages 1 and 2, the
-`Collision` facade, the `ENGINES` registry, the other two engines and the GUI are **not
-built** — most module files named in `GRAND_PLAN.md` are deliberately absent (`DECISIONS.md`
-D003), so check before assuming one exists.
+Phase 3a: `gammaforge.io` is complete, the validation harness and its golden references
+exist, and `engines/xigma` holds Stage 0, Stage 1, Stage 2, the `Collision` facade, and
+`XigmaEngine`. The numpy kernel is what's built; `cupy`/`numba` backends are gated (not
+implemented) the same way Stage 0's are. The `ENGINES` registry, the other two engines,
+and the GUI are **not built** — most module files named in `GRAND_PLAN.md` are
+deliberately absent (`DECISIONS.md` D003), so check before assuming one exists.
+`XigmaEngine` is not wired into `validation.run.main()`'s default suite run (D031);
+`python -m gammaforge.validation.run` exercises Stage 1/2 through the identity harness
+instead.

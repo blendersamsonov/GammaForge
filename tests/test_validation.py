@@ -553,7 +553,7 @@ def test_the_suite_runs_green_with_no_engines(small_scenario):
     report = run_suite(scenarios=[small_scenario])
     text = str(report)
     assert report.failures == 0, text
-    assert "no engines registered yet" in text
+    assert "no engines passed to run_suite()" in text
     assert "ALL CHECKS PASS" in text
 
 

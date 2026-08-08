@@ -1,0 +1,116 @@
+"""xigma's own numeric knobs, as a typed `Parameters` schema (GRAND_PLAN.md §3.1/§4.2/P11).
+
+Everything here is a **numerics** field in §5's sense: changing any of it invalidates
+Stage 0 and/or Stage 1, so `XigmaEngine.recompute_costs` (`engine.py`) leaves every one of
+these out of its mapping and lets the `FULL_RERUN` default apply. What *is* cheap for
+xigma — bunch charge, the collimation window — lives in `InteractionParameters`/`Target`,
+not here (P9: this schema does not duplicate fields another module already owns).
+"""
+
+from __future__ import annotations
+
+from ...io.schema import DIMENSIONLESS, FieldKind, FieldSpec, Parameters
+
+__all__ = ["XIGMA_SPECS", "default_parameters"]
+
+XIGMA_SPECS: tuple[FieldSpec, ...] = (
+    FieldSpec(
+        key="n_steps",
+        label="Trajectory steps",
+        kind=FieldKind.SCALAR,
+        unit=DIMENSIONLESS,
+        default=200,
+        integer=True,
+        value_range=(1, 100_000),
+    ),
+    FieldSpec(
+        key="threshold",
+        label="Active-region threshold",
+        kind=FieldKind.SCALAR,
+        unit=DIMENSIONLESS,
+        default=1e-3,
+        value_range=(1e-12, 1.0),
+    ),
+    FieldSpec(
+        key="scheme",
+        label="Deposition scheme",
+        kind=FieldKind.CHOICE,
+        unit=DIMENSIONLESS,
+        default="nearest",
+        choices=("nearest", "cic"),
+    ),
+    FieldSpec(
+        key="n_bins_gamma",
+        label="Table bins: gamma",
+        kind=FieldKind.SCALAR,
+        unit=DIMENSIONLESS,
+        default=48,
+        integer=True,
+        value_range=(2, 2048),
+    ),
+    FieldSpec(
+        key="n_bins_theta_x",
+        label="Table bins: theta_x",
+        kind=FieldKind.SCALAR,
+        unit=DIMENSIONLESS,
+        default=48,
+        integer=True,
+        value_range=(2, 2048),
+    ),
+    FieldSpec(
+        key="n_bins_theta_y",
+        label="Table bins: theta_y",
+        kind=FieldKind.SCALAR,
+        unit=DIMENSIONLESS,
+        default=48,
+        integer=True,
+        value_range=(2, 2048),
+    ),
+    FieldSpec(
+        key="n_bins_a0_shape",
+        label="Shape table bins: a0_shape",
+        kind=FieldKind.SCALAR,
+        unit=DIMENSIONLESS,
+        default=96,
+        integer=True,
+        value_range=(2, 512),
+    ),
+    FieldSpec(
+        key="n_bins_ahat",
+        label="Retarget grid bins: ahat",
+        kind=FieldKind.SCALAR,
+        unit=DIMENSIONLESS,
+        default=32,
+        integer=True,
+        value_range=(2, 512),
+    ),
+    FieldSpec(
+        key="ahat_min",
+        label="Retarget grid: ahat floor (everything below folds here)",
+        kind=FieldKind.SCALAR,
+        unit=DIMENSIONLESS,
+        default=0.0,
+        value_range=(0.0, 10.0),
+    ),
+    FieldSpec(
+        key="ahat_max",
+        label="Retarget grid: ahat ceiling",
+        kind=FieldKind.SCALAR,
+        unit=DIMENSIONLESS,
+        default=0.5,
+        value_range=(1e-6, 100.0),
+    ),
+    FieldSpec(
+        key="ahat_decades",
+        label="Retarget grid: decades of resolution concentrated near ahat_max",
+        kind=FieldKind.SCALAR,
+        unit=DIMENSIONLESS,
+        default=1.0,
+        value_range=(0.1, 12.0),
+    ),
+)
+
+
+def default_parameters() -> Parameters:
+    """xigma's published ``schema`` — every field at its default (P5)."""
+    return Parameters.from_specs(XIGMA_SPECS)
