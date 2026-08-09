@@ -1009,6 +1009,59 @@ crossing-angle refusal; the `beta_ff` refusal stands); `docs/GRAND_PLAN.md` bump
 
 ---
 
+## 2026-08-09 — Phase 4: cost tiers, `<a0^2>`, and resolved previews
+
+Same worktree/branch. Four things, all reusing the §A.6 quadratic form rather than adding
+machinery.
+
+**The exact 2D quadrature is now available** (`n_quad_u > 1`, `docs/DERIVATIONS.md` §A.7).
+With a crossing angle the two hourglasses vary along different directions, so the 1D form
+samples the spot sizes along `z` only; rotating the transverse plane so `q1` lies along the
+crossing direction makes `u` depend on exactly one transverse coordinate, leaving `q2`
+analytic and `(z, q1)` quadratured. Nothing approximated. This makes the 1D path's error a
+**measured** number: 1.9e-4 at 20 mrad, 1.6e-3 at 0.4 rad, on the worst corner this model
+has (2 um waist against a 200 um bunch). Counterintuitive and worth recording — the 2D mode
+converges *more slowly* than the approximation it checks at **small** angles, because the
+widths barely vary along `q1` there; it earns its cost at large angles.
+
+**Three cost tiers are now declared** (D043): closed form ~0.01 ms / 1D ~1-2 ms / 2D
+~40-800 ms, with `recompute_costs` covering the quadrature knobs. §4.3 calls analytical the
+only real-time engine; that claim now stays true of a named tier rather than of whatever
+the default happens to be, and Phase 6 has the cost data before it wires a live panel.
+
+**The last width growth item closes** (D042). `<a0^2>` weighted by the luminosity is the
+same integral with the laser density squared — `a0^2` is exactly proportional to the
+normalized photon density, so it is one parameter, not a new derivation. It is a large
+correction: the bunch samples ~0.35 of the peak `a0^2` at the baseline, so the nonlinearity
+term was overstated ~3x. There is a clean exact limit that makes it checkable — for a
+transversally pointlike bunch with no hourglass the ratio is exactly `1/sqrt(2)`,
+*independent of bunch length*, because integrating over both `z` and `t` spans every
+relative shift and the bunch convolution factors out. A counter-propagating collision can
+never reach peak a0: it always scans the pulse's full longitudinal profile.
+
+**Resolved previews** (§A.9): `overlap_time_profile` (dN/dt) and
+`overlap_transverse_profile` (dN/dx dy in the bunch frame), ~8 ms for 400 time points and
+~100 ms for a 64x64 image, for drawing the collision before an expensive run starts. Both
+satisfy exact integrate-back-to-the-yield identities (~1e-7), asserted not assumed — the
+same §7 pattern as `∫SPECTRUM = TOTAL_YIELD`. Angle-resolved is deferred by request; it
+needs the emission kernel, not the overlap geometry.
+
+**Two bugs the checks caught, neither visible by inspection:**
+1. the 2D path's `q1` span used the bare curvature `m11` instead of the Schur-reduced
+   `m11 - m12^2/m22`, silently truncating the integral exactly when the two transverse
+   directions are correlated — an 11% error at 20 mrad before the fix;
+2. profile evaluation was unchunked, so a 128x128 image allocated `(3,3,128,128,n_quad)`
+   and took 3.7 s. Everything that meshes `z` against something else now accumulates in
+   blocks (`_Z_BLOCK`), and the profile defaults dropped to preview-grade `n_quad=401`.
+
+Also: `docs/DERIVATIONS.md` §A **rewritten in MathJax** so it pastes into
+`~/Work/Papers/2026/Compton-Numerics/xigma.tex` with only environment changes.
+
+Full suite: 355 passed, up from 342. `DECISIONS.md` gained D042-D043; `docs/GRAND_PLAN.md`
+bumped to v0.22.
+
+---
+
 ## How to update this file
 
 - One dated section per work session (or per meaningful chunk of a session).

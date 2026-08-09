@@ -22,6 +22,19 @@ ANALYTICAL_SPECS: tuple[FieldSpec, ...] = (
         integer=True,
         value_range=(11, 100_001),
     ),
+    # 1 = the fast 1D path (spot sizes sampled along z). >1 turns on the exact 2D
+    # quadrature over (z, q1) that a crossing angle strictly requires — a deliberate
+    # semi-analytical mode, ~40 ms at 51 nodes against ~2 ms for the 1D path, so it is
+    # opt-in rather than the default (D043). No effect head-on, where 1D is already exact.
+    FieldSpec(
+        key="n_quad_u",
+        label="Exact-transverse quadrature nodes (1 = fast approximation)",
+        kind=FieldKind.SCALAR,
+        unit=DIMENSIONLESS,
+        default=1,
+        integer=True,
+        value_range=(1, 4001),
+    ),
     # A separate knob from `n_quad`, deliberately: this is the longitudinal overlap
     # integral, whose integrand carries the four hourglass/Rayleigh scales and the focal
     # offsets, and it converges on its own terms. Sharing one field would tie the

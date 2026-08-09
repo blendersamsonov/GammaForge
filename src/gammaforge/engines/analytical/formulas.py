@@ -19,15 +19,32 @@ general integral reduces to it analytically — which makes it a real regression
 and because it pins port fidelity. It carries an approximation *and* a laser-divergence
 convention error; its own docstring says so. Prefer :func:`overlap_yield`.
 
-**What this closes, precisely.** Of `DECISIONS.md` D035's three growth items, non-round
-beams and foci displacement are closed **for the total yield** — that is
-:func:`overlap_yield`'s whole point. They are *not* closed for
-:func:`estimate_spectrum_width`, whose nonlinearity term still uses the pulse's own peak
-a0 rather than the a0 the bunch actually samples; that needs an overlap-weighted
-``<a0^2>``, a further derivation nobody has done here. The third item, constructing the
-collimated spectrum, is untouched. So is the crossing angle (`GRAND_PLAN.md` §9.3) —
-:func:`overlap_yield` refuses one rather than returning a number its derivation does not
-cover, which is what P14c actually asks for.
+**Three cost tiers, deliberately** (`DECISIONS.md` D043), because §4.3 calls analytical
+the only real-time engine and that claim has to stay true of *something*:
+
+======================================  ==========  ===================================
+tier                                    cost        what it assumes
+======================================  ==========  ===================================
+:func:`estimate_yield`                  ~0.01 ms    round beams, head-on, aligned foci
+:func:`overlap_yield` (1D, default)     ~1-2 ms     spot sizes sampled along ``z`` only
+:func:`overlap_yield` (``n_quad_u>1``)  ~40-800 ms  nothing — exact
+======================================  ==========  ===================================
+
+The first two are real-time at any interaction rate; the third is a deliberate
+semi-analytical mode. The 1D and 2D paths agree to 4e-5 at 20 mrad and 1.6e-3 at a 0.4 rad
+crossing with a tight focus, so the exact mode is a check and a future-proofing option
+rather than a correction anyone routinely needs.
+
+**What this closes, precisely.** All three of `DECISIONS.md` D035's growth items for the
+**total yield**: non-round beams, foci displacement, and (with :func:`overlap_mean_a0_sq`
+feeding :func:`estimate_spectrum_width`) the a0 the bunch actually samples. A crossing
+angle is covered too (D041), for the yield. Still open: constructing the collimated
+spectrum, and the emitted *spectrum's shape* under a crossing angle, which is
+`GRAND_PLAN.md` §9.3's emission-kernel question rather than an overlap-geometry one.
+
+:func:`overlap_time_profile` and :func:`overlap_transverse_profile` resolve the same
+integral in time and across the transverse plane, for cheap preview plots before an
+expensive run is launched.
 """
 
 from __future__ import annotations
@@ -45,6 +62,9 @@ __all__ = [
     "estimate_yield",
     "overlap_det",
     "overlap_yield",
+    "overlap_mean_a0_sq",
+    "overlap_time_profile",
+    "overlap_transverse_profile",
     "SpectrumWidthBreakdown",
     "estimate_spectrum_width",
     "angle_integrated_spectrum",
@@ -193,7 +213,9 @@ def overlap_det(beam: GaussianElectronBeam, laser: GaussianParaxialLaser, z):
     return (ex2 + c_xx) * (ey2 + c_yy) - c_xy**2
 
 
-def _overlap_quadratic_form(beam: GaussianElectronBeam, laser: GaussianParaxialLaser, z, u_shift: float = 0.0):
+def _overlap_quadratic_form(
+    beam: GaussianElectronBeam, laser: GaussianParaxialLaser, z, u_shift=0.0, laser_power: float = 1.0
+):
     """The reduced integrand of the overlap integral at lab positions ``z``.
 
     Returns ``(S, det_A, sigma_ex, sigma_ey, s1, s2, h)`` where the longitudinal weight is
@@ -218,37 +240,78 @@ def _overlap_quadratic_form(beam: GaussianElectronBeam, laser: GaussianParaxialL
     it exists so `tests/test_analytical.py` can measure the one approximation this
     function makes (see :func:`overlap_yield`), not for production use.
     """
+    pieces = _form_pieces(beam, laser, z, u_shift, laser_power)
+    m = pieces.m_prime()
+    det_a = m[0, 0] * m[1, 1] - m[0, 1] ** 2
+    schur = m[2, 2] - (m[1, 1] * m[0, 2] ** 2 - 2.0 * m[0, 1] * m[0, 2] * m[1, 2] + m[0, 0] * m[1, 2] ** 2) / det_a
+    return schur, det_a, pieces.sigma_ex, pieces.sigma_ey, pieces.s1, pieces.s2, pieces.h
+
+
+@dataclass(frozen=True)
+class _FormPieces:
+    """The overlap integrand's quadratic form at a set of longitudinal positions.
+
+    ``m`` is the combined exponent matrix *before* the time integration, ``g``/``h`` are
+    its time couplings, and :meth:`m_prime` applies the elimination. Entries are numpy
+    arrays broadcast over whatever shape ``z`` had, so one call serves a 1D grid, a 2D
+    ``(z, q1)`` mesh, or a profile mesh.
+    """
+
+    m: np.ndarray  # (3, 3, ...) symmetric
+    g: np.ndarray  # (3,)
+    h: float
+    sigma_ex: np.ndarray
+    sigma_ey: np.ndarray
+    s1: np.ndarray
+    s2: np.ndarray
+
+    def m_prime(self) -> np.ndarray:
+        """``M' = M - g g^T / h``: the exponent left after integrating over time."""
+        outer = self.g[:, None] * self.g[None, :] / self.h
+        return self.m - outer.reshape(outer.shape + (1,) * (self.m.ndim - 2))
+
+    def transverse_norm(self, laser_power: float) -> np.ndarray:
+        """The width normalization ``sigma_ex sigma_ey (s1 s2)^n`` that sits under the
+        integrand — the laser factor enters to the same power as its density."""
+        return self.sigma_ex * self.sigma_ey * (self.s1 * self.s2) ** laser_power
+
+
+def _form_pieces(beam, laser, z, u_shift=0.0, laser_power: float = 1.0) -> _FormPieces:
+    """Assemble the quadratic form at lab positions ``z`` (see `docs/DERIVATIONS.md` §A.6).
+
+    ``laser_power`` is the power the *normalized* laser density enters at: 1 for the
+    luminosity itself, 2 for an ``a0^2``-weighted average (`overlap_mean_a0_sq`), since
+    ``a0^2`` is exactly proportional to that density. Raising the density to a power scales
+    every laser term in the exponent — including its longitudinal one, hence ``g`` and
+    ``h`` — which is why one parameter covers it and no second derivation is needed.
+    """
     z = np.asarray(z, dtype=float)
     k_hat, f1, f2 = laser.focusing_axes()
     beta_0 = beam.beta0()
     inv_sez2 = 1.0 / beam.m("sigma_z") ** 2
-    s_ct = laser.sigma_ct()
-    inv_sct2 = 1.0 / s_ct**2
+    inv_sct2 = laser_power / laser.sigma_ct() ** 2
 
     ex2, ey2 = _electron_sigma2(beam, z)
     s1, s2 = laser.spot_sizes(k_hat[2] * z + u_shift)
+    inv_s1, inv_s2 = laser_power / s1**2, laser_power / s2**2
 
+    shape = np.broadcast(z, ex2, s1).shape
+    m = np.zeros((3, 3) + shape)
+    diag_e = (1.0 / ex2, 1.0 / ey2, np.broadcast_to(inv_sez2, shape))
+    for i in range(3):
+        for j in range(3):
+            m[i, j] = (
+                f1[i] * f1[j] * inv_s1
+                + f2[i] * f2[j] * inv_s2
+                + k_hat[i] * k_hat[j] * inv_sct2
+                + (diag_e[i] if i == j else 0.0)
+            )
     g = beta_0 * np.array([0.0, 0.0, 1.0]) * inv_sez2 + k_hat * inv_sct2
     h = beta_0**2 * inv_sez2 + inv_sct2
-
-    def m_prime(i: int, j: int):
-        diag_e = (1.0 / ex2 if i == 0 else 1.0 / ey2 if i == 1 else inv_sez2) if i == j else 0.0
-        return (
-            diag_e
-            + f1[i] * f1[j] / s1**2
-            + f2[i] * f2[j] / s2**2
-            + k_hat[i] * k_hat[j] * inv_sct2
-            - g[i] * g[j] / h
-        )
-
-    a00, a01, a11 = m_prime(0, 0), m_prime(0, 1), m_prime(1, 1)
-    b0, b1 = m_prime(0, 2), m_prime(1, 2)
-    det_a = a00 * a11 - a01**2
-    schur = m_prime(2, 2) - (a11 * b0**2 - 2.0 * a01 * b0 * b1 + a00 * b1**2) / det_a
-    return schur, det_a, np.sqrt(ex2), np.sqrt(ey2), s1, s2, h
+    return _FormPieces(m=m, g=g, h=h, sigma_ex=np.sqrt(ex2), sigma_ey=np.sqrt(ey2), s1=s1, s2=s2)
 
 
-def _overlap_grid(beam, laser, sigma_z_eff: float, n_quad: int) -> np.ndarray:
+def _overlap_grid(beam, laser, sigma_z_eff: float, n_quad: int, laser_power: float = 1.0) -> np.ndarray:
     """Quadrature nodes for :func:`overlap_yield`, resolving every longitudinal scale.
 
     The integrand is a Gaussian of width ``sigma_z_eff`` times ``1/sqrt(det)``, and those
@@ -273,7 +336,7 @@ def _overlap_grid(beam, laser, sigma_z_eff: float, n_quad: int) -> np.ndarray:
     the effect the crossing angle is about.
     """
     scan = np.linspace(-12.0 * sigma_z_eff, 12.0 * sigma_z_eff, 401)
-    schur = _overlap_quadratic_form(beam, laser, scan)[0]
+    schur = _overlap_quadratic_form(beam, laser, scan, laser_power=laser_power)[0]
     schur = schur[np.isfinite(schur) & (schur > 0.0)]
     span = 8.0 / math.sqrt(float(np.min(schur))) if schur.size else 8.0 * sigma_z_eff
     grids = [np.linspace(-span, span, n_quad)]
@@ -302,8 +365,115 @@ def _overlap_grid(beam, laser, sigma_z_eff: float, n_quad: int) -> np.ndarray:
     return np.unique(np.concatenate(grids))
 
 
+#: Longitudinal nodes evaluated per block. `_form_pieces` materializes nine arrays the
+#: shape of its grid, so an unchunked ``(n_x, n_y, n_quad)`` profile mesh would allocate
+#: gigabytes for an image a GUI draws in a moment. Everything that meshes ``z`` against
+#: something else accumulates in blocks of this size instead — the same reason §4.2 has a
+#: shared chunking utility for the per-particle kernels, applied to a much smaller problem.
+_Z_BLOCK = 256
+
+
+def _trapezoid_weights(z: np.ndarray) -> np.ndarray:
+    """Trapezoid weights for a (possibly non-uniform) grid, so an integral can be
+    accumulated blockwise as ``sum(f * w)`` instead of needing the whole array at once."""
+    w = np.empty_like(z)
+    w[1:-1] = 0.5 * (z[2:] - z[:-2])
+    w[0] = 0.5 * (z[1] - z[0])
+    w[-1] = 0.5 * (z[-1] - z[-2])
+    return w
+
+
+def _z_blocks(z: np.ndarray):
+    """Yield ``(z_block, weight_block)`` pairs covering the grid."""
+    w = _trapezoid_weights(z)
+    for start in range(0, z.size, _Z_BLOCK):
+        stop = start + _Z_BLOCK
+        yield z[start:stop], w[start:stop]
+
+
+def _z_grid(beam, laser, n_quad: int, laser_power: float = 1.0) -> np.ndarray:
+    beta_0 = beam.beta0()
+    D = math.hypot(beam.m("sigma_z"), beta_0 * laser.sigma_ct())
+    return _overlap_grid(beam, laser, D / (1.0 + beta_0), n_quad, laser_power)
+
+
+def _reduced_integral(
+    beam, laser, n_quad: int, laser_power: float = 1.0, n_quad_u: int = 1
+) -> tuple[float, float]:
+    """``(R, h)``: the spatial integral ``Int d^3r exp(-r^T M' r / 2) / (width norm)``.
+
+    Two evaluation modes, and they compute the *same* quantity — see :func:`overlap_yield`
+    for which to use when.
+
+    ``n_quad_u == 1`` is the 1D path: the transverse plane is integrated analytically at
+    each ``z`` (giving ``2 pi / sqrt(det A)``), which requires treating the spot sizes as
+    functions of ``z`` alone.
+
+    ``n_quad_u > 1`` is the exact 2D path. The pulse's widths really depend on
+    ``u = k_hat . r``, which with a crossing angle mixes ``z`` with the transverse
+    coordinate along the crossing direction. Rotating the transverse plane so that
+    ``q1`` lies along that direction, ``u = (k.z) z + sin(theta) q1`` depends on exactly one
+    transverse coordinate, so ``q2`` can still be integrated analytically and only
+    ``(z, q1)`` are quadratured. Nothing is approximated. As ``theta -> 0`` the widths stop
+    depending on ``q1`` and this degenerates *gracefully* into the 1D result — wasted nodes,
+    not a singularity, which is why the crossing direction is the right coordinate to keep.
+    """
+    z = _z_grid(beam, laser, n_quad, laser_power)
+    if n_quad_u <= 1:
+        pieces = _form_pieces(beam, laser, z, laser_power=laser_power)
+        m = pieces.m_prime()
+        det_a = m[0, 0] * m[1, 1] - m[0, 1] ** 2
+        schur = m[2, 2] - (
+            m[1, 1] * m[0, 2] ** 2 - 2.0 * m[0, 1] * m[0, 2] * m[1, 2] + m[0, 0] * m[1, 2] ** 2
+        ) / det_a
+        integrand = np.exp(-0.5 * schur * z**2) / (pieces.transverse_norm(laser_power) * np.sqrt(det_a))
+        return 2.0 * math.pi * float(np.trapezoid(integrand, z)), pieces.h
+
+    k_hat, _, _ = laser.focusing_axes()
+    sin_cross = math.hypot(k_hat[0], k_hat[1])
+    if sin_cross == 0.0:  # head-on: u depends on z alone, the 1D path is already exact
+        return _reduced_integral(beam, laser, n_quad, laser_power, n_quad_u=1)
+    cos_a, sin_a = k_hat[0] / sin_cross, k_hat[1] / sin_cross
+
+    # Span for q1, from the *effective* curvature after q2 has been eliminated —
+    # ``m11 - m12^2/m22``, not ``m11``. The two differ by however strongly the two
+    # transverse directions are correlated, and using the bare ``m11`` silently truncates
+    # the q1 integral whenever they are (which is exactly when the 2D mode is worth using).
+    probe = _form_pieces(beam, laser, z, laser_power=laser_power).m_prime()
+    p11 = cos_a**2 * probe[0, 0] + 2 * cos_a * sin_a * probe[0, 1] + sin_a**2 * probe[1, 1]
+    p22 = sin_a**2 * probe[0, 0] - 2 * cos_a * sin_a * probe[0, 1] + cos_a**2 * probe[1, 1]
+    p12 = -cos_a * sin_a * probe[0, 0] + (cos_a**2 - sin_a**2) * probe[0, 1] + cos_a * sin_a * probe[1, 1]
+    effective = p11 - p12**2 / p22
+    usable = effective[np.isfinite(effective) & (effective > 0)]
+    span_q = 8.0 / math.sqrt(float(np.min(usable)))
+    q1 = np.linspace(-span_q, span_q, n_quad_u)
+
+    total = 0.0
+    h_out = 0.0
+    for z_block, w_block in _z_blocks(z):
+        zz, qq = z_block[:, None], q1[None, :]
+        pieces = _form_pieces(beam, laser, zz, u_shift=sin_cross * qq, laser_power=laser_power)
+        m = pieces.m_prime()
+        h_out = pieces.h
+        m11 = cos_a**2 * m[0, 0] + 2 * cos_a * sin_a * m[0, 1] + sin_a**2 * m[1, 1]
+        m22 = sin_a**2 * m[0, 0] - 2 * cos_a * sin_a * m[0, 1] + cos_a**2 * m[1, 1]
+        m12 = -cos_a * sin_a * m[0, 0] + (cos_a**2 - sin_a**2) * m[0, 1] + cos_a * sin_a * m[1, 1]
+        m13 = cos_a * m[0, 2] + sin_a * m[1, 2]
+        m23 = -sin_a * m[0, 2] + cos_a * m[1, 2]
+        exponent = -0.5 * (m11 * qq**2 + 2.0 * m13 * qq * zz + m[2, 2] * zz**2) + (
+            m12 * qq + m23 * zz
+        ) ** 2 / (2.0 * m22)
+        integrand = np.sqrt(2.0 * math.pi / m22) * np.exp(exponent) / pieces.transverse_norm(laser_power)
+        total += float(np.dot(np.trapezoid(integrand, q1, axis=1), w_block))
+    return total, h_out
+
+
 def overlap_yield(
-    beam: GaussianElectronBeam, laser: GaussianParaxialLaser, N_e: float, n_quad: int = 2001
+    beam: GaussianElectronBeam,
+    laser: GaussianParaxialLaser,
+    N_e: float,
+    n_quad: int = 2001,
+    n_quad_u: int = 1,
 ) -> float:
     """Total photon yield from the **general** Gaussian luminosity overlap integral.
 
@@ -365,24 +535,134 @@ def overlap_yield(
     if n_quad < 11:
         raise ValueError(f"overlap_yield: n_quad must be >= 11 (got {n_quad!r})")
 
-    beta_0 = beam.beta0()
-    sigma_lz = laser.sigma_ct()
-    D = math.sqrt(beam.m("sigma_z") ** 2 + (beta_0 * sigma_lz) ** 2)
-
-    z = _overlap_grid(beam, laser, D / (1.0 + beta_0), n_quad)
-    schur, det_a, sigma_ex, sigma_ey, s1, s2, h = _overlap_quadratic_form(beam, laser, z)
-    integrand = np.exp(-0.5 * schur * z**2) / (sigma_ex * sigma_ey * s1 * s2 * np.sqrt(det_a))
-    integral = float(np.trapezoid(integrand, z))
-
+    reduced, h = _reduced_integral(beam, laser, n_quad, 1.0, n_quad_u)
     return (
         SIGMA_T_CGS
-        * (1.0 + beta_0)
+        * (1.0 + beam.beta0())
         * N_e
         * laser.n_photons()
         * math.sqrt(2.0 * math.pi / h)
-        / (4.0 * math.pi**2 * beam.m("sigma_z") * sigma_lz)
-        * integral
+        / ((2.0 * math.pi) ** 3 * beam.m("sigma_z") * laser.sigma_ct())
+        * reduced
     )
+
+
+def overlap_mean_a0_sq(
+    beam: GaussianElectronBeam, laser: GaussianParaxialLaser, n_quad: int = 2001, n_quad_u: int = 1
+) -> float:
+    """``<a0^2>``, averaged over the collision with the **luminosity** as its weight.
+
+    This is the a0 the bunch actually samples, not the pulse's own maximum: electrons that
+    arrive off-focus or off-peak contribute photons at a lower intensity, and this weights
+    each by exactly the rate at which it scatters. It is what
+    :func:`estimate_spectrum_width`'s nonlinearity term wants, and computing it closes the
+    last part of the foci-displacement growth item (`DECISIONS.md` D042).
+
+    No new integral is needed. ``a0^2`` is exactly proportional to the *normalized* photon
+    density (`GaussianParaxialLaser._a0_from_density` is a square root of it), so
+
+        <a0^2> = K Int n_e p_L^2 / Int n_e p_L
+
+    and the numerator is the same overlap integral with the laser density entering
+    squared — ``laser_power = 2``, which halves every laser width and doubles its
+    contribution to ``g``/``h``. Collecting the normalizations,
+
+        <a0^2> = K sqrt(h_1 / h_2) R_2 / (R_1 (2 pi)^{3/2} sigma_lz)
+
+    ``K`` is read off the laser itself (``a0^2 / density`` at one point) rather than
+    rebuilt from constants, so this cannot drift from `io.laser`'s own energy->a0 chain.
+
+    Always ``<= laser.a0_peak()**2``, and approaching it only for a collision that is
+    pointlike compared with every focal scale.
+    """
+    k_const = laser.a0_profile(0.0, 0.0, 0.0, 0.0) ** 2 / laser.photon_density(0.0, 0.0, 0.0, 0.0)
+    r1, h1 = _reduced_integral(beam, laser, n_quad, 1.0, n_quad_u)
+    r2, h2 = _reduced_integral(beam, laser, n_quad, 2.0, n_quad_u)
+    return float(k_const * math.sqrt(h1 / h2) * r2 / (r1 * (2.0 * math.pi) ** 1.5 * laser.sigma_ct()))
+
+
+def overlap_time_profile(
+    beam: GaussianElectronBeam, laser: GaussianParaxialLaser, N_e: float, t, n_quad: int = 401
+):
+    """``dN/dt`` (photons per second) at lab times ``t`` — the collision's luminosity history.
+
+    A preview quantity: it costs one quadrature per time point and needs no macroparticles,
+    so a GUI can draw the interaction as it unfolds before anything expensive is launched.
+
+    Derivation-wise this is :func:`overlap_yield` with the time integration *not* done, so
+    the exponent keeps its explicit ``t`` terms and the transverse plane is what closes
+    analytically. By construction ``Int dN/dt dt == overlap_yield(...)``, which
+    `tests/test_analytical.py` asserts rather than assumes.
+
+    .. note::
+
+       Not `io.target.OutputKind.TEMPORAL_ENVELOPE`, despite the similar name — that is a
+       photon-arrival distribution filled by a full engine run. This is the luminosity rate
+       of the collision, a cheap preview with no per-particle content.
+    """
+    t = np.asarray(t, dtype=float)
+    z = _z_grid(beam, laser, n_quad)
+    w = (C_CGS * t)[..., None]
+
+    line = np.zeros(t.shape)
+    for z_block, weights in _z_blocks(z):
+        pieces = _form_pieces(beam, laser, z_block)
+        m, g, h = pieces.m, pieces.g, pieces.h
+        det_a = m[0, 0] * m[1, 1] - m[0, 1] ** 2
+        # Integrating (x, y) at fixed (z, t): the linear term is v = w g_perp - b z.
+        v0 = w * g[0] - m[0, 2] * z_block
+        v1 = w * g[1] - m[1, 2] * z_block
+        quad_v = (m[1, 1] * v0**2 - 2.0 * m[0, 1] * v0 * v1 + m[0, 0] * v1**2) / det_a
+        exponent = 0.5 * quad_v - 0.5 * m[2, 2] * z_block**2 + w * g[2] * z_block - 0.5 * h * w**2
+        integrand = np.exp(exponent) / (pieces.transverse_norm(1.0) * np.sqrt(det_a))
+        line = line + integrand @ weights
+
+    scale = (
+        SIGMA_T_CGS * (1.0 + beam.beta0()) * C_CGS * N_e * laser.n_photons()
+        * 2.0 * math.pi / ((2.0 * math.pi) ** 3 * beam.m("sigma_z") * laser.sigma_ct())
+    )
+    return scale * line
+
+
+def overlap_transverse_profile(
+    beam: GaussianElectronBeam, laser: GaussianParaxialLaser, N_e: float, x, y, n_quad: int = 401
+):
+    """``dN/dx dy`` (photons per cm^2) on the transverse plane, in the bunch's own frame.
+
+    The other cheap preview: where in the transverse plane the photons are actually being
+    produced, which is what shows a user at a glance that their pulse is missing the bunch.
+    ``x``/``y`` broadcast against each other, so pass a meshgrid for an image.
+
+    Same integral as :func:`overlap_yield` with the two transverse integrations left
+    undone; time still closes analytically. ``Int dN/dx dy dx dy == overlap_yield(...)``,
+    asserted in the tests.
+
+    Transverse position is measured from the bunch centroid, which is the lab origin here —
+    both distributions are centered there, so "relative to the bunch" and "lab" coincide by
+    construction rather than by a shift this function applies.
+    """
+    z = _z_grid(beam, laser, n_quad)
+    xb, yb = np.broadcast_arrays(np.asarray(x, dtype=float), np.asarray(y, dtype=float))
+    xs, ys = xb[..., None], yb[..., None]
+
+    line = np.zeros(xb.shape)
+    h = 1.0
+    for z_block, weights in _z_blocks(z):
+        pieces = _form_pieces(beam, laser, z_block)
+        m = pieces.m_prime()
+        h = pieces.h
+        exponent = -0.5 * (
+            m[0, 0] * xs**2 + m[1, 1] * ys**2 + m[2, 2] * z_block**2
+            + 2.0 * (m[0, 1] * xs * ys + m[0, 2] * xs * z_block + m[1, 2] * ys * z_block)
+        )
+        line = line + (np.exp(exponent) / pieces.transverse_norm(1.0)) @ weights
+
+    scale = (
+        SIGMA_T_CGS * (1.0 + beam.beta0()) * N_e * laser.n_photons()
+        * math.sqrt(2.0 * math.pi / h)
+        / ((2.0 * math.pi) ** 3 * beam.m("sigma_z") * laser.sigma_ct())
+    )
+    return scale * line
 
 
 @dataclass(frozen=True)
@@ -410,7 +690,10 @@ class SpectrumWidthBreakdown:
 
 
 def estimate_spectrum_width(
-    beam: GaussianElectronBeam, laser: GaussianParaxialLaser, theta_col: float
+    beam: GaussianElectronBeam,
+    laser: GaussianParaxialLaser,
+    theta_col: float,
+    a0_sq: float | None = None,
 ) -> SpectrumWidthBreakdown:
     """Collimated-spectrum FWHM estimate, broken into its four components (§4.3).
 
@@ -423,25 +706,25 @@ def estimate_spectrum_width(
     ``laser.a0_peak()`` stands in for the predecessor's ``pulse.a0_interaction`` — the
     pulse's own maximum a0, not the a0 at the electron bunch's actual position.
 
-    **This is the one place foci displacement is still approximated.**
-    :func:`overlap_yield` closed that growth item for the *total yield*
-    (`DECISIONS.md` D039), but not here: the nonlinearity term needs the a0 the bunch
-    actually samples, i.e. an ``<a0^2>`` weighted by the same overlap integral, which is a
-    further derivation that has not been done. Displacing the foci therefore changes the
-    yield correctly while leaving this width component unmoved — a real remaining
-    limitation, not an oversight, and the reason `GRAND_PLAN.md` §11's Phase 4 row still
-    carries an exception.
+    ``a0_sq`` is the mean square a0 the bunch actually samples. Pass
+    :func:`overlap_mean_a0_sq`, which is that average weighted by the luminosity, and the
+    nonlinearity term stops using the pulse's own maximum — closing the last part of the
+    foci-displacement growth item (`DECISIONS.md` D042). It **defaults to**
+    ``laser.a0_peak()**2``, deliberately: this function's other job is reproducing the
+    predecessor's worked example, and changing what it computes by default would break the
+    `_PREDECESSOR_WIDTH_TOTAL` pin that exists to detect exactly that.
+    `AnalyticalEngine` passes the overlap-weighted value explicitly.
     """
     gamma0 = beam.gamma0()
     sigma_gamma = beam.sigma_gamma()
     emit_width = math.sqrt(beam.divergence_x() * beam.divergence_y())
-    a0 = laser.a0_peak()
+    mean_a0_sq = laser.a0_peak() ** 2 if a0_sq is None else a0_sq
     prefactor = 0.5 * 2.355
     return SpectrumWidthBreakdown(
         collimation=prefactor * (gamma0 * theta_col) ** 2,
         emittance=prefactor * (gamma0 * emit_width) ** 2,
         energy_spread=prefactor * (sigma_gamma / gamma0),
-        nonlinearity=prefactor * (0.5 * a0**2),
+        nonlinearity=prefactor * (0.5 * mean_a0_sq),
     )
 
 

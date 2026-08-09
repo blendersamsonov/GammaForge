@@ -17,7 +17,12 @@ from ...io.results import Axis, PhasespaceSlice, Results
 from ...io.schema import Parameters
 from ...io.target import OutputKind, OutputRequest, auto_ranges, slice_axis_values
 from ..base import RecomputeCost
-from .formulas import angle_integrated_spectrum, estimate_spectrum_width, overlap_yield
+from .formulas import (
+    angle_integrated_spectrum,
+    estimate_spectrum_width,
+    overlap_mean_a0_sq,
+    overlap_yield,
+)
 from .schema import default_parameters
 
 __all__ = ["AnalyticalEngine"]
@@ -32,6 +37,13 @@ SUPPORTED_OUTPUTS: tuple[OutputKind, ...] = (OutputKind.TOTAL_YIELD, OutputKind.
 #: engine run at all (§5) — matches `XigmaEngine`'s own declaration for the same reason.
 RECOMPUTE_COSTS: dict[str, RecomputeCost] = {
     "n_e": RecomputeCost.QUERY_ONLY,
+    # Every quadrature knob re-runs the integrals. That is affordable — the default 1D
+    # path is ~2 ms — which is what keeps analytical the one real-time engine (§4.3).
+    # `n_quad_u > 1` is the exception: the exact 2D mode costs ~40-800 ms and is a
+    # deliberate semi-analytical tier, not something to re-trigger per keystroke (D043).
+    "n_quad": RecomputeCost.FULL_RERUN,
+    "n_quad_overlap": RecomputeCost.FULL_RERUN,
+    "n_quad_u": RecomputeCost.FULL_RERUN,
 }
 
 
@@ -56,12 +68,19 @@ class AnalyticalEngine:
         # actually has, and it uses this repository's own Rayleigh-range convention
         # (`DECISIONS.md` D039/D040). The closed form stays available as the reduction
         # anchor and port-fidelity pin, but the engine does not ship its approximations.
-        total_yield = overlap_yield(beam, metrics, interaction.N_e, params.get_int("n_quad_overlap"))
+        n_quad_overlap = params.get_int("n_quad_overlap")
+        n_quad_u = params.get_int("n_quad_u")
+        total_yield = overlap_yield(beam, metrics, interaction.N_e, n_quad_overlap, n_quad_u)
         # Target already owns the two collimation half-angles separately; a single
         # scalar theta_col for the width breakdown is their geometric mean, the same
         # x/y-combining convention `formulas.py` uses for the laser waist (D038).
         theta_col = math.sqrt(target.m("theta_x_col") * target.m("theta_y_col"))
-        width = estimate_spectrum_width(beam, metrics, theta_col)
+        # The a0 the bunch actually samples, not the pulse's own peak: electrons arriving
+        # off-focus or off-peak scatter at lower intensity, and this weights each by the
+        # rate at which it does so. Closes the last part of the foci-displacement growth
+        # item for the width, which `estimate_spectrum_width` alone could not (D042).
+        mean_a0_sq = overlap_mean_a0_sq(beam, metrics, n_quad_overlap, n_quad_u)
+        width = estimate_spectrum_width(beam, metrics, theta_col, mean_a0_sq)
 
         # auto_ranges builds a range for every request up front, including kinds this
         # engine will go on to skip — and its TEMPORAL_ENVELOPE branch requires a bunch
@@ -82,6 +101,7 @@ class AnalyticalEngine:
             model_specific={
                 "spectrum_width_fwhm": width,
                 "a0_peak": metrics.a0_peak(),
+                "mean_a0_sq": mean_a0_sq,
                 "n_photons": metrics.n_photons(),
                 "warnings": self._geometry_warnings(metrics, slices),
             },
@@ -105,10 +125,15 @@ class AnalyticalEngine:
             return ()
         if OutputKind.SPECTRUM not in slices:
             return ()
+        theta = math.hypot(metrics.m("theta_xz"), metrics.m("theta_yz"))
+        shift = 1.0 - math.cos(theta / 2.0) ** 2
         return (
-            "SPECTRUM was computed with a nonzero crossing angle: its integral (the total "
-            "yield) accounts for the crossing geometry exactly, but its shape is still the "
-            "head-on kinematics — GRAND_PLAN.md §9.3's emission-kernel derivation is open.",
+            f"SPECTRUM was computed with a {theta * 1e3:.1f} mrad crossing angle: its integral "
+            "(the total yield) accounts for the crossing geometry exactly, but its shape is "
+            "still the head-on kinematics. The magnitude is quoted so this is actionable "
+            f"rather than alarming — the photon energy scale is off by about {shift:.2e} "
+            "relative, since it enters as cos^2(theta/2), while the yield changed by far "
+            "more. GRAND_PLAN.md §9.3's emission-kernel derivation is what would close it.",
         )
 
     def _fill(

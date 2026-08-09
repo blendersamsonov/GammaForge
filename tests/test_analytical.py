@@ -26,6 +26,9 @@ from gammaforge.engines.analytical.formulas import (
     estimate_spectrum_width,
     estimate_yield,
     overlap_det,
+    overlap_mean_a0_sq,
+    overlap_time_profile,
+    overlap_transverse_profile,
     overlap_yield,
 )
 from gammaforge.engines.analytical.schema import default_parameters
@@ -371,6 +374,173 @@ def test_crossing_angle_suppression_at_the_baseline_is_what_the_docs_quote():
     for theta, expected in ((0.005, 1.07), (0.02, 2.18), (0.05, 5.77)):
         crossed = overlap_yield(beam, replace(laser, theta_xz=Quantity(theta, "rad")), N_e, n_quad=20001)
         assert head_on / crossed == pytest.approx(expected, rel=5e-3)
+
+
+# ---------------------------------------------------------------------------
+# The exact 2D mode, <a0^2>, and the resolved profiles (docs/DERIVATIONS.md §A.7-§A.8)
+# ---------------------------------------------------------------------------
+def _full_geometry():
+    """Everything the integral claims to handle, at once."""
+    beam = replace(scenarios.BASELINE.beam,
+                   sigma_x=Quantity(20.0, "um"), sigma_y=Quantity(6.0, "um"), alpha_x=1.5)
+    laser = replace(scenarios.BASELINE.laser,
+                    sigma_x=Quantity(8.0, "um"), sigma_y=Quantity(22.0, "um"),
+                    z_fx=Quantity(0.03, "cm"), z_fy=Quantity(-0.05, "cm"),
+                    psi_focus=Quantity(0.7, "rad"), theta_xz=Quantity(0.05, "rad"))
+    return beam, laser
+
+
+def test_exact_2d_mode_is_identical_to_the_1d_path_head_on():
+    """Head-on, `u` depends on `z` alone, so the 1D path is already exact and the 2D mode
+    must return the *same* number — not merely a close one. Anything else would mean the
+    2D branch had introduced an error the 1D one does not have."""
+    beam, laser = _round_scenario()
+    N_e = beam.n_electrons()
+    assert overlap_yield(beam, laser, N_e, 4001, n_quad_u=41) == overlap_yield(beam, laser, N_e, 4001)
+
+
+@pytest.mark.parametrize("theta, n_u", [(0.02, 901), (0.4, 301)])
+def test_exact_2d_mode_bounds_the_1d_approximation_error(theta, n_u):
+    """What the exact mode is *for*: measuring the 1D path's error instead of trusting the
+    `delta/z_R` argument. Deliberately the worst corner this model has — a 2 um waist
+    against a 200 um bunch — and even there the 1D path is within 2e-3.
+
+    Note how many nodes the small-angle case needs. As `theta -> 0` the widths stop
+    depending on `q1`, so the 2D mode spends its nodes re-integrating a direction the 1D
+    path handles analytically, and converges *more slowly* than the approximation it is
+    checking. The exact mode earns its cost at large crossing angles, not small ones."""
+    beam = replace(scenarios.BASELINE.beam,
+                   sigma_x=Quantity(200.0, "um"), sigma_y=Quantity(200.0, "um"))
+    laser = replace(scenarios.BASELINE.laser,
+                    sigma_x=Quantity(2.0, "um"), sigma_y=Quantity(2.0, "um"),
+                    theta_xz=Quantity(theta, "rad"))
+    N_e = beam.n_electrons()
+    approx = overlap_yield(beam, laser, N_e, 4001)
+    exact = overlap_yield(beam, laser, N_e, 4001, n_quad_u=n_u)
+    coarser = overlap_yield(beam, laser, N_e, 4001, n_quad_u=n_u // 3)
+    # The 2D result must be converged, or the "1D error" below is just its own grid error.
+    assert exact == pytest.approx(coarser, rel=2e-2)
+    assert exact == pytest.approx(approx, rel=3e-3)
+
+
+@pytest.mark.parametrize("name", ["baseline", "full_geometry"])
+def test_mean_a0_sq_matches_a_brute_force_monte_carlo(name):
+    """`<a0^2>` against the same independent reference as the yield, weighting each
+    macroparticle's contribution by `a0_profile**2`. It is a large correction: the bunch
+    samples about a third of the pulse's peak `a0^2` at the baseline, so using `a0_peak`
+    for the nonlinearity term overstated it by ~3x."""
+    beam, laser = _full_geometry() if name == "full_geometry" else (scenarios.BASELINE.beam,
+                                                                   scenarios.BASELINE.laser)
+    bunch = sample_gaussian_bunch(beam, 120_000, 0)
+    px, py, pz = momenta(bunch)
+    bx, by, bz = px / bunch.gamma, py / bunch.gamma, pz / bunch.gamma
+    k_hat, _, _ = laser.focusing_axes()
+    flux = C_CGS * (1.0 - (bx * k_hat[0] + by * k_hat[1] + bz * k_hat[2]))
+    beta_0 = beam.beta0()
+    t_max = 8.0 * math.hypot(beam.m("sigma_z"), beta_0 * laser.sigma_ct()) / ((1.0 + beta_0) * C_CGS)
+    t_grid = np.linspace(-t_max, t_max, 151)
+
+    num, den = [], []
+    for t in t_grid:
+        x, y, z = bunch.x + C_CGS * bx * t, bunch.y + C_CGS * by * t, bunch.z + C_CGS * bz * t
+        w = laser.photon_density(x, y, z, t) * flux
+        num.append(float(np.sum(w * laser.a0_profile(x, y, z, t) ** 2)))
+        den.append(float(np.sum(w)))
+    reference = float(np.trapezoid(num, t_grid) / np.trapezoid(den, t_grid))
+
+    value = overlap_mean_a0_sq(beam, laser, n_quad=8001)
+    assert value == pytest.approx(reference, rel=5e-3)
+    assert 0.0 < value < laser.a0_peak() ** 2
+
+
+@pytest.mark.parametrize("sigma_z_fs", [0.2, 200.0])
+def test_mean_a0_sq_has_the_exact_one_over_root_two_limit(sigma_z_fs):
+    """An exact analytic limit, and a more interesting one than "approaches the peak".
+
+    Take a transversally pointlike bunch and switch off both hourglasses. Integrating over
+    *both* `z` and `t` spans every relative shift between the two pulses, so the bunch
+    convolution factors out of numerator and denominator alike and the ratio collapses to
+    `Int g^2 / Int g` for a normalized Gaussian — exactly `1/sqrt(2)`.
+
+    So the average can never reach `a0_peak**2` in a counter-propagating collision, however
+    small the bunch: it always scans the pulse's full longitudinal profile. That is the
+    ceiling, and it is **independent of bunch length** — hence both parametrizations, four
+    orders of magnitude apart in `sigma_z`, giving the same number."""
+    beam = replace(scenarios.BASELINE.beam,
+                   sigma_x=Quantity(0.02, "um"), sigma_y=Quantity(0.02, "um"),
+                   sigma_z=Quantity(sigma_z_fs, "fs"),
+                   emit_x=Quantity(1e-14, "cm * rad"), emit_y=Quantity(1e-14, "cm * rad"))
+    laser = replace(scenarios.BASELINE.laser, wavelength=Quantity(1e-7, "um"))
+    ratio = overlap_mean_a0_sq(beam, laser, n_quad=20001) / laser.a0_peak() ** 2
+    assert ratio == pytest.approx(1.0 / math.sqrt(2.0), rel=1e-4)
+
+
+@pytest.mark.parametrize("name", ["baseline", "full_geometry"])
+def test_resolved_profiles_integrate_back_to_the_total_yield(name):
+    """§7's "exact identity where the contract guarantees one", applied to the previews:
+    resolving the same integral in time or across the transverse plane cannot change what
+    it sums to. Both hold to ~1e-7, i.e. quadrature precision rather than a tolerance."""
+    beam, laser = _full_geometry() if name == "full_geometry" else (scenarios.BASELINE.beam,
+                                                                   scenarios.BASELINE.laser)
+    N_e = beam.n_electrons()
+    total = overlap_yield(beam, laser, N_e, 8001)
+
+    beta_0 = beam.beta0()
+    t_max = 10.0 * math.hypot(beam.m("sigma_z"), beta_0 * laser.sigma_ct()) / ((1.0 + beta_0) * C_CGS)
+    t_grid = np.linspace(-t_max, t_max, 2001)
+    in_time = float(np.trapezoid(overlap_time_profile(beam, laser, N_e, t_grid, n_quad=4001), t_grid))
+    assert in_time == pytest.approx(total, rel=1e-5)
+
+    span = 10.0 * math.hypot(beam.m("sigma_x"), laser.m("sigma_x"))
+    axis = np.linspace(-span, span, 201)
+    grid = overlap_transverse_profile(beam, laser, N_e, axis[:, None], axis[None, :], n_quad=2001)
+    in_space = float(np.trapezoid(np.trapezoid(grid, axis, axis=1), axis))
+    assert in_space == pytest.approx(total, rel=1e-5)
+
+
+def test_transverse_profile_peaks_where_the_pulse_actually_is():
+    """A displaced pulse must move the emission spot, which is the whole point of drawing
+    this before a run: a user who has mis-set the geometry sees it immediately."""
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    N_e = beam.n_electrons()
+    span = 6.0 * math.hypot(beam.m("sigma_x"), laser.m("sigma_x"))
+    axis = np.linspace(-span, span, 121)
+    grid = overlap_transverse_profile(beam, laser, N_e, axis[:, None], axis[None, :])
+    peak = np.unravel_index(int(np.argmax(grid)), grid.shape)
+    assert abs(axis[peak[0]]) < 0.1 * span and abs(axis[peak[1]]) < 0.1 * span
+    assert np.all(grid > 0.0)
+
+
+def test_time_profile_is_centred_and_positive():
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    N_e = beam.n_electrons()
+    beta_0 = beam.beta0()
+    t_max = 6.0 * math.hypot(beam.m("sigma_z"), beta_0 * laser.sigma_ct()) / ((1.0 + beta_0) * C_CGS)
+    t_grid = np.linspace(-t_max, t_max, 401)
+    rate = overlap_time_profile(beam, laser, N_e, t_grid)
+    assert np.all(rate > 0.0)
+    assert abs(t_grid[int(np.argmax(rate))]) < 0.05 * t_max
+
+
+def test_engine_uses_the_overlap_weighted_a0_for_the_nonlinearity_term():
+    """The engine must pass `<a0^2>`, not `a0_peak**2` — otherwise the width's nonlinearity
+    component keeps the approximation D035 named while the yield beside it does not."""
+    interaction = _interaction(outputs=(OutputRequest(OutputKind.TOTAL_YIELD),))
+    engine = AnalyticalEngine()
+    results = engine.run(interaction, engine.schema)
+    mean_a0_sq = results.model_specific["mean_a0_sq"]
+    assert 0.0 < mean_a0_sq < results.model_specific["a0_peak"] ** 2
+    assert results.model_specific["spectrum_width_fwhm"].nonlinearity == pytest.approx(
+        0.5 * 2.355 * 0.5 * mean_a0_sq
+    )
+
+
+def test_estimate_spectrum_width_default_still_uses_peak_a0():
+    """The default must not move: this function's other job is reproducing the predecessor's
+    worked example, and `_PREDECESSOR_WIDTH_TOTAL` exists to catch exactly that drift."""
+    with_default = estimate_spectrum_width(_EXAMPLE_BEAM, _EXAMPLE_LASER, theta_col=1e-3)
+    explicit = estimate_spectrum_width(_EXAMPLE_BEAM, _EXAMPLE_LASER, 1e-3, _EXAMPLE_LASER.a0_peak() ** 2)
+    assert with_default.nonlinearity == explicit.nonlinearity
 
 
 def _monte_carlo_yield(beam, laser, n_particles=50_000, n_t=151, seed=0):
