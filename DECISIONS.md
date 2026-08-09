@@ -1581,3 +1581,49 @@ bunch while this keeps **31%** at 1.3e-4 induced error, and 42% at 7.5e-6.
 - *Threshold on the weight relative to the maximum rather than on the cumulative sum.*
   Simpler, but the quantity a user can reason about is "how much luminosity am I discarding",
   which is the cumulative form.
+
+---
+
+### D046 — misalignment lives on the laser as `x_off`/`y_off`/`t_off`, and there is deliberately no `z_off`
+
+**Decision:** `io.laser.GaussianParaxialLaser` gains `x_off`, `y_off` and `t_off`, applied
+once in `_local_coordinates`, exposed in `io.fields.LASER_FIELDS`, and carried through the
+analytical overlap integral as a linear term (`docs/DERIVATIONS.md` §A.11).
+`GaussianParaxialLaser.active_region` shifts its origin to match.
+
+**Rationale.** Transverse and timing misalignment between pulse and bunch is the knob that
+actually determines yield in a real experiment, and until now the data model could not
+express it at all — both distributions were centred on the origin by construction, so the
+derivation's generality over foci displacement stopped at the longitudinal direction.
+
+Putting it on the laser matches where §2.2 already pins every other geometric degree of
+freedom (crossing angles, `psi_focus`, `z_fx`/`z_fy`); the bunch defines the origin. Applying
+it in `_local_coordinates` rather than at each call site is what makes every consumer —
+`photon_density`, `a0_profile`, `field`, and so xigma as well as analytical — inherit it
+from one subtraction.
+
+**There is no `z_off` on purpose.** For a pulse travelling at `c` a longitudinal spatial
+offset is indistinguishable from a timing offset, so `(x_off, y_off, t_off)` is the complete
+*independent* set. A fourth parameter would duplicate `t_off` and invite two knobs that
+silently cancel.
+
+Analytically a misalignment adds exactly one linear term to the quadratic form, which is
+why it needed no new derivation — but it must be carried through *both* completions of the
+square, and a dropped piece shifts the answer rather than making it diverge. Hence two
+guards: `test_zero_offset_is_bit_identical_to_no_offset_at_all`, and an exact
+`exp(-d^T (C_e + C_l)^-1 d / 2)` falloff in the no-hourglass limit checked to 1e-13 with an
+off-diagonal displacement, since an on-axis test passes with a wrong inverse.
+
+`active_region` had to move in the same change, not after: it is a *bound* the prefilter
+relies on never being too small (§3.2), and a region left at the origin while the pulse
+moved would discard particles that do interact — the one direction that contract forbids.
+
+**Rejected alternatives:**
+
+- *Put the offsets on `InteractionParameters` as a relative displacement.* Arguably more
+  symmetric, but it would split the geometry across two objects and leave `LaserField`
+  consumers unable to see it, so `photon_density` would return the aligned field.
+- *Offset the bunch instead.* Same physics, but the bunch is the reference frame everything
+  else is measured against, and `Bunch` arrays are per-particle — shifting them would make
+  the offset a property of a sample rather than of the configuration.
+- *A full 3D `r_off` plus `t_off`.* Over-parametrized by exactly one, as above.

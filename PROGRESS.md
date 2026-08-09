@@ -1150,6 +1150,47 @@ Full suite: 369 passed, up from 364. `DECISIONS.md` gained D045.
 
 ---
 
+## 2026-08-09 — Phase 4: transverse and timing misalignment
+
+Same worktree/branch. Answering "do the derivations allow arbitrary foci displacement in
+all 3 dimensions": longitudinal yes (independently per axis — `z_fx`/`z_fy` for the pulse,
+`alpha_x`/`alpha_y` for the bunch), **transverse and temporal no** — and the blocker was the
+data model, not the derivation. Both distributions were centred on the origin by
+construction. Now fixed.
+
+**Added** `x_off`, `y_off`, `t_off` to `GaussianParaxialLaser`, applied once in
+`_local_coordinates`, so every consumer of the field inherits them — `photon_density`,
+`a0_profile`, `field`, and therefore xigma as well as analytical. `active_region` shifts its
+origin to match, in the same change rather than after: it is a bound the cone prefilter
+relies on never being too small, and leaving it at the origin while the pulse moved would
+discard particles that do interact.
+
+**No `z_off`, deliberately.** For a pulse travelling at `c` a longitudinal spatial offset is
+indistinguishable from a timing offset, so `(x_off, y_off, t_off)` is the complete
+*independent* set (D046).
+
+**Analytically it is one linear term.** Writing the laser's exponent as a quadratic form in
+`(v - D)` with `D = (x_off, y_off, 0, c t_off)` gives `E = v'Mv/2 - v'L + const` with
+`L = M_l D`. No new structure — but it has to be carried through *both* completions of the
+square, and a dropped piece **shifts** the answer instead of making it diverge, so it would
+look plausible. Two guards: `D = 0` must be bit-identical to the previous result, and in the
+no-hourglass limit the falloff is exactly `exp(-d^T (C_e + C_l)^-1 d / 2)`, checked to 1e-13
+with an off-diagonal displacement (an on-axis test passes with a wrong inverse).
+
+**Verified** against the brute-force Monte Carlo to ~1e-3 for transverse-only, timing-only,
+and every combination with a crossing angle and with a flying focus.
+
+**A coupling worth knowing:** a timing offset and a crossing angle are *not* separable. A
+timing slip means the beams meet away from the nominal point, and with a crossing angle that
+displaces the collision transversely too — so the same 10 ps slip costs 3.7% head-on and
+4.9% at 50 mrad. Asserted as a test, since an implementation treating them as two
+independent reductions would miss it.
+
+Full suite: 382 passed, up from 369. `DECISIONS.md` gained D046; `docs/GRAND_PLAN.md`
+bumped to v0.24.
+
+---
+
 ## How to update this file
 
 - One dated section per work session (or per meaningful chunk of a session).

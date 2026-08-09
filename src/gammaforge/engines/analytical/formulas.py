@@ -262,6 +262,14 @@ class _FormPieces:
     m: np.ndarray  # (3, 3, ...) symmetric
     g: np.ndarray  # (3,)
     h: float
+    #: Linear term and constant from a misaligned pulse. Writing the laser's contribution
+    #: as a quadratic form in ``(v - D)`` with ``D = (x_off, y_off, 0, c t_off)`` gives
+    #: ``E = v^T M v / 2 - v^T L + D^T M_l D / 2``, so an offset enters as exactly one
+    #: linear term — no new structure, but it has to be carried through *both*
+    #: completions of the square below, and a dropped piece shifts the answer rather than
+    #: blowing it up.
+    lin: np.ndarray  # (4, ...) conjugate to (x, y, z, ct)
+    const: np.ndarray
     sigma_ex: np.ndarray
     sigma_ey: np.ndarray
     s1: np.ndarray
@@ -271,6 +279,15 @@ class _FormPieces:
         """``M' = M - g g^T / h``: the exponent left after integrating over time."""
         outer = self.g[:, None] * self.g[None, :] / self.h
         return self.m - outer.reshape(outer.shape + (1,) * (self.m.ndim - 2))
+
+    def after_time_integration(self):
+        """``(lin', const')`` once ``ct`` is integrated out.
+
+        Completing the square in ``w`` turns ``-w[(g.r) + L_w]`` into a shift of both the
+        quadratic and the linear part: ``M -> M'`` (:meth:`m_prime`) and
+        ``L_r -> L_r + g L_w / h``, with the constant picking up ``-L_w^2 / (2h)``.
+        """
+        return self.lin[:3] + self.g[:, None] * (self.lin[3] / self.h), self.const - self.lin[3] ** 2 / (2.0 * self.h)
 
     def transverse_norm(self, laser_power: float) -> np.ndarray:
         """The width normalization ``sigma_ex sigma_ey (s1 s2)^n`` that sits under the
@@ -310,7 +327,26 @@ def _form_pieces(beam, laser, z, u_shift=0.0, laser_power: float = 1.0) -> _Form
             )
     g = beta_0 * np.array([0.0, 0.0, 1.0]) * inv_sez2 + k_hat * inv_sct2
     h = beta_0**2 * inv_sez2 + inv_sct2
-    return _FormPieces(m=m, g=g, h=h, sigma_ex=np.sqrt(ex2), sigma_ey=np.sqrt(ey2), s1=s1, s2=s2)
+
+    # Laser-only 4x4 block acting on (x, y, z, ct), needed for the offset's linear term.
+    d = np.array([laser.m("x_off"), laser.m("y_off"), 0.0, C_CGS * laser.m("t_off")])
+    lin = np.zeros((4,) + shape)
+    const = np.zeros(shape)
+    if np.any(d != 0.0):
+        gl = k_hat * inv_sct2  # laser's own (r, ct) coupling
+        for i in range(3):
+            for j in range(3):
+                ml_ij = f1[i] * f1[j] * inv_s1 + f2[i] * f2[j] * inv_s2 + k_hat[i] * k_hat[j] * inv_sct2
+                lin[i] += ml_ij * d[j]
+            lin[i] += -gl[i] * d[3]
+        for j in range(3):
+            lin[3] += -gl[j] * d[j]
+        lin[3] += inv_sct2 * d[3]
+        const = 0.5 * (sum(lin[i] * d[i] for i in range(4)))
+    return _FormPieces(
+        m=m, g=g, h=h, lin=lin, const=const,
+        sigma_ex=np.sqrt(ex2), sigma_ey=np.sqrt(ey2), s1=s1, s2=s2,
+    )
 
 
 def _overlap_grid(beam, laser, sigma_z_eff: float, n_quad: int, laser_power: float = 1.0) -> np.ndarray:
@@ -469,10 +505,14 @@ def _reduced_integral_flying_focus(beam, laser, n_quad: int, laser_power: float,
         pieces = _form_pieces(beam, laser, zb, u_shift=laser.beta_ff * wb, laser_power=laser_power)
         m, g, h = pieces.m, pieces.g, pieces.h
         det_a = m[0, 0] * m[1, 1] - m[0, 1] ** 2
-        v0 = wb * g[0] - m[0, 2] * zb
-        v1 = wb * g[1] - m[1, 2] * zb
+        lin = pieces.lin
+        v0 = wb * g[0] + lin[0] - m[0, 2] * zb
+        v1 = wb * g[1] + lin[1] - m[1, 2] * zb
         quad_v = (m[1, 1] * v0**2 - 2.0 * m[0, 1] * v0 * v1 + m[0, 0] * v1**2) / det_a
-        exponent = 0.5 * quad_v - 0.5 * m[2, 2] * zb**2 + wb * g[2] * zb - 0.5 * h * wb**2
+        exponent = (
+            0.5 * quad_v - 0.5 * m[2, 2] * zb**2 + wb * g[2] * zb - 0.5 * h * wb**2
+            + zb * lin[2] + wb * lin[3] - pieces.const
+        )
         integrand = np.exp(exponent) / (pieces.transverse_norm(laser_power) * np.sqrt(det_a))
         total += float(np.sum(integrand * weights[sl]))
 
@@ -513,11 +553,13 @@ def _reduced_integral(
     if n_quad_u <= 1:
         pieces = _form_pieces(beam, laser, z, laser_power=laser_power)
         m = pieces.m_prime()
+        lin, const = pieces.after_time_integration()
         det_a = m[0, 0] * m[1, 1] - m[0, 1] ** 2
-        schur = m[2, 2] - (
-            m[1, 1] * m[0, 2] ** 2 - 2.0 * m[0, 1] * m[0, 2] * m[1, 2] + m[0, 0] * m[1, 2] ** 2
-        ) / det_a
-        integrand = np.exp(-0.5 * schur * z**2) / (pieces.transverse_norm(laser_power) * np.sqrt(det_a))
+        p0 = lin[0] - m[0, 2] * z
+        p1 = lin[1] - m[1, 2] * z
+        quad_p = (m[1, 1] * p0**2 - 2.0 * m[0, 1] * p0 * p1 + m[0, 0] * p1**2) / det_a
+        exponent = 0.5 * quad_p - 0.5 * m[2, 2] * z**2 + z * lin[2] - const
+        integrand = np.exp(exponent) / (pieces.transverse_norm(laser_power) * np.sqrt(det_a))
         return 2.0 * math.pi * float(np.trapezoid(integrand, z)), pieces.h
 
     k_hat, _, _ = laser.focusing_axes()
@@ -698,10 +740,14 @@ def overlap_time_profile(
         m, g, h = pieces.m, pieces.g, pieces.h
         det_a = m[0, 0] * m[1, 1] - m[0, 1] ** 2
         # Integrating (x, y) at fixed (z, t): the linear term is v = w g_perp - b z.
-        v0 = w * g[0] - m[0, 2] * z_block
-        v1 = w * g[1] - m[1, 2] * z_block
+        lin = pieces.lin
+        v0 = w * g[0] + lin[0] - m[0, 2] * z_block
+        v1 = w * g[1] + lin[1] - m[1, 2] * z_block
         quad_v = (m[1, 1] * v0**2 - 2.0 * m[0, 1] * v0 * v1 + m[0, 0] * v1**2) / det_a
-        exponent = 0.5 * quad_v - 0.5 * m[2, 2] * z_block**2 + w * g[2] * z_block - 0.5 * h * w**2
+        exponent = (
+            0.5 * quad_v - 0.5 * m[2, 2] * z_block**2 + w * g[2] * z_block - 0.5 * h * w**2
+            + z_block * lin[2] + w * lin[3] - pieces.const
+        )
         integrand = np.exp(exponent) / (pieces.transverse_norm(1.0) * np.sqrt(det_a))
         line = line + integrand @ weights
 
@@ -745,10 +791,11 @@ def overlap_transverse_profile(
     for z_block, weights in _z_blocks(z):
         pieces = _form_pieces(beam, laser, z_block)
         m = pieces.m_prime()
+        lin, const = pieces.after_time_integration()
         exponent = -0.5 * (
             m[0, 0] * xs**2 + m[1, 1] * ys**2 + m[2, 2] * z_block**2
             + 2.0 * (m[0, 1] * xs * ys + m[0, 2] * xs * z_block + m[1, 2] * ys * z_block)
-        )
+        ) + xs * lin[0] + ys * lin[1] + z_block * lin[2] - const
         line = line + (np.exp(exponent) / pieces.transverse_norm(1.0)) @ weights
 
     scale = (

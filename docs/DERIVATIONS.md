@@ -163,6 +163,55 @@ reduction holds to $5\times10^{-10}$ at $n_{\rm quad}=32001$; at the schema defa
 $2001$ the quadrature error is ${\sim}10^{-7}$ round and ${\sim}10^{-6}$ on a
 displaced/astigmatic/rotated case.
 
+### A.11 Transverse and timing misalignment
+
+**Status: implemented.** `GaussianParaxialLaser` carries `x_off`, `y_off`, `t_off`; every
+consumer of the field inherits them because `_local_coordinates` subtracts them once.
+
+Displacing the pulse means its exponent is a quadratic form in $(\mathbf v-\mathsf D)$
+rather than $\mathbf v$, with
+
+$$
+\mathbf v=(x,y,z,ct),\qquad
+\mathsf D=(x_{\rm off},\,y_{\rm off},\,0,\,c\,t_{\rm off})
+$$
+
+so that, writing $\mathbb M_l$ for the laser's own $4\times4$ block,
+
+$$
+E=\tfrac12\mathbf v^{\mathsf T}\mathbb M\,\mathbf v-\mathbf v^{\mathsf T}\mathbf L+\tfrac12\mathsf D^{\mathsf T}\mathbb M_l\mathsf D,
+\qquad \mathbf L=\mathbb M_l\,\mathsf D
+$$
+
+A misalignment therefore adds **exactly one linear term** — no new structure. It does have
+to be carried through *both* completions of the square: eliminating $ct$ sends
+$\mathbf L_r\to\mathbf L_r+\mathbf g\,L_w/h$ and the constant to
+$\text{const}-L_w^2/2h$; the transverse integration then completes the square against it
+again. A dropped piece **shifts** the answer rather than making it diverge, so the
+regression net is that $\mathsf D=\mathbf 0$ must reproduce the previous result *bit for
+bit*, which is asserted.
+
+**Why there is no $z_{\rm off}$.** For a pulse travelling at $c$, a longitudinal spatial
+offset is the same thing as a timing offset. Three parameters — two transverse and one
+temporal — are the complete independent set; a fourth would duplicate, not extend.
+
+**Exact check.** With both hourglasses switched off, a transverse misalignment reduces the
+yield by exactly
+
+$$
+\frac{N(\mathbf d)}{N(\mathbf 0)}=\exp\!\left[-\tfrac12\,
+\mathbf d^{\mathsf T}\big(C_e+C_l\big)^{-1}\mathbf d\right]
+$$
+
+verified to $10^{-13}$, including an off-diagonal $\mathbf d$ — an on-axis test alone would
+pass with a wrong inverse.
+
+**They do not act independently of the crossing angle.** A timing slip makes the beams meet
+away from the nominal point, and with a crossing angle that displaces the collision
+*transversely* as well, so the same slip costs more when the beams cross (measured: 3.7%
+loss at $\theta=0$ against 4.9% at $\theta=50$ mrad, for 10 ps). An implementation treating
+the two as separable reductions would miss this; it is asserted as a test.
+
 ### A.5 A discrepancy this derivation exposes
 
 §A.4 identifies the laser term in $\nu$ as $\sigma_l/z_R$ **exactly**. Both this

@@ -1,9 +1,19 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.23 — 2026-08-09
+**Status:** draft v0.24 — 2026-08-09
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 **Changelog**
+- **v0.24**: **arbitrary transverse and timing misalignment** between pulse and bunch
+  (`DECISIONS.md` D046, `docs/DERIVATIONS.md` §A.11). `GaussianParaxialLaser` gains
+  `x_off`/`y_off`/`t_off`, applied once in `_local_coordinates` so every field consumer —
+  xigma included — inherits them, with `active_region` shifted to match so the cone
+  prefilter cannot discard particles that do interact. Deliberately no `z_off`: for a pulse
+  at `c` it is degenerate with `t_off`. Analytically this is one linear term in the
+  quadratic form, verified by an exact `exp(-dᵀ(C_e+C_l)⁻¹d/2)` falloff to 1e-13 and by the
+  Monte Carlo across every combination with crossing angle and flying focus. Closes the last
+  gap in "arbitrary foci displacement": longitudinal was already general per axis, the
+  transverse and temporal directions had no representation at all. `PROGRESS.md` 2026-08-09.
 - **v0.23**: **flying focus covered for the analytical yield** (`docs/DERIVATIONS.md` §B,
   `DECISIONS.md` D044) — `overlap_yield` no longer refuses `beta_ff`. The useful structural
   result: a flying focus makes the widths depend on *two* linear functionals of

@@ -560,6 +560,91 @@ def test_estimate_spectrum_width_default_still_uses_peak_a0():
 
 
 # ---------------------------------------------------------------------------
+# Transverse and timing misalignment (docs/DERIVATIONS.md §A.11)
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("dx_um, dy_um", [(5.0, 0.0), (0.0, 5.0), (12.0, -8.0), (25.0, 20.0)])
+def test_transverse_offset_falls_off_as_the_exact_gaussian(dx_um, dy_um):
+    """The sharpest available check on the offset bookkeeping. With both hourglasses off,
+    a transverse misalignment `d` must reduce the yield by exactly
+    `exp(-d^T (C_e + C_l)^-1 d / 2)` — no quadrature error, no tolerance band. It isolates
+    the linear term added to the quadratic form from everything else, and an off-diagonal
+    case is included because a wrong inverse passes the on-axis ones."""
+    beam = replace(scenarios.BASELINE.beam,
+                   emit_x=Quantity(1e-12, "cm * rad"), emit_y=Quantity(1e-12, "cm * rad"))
+    laser = replace(scenarios.BASELINE.laser, wavelength=Quantity(1e-7, "um"),
+                    sigma_x=Quantity(14.0, "um"), sigma_y=Quantity(6.0, "um"))
+    N_e = beam.n_electrons()
+    base = overlap_yield(beam, laser, N_e, 20001)
+    offset = replace(laser, x_off=Quantity(dx_um, "um"), y_off=Quantity(dy_um, "um"))
+
+    d = np.array([dx_um * 1e-4, dy_um * 1e-4])
+    cov = np.diag([beam.m("sigma_x") ** 2 + laser.m("sigma_x") ** 2,
+                   beam.m("sigma_y") ** 2 + laser.m("sigma_y") ** 2])
+    expected = base * math.exp(-0.5 * float(d @ np.linalg.inv(cov) @ d))
+    assert overlap_yield(beam, offset, N_e, 20001) == pytest.approx(expected, rel=1e-10)
+
+
+def test_zero_offset_is_bit_identical_to_no_offset_at_all():
+    """The regression net for the whole linear-term extension: a dropped term shifts the
+    answer rather than blowing it up, so it would look plausible. `x_off = y_off = t_off = 0`
+    must reproduce the pre-offset result exactly, not approximately."""
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    N_e = beam.n_electrons()
+    explicit = replace(laser, x_off=Quantity(0.0, "um"), y_off=Quantity(0.0, "um"),
+                       t_off=Quantity(0.0, "fs"))
+    assert overlap_yield(beam, explicit, N_e) == overlap_yield(beam, laser, N_e)
+
+
+@pytest.mark.parametrize("name, kwargs, tol", [
+    ("transverse x", dict(x_off=Quantity(8.0, "um")), 5e-3),
+    ("transverse y", dict(y_off=Quantity(-12.0, "um")), 5e-3),
+    ("timing", dict(t_off=Quantity(5.0, "ps")), 5e-3),
+    ("crossing + timing", dict(theta_xz=Quantity(0.02, "rad"), t_off=Quantity(5.0, "ps")), 5e-3),
+    ("crossing + all three", dict(theta_xz=Quantity(0.02, "rad"), x_off=Quantity(8.0, "um"),
+                                  y_off=Quantity(-5.0, "um"), t_off=Quantity(3.0, "ps")), 5e-3),
+    ("flying focus + offsets", dict(beta_ff=1.0, x_off=Quantity(6.0, "um"),
+                                    t_off=Quantity(2.0, "ps")), 1.5e-2),
+])
+def test_offsets_match_a_brute_force_monte_carlo(name, kwargs, tol):
+    """Offsets against the independent reference, including every way they compose with the
+    geometry already covered. `_local_coordinates` subtracts them, so the Monte Carlo picks
+    them up with no changes of its own."""
+    beam = scenarios.BASELINE.beam
+    laser = replace(scenarios.BASELINE.laser, **kwargs)
+    assert _monte_carlo_yield(beam, laser, n_t=201) == pytest.approx(
+        overlap_yield(beam, laser, beam.n_electrons()), rel=tol
+    )
+
+
+def test_a_timing_offset_and_a_crossing_angle_do_not_act_independently():
+    """They are not separable, and an implementation that treated them as two independent
+    reductions would say they are: a timing slip means the beams meet away from the nominal
+    point, and with a crossing angle that displaces the collision *transversely* as well.
+    So the same slip must cost more when the beams cross."""
+    beam = scenarios.BASELINE.beam
+    N_e = beam.n_electrons()
+
+    def loss(theta):
+        base = overlap_yield(beam, replace(scenarios.BASELINE.laser,
+                                           theta_xz=Quantity(theta, "rad")), N_e)
+        slipped = overlap_yield(beam, replace(scenarios.BASELINE.laser,
+                                              theta_xz=Quantity(theta, "rad"),
+                                              t_off=Quantity(10.0, "ps")), N_e)
+        return slipped / base
+
+    assert loss(0.05) < loss(0.0)
+
+
+def test_offsets_reach_the_engine_and_reduce_its_yield():
+    interaction = _interaction(outputs=(OutputRequest(OutputKind.TOTAL_YIELD),))
+    engine = AnalyticalEngine()
+    aligned = float(engine.run(interaction, engine.schema).photon_slices[OutputKind.TOTAL_YIELD].distr)
+    misaligned = replace(interaction, laser=replace(interaction.laser, x_off=Quantity(15.0, "um")))
+    offset = float(engine.run(misaligned, engine.schema).photon_slices[OutputKind.TOTAL_YIELD].distr)
+    assert 0.0 < offset < 0.8 * aligned
+
+
+# ---------------------------------------------------------------------------
 # Flying focus (docs/DERIVATIONS.md §B)
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("beta_ff", [0.5, 1.0, 2.0, -0.5])

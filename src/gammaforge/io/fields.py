@@ -103,6 +103,15 @@ LASER_FIELDS: tuple[FieldSpec, ...] = (
               display_units=_PULSE_DURATION_UNITS, convention=_RMS_T, value_range=_POSITIVE),
     FieldSpec("z_fx", "Focal offset (axis 1)", FieldKind.SCALAR, _LASER["z_fx"], 0.0, display_units=_SIZE_UNITS),
     FieldSpec("z_fy", "Focal offset (axis 2)", FieldKind.SCALAR, _LASER["z_fy"], 0.0, display_units=_SIZE_UNITS),
+    # Misalignment of the pulse against the bunch. Transverse plus timing is the complete
+    # independent set — a longitudinal spatial offset is degenerate with `t_off` for a
+    # pulse travelling at c, so there is deliberately no `z_off`.
+    FieldSpec("x_off", "Transverse misalignment (x)", FieldKind.SCALAR, _LASER["x_off"], 0.0,
+              display_units=_SIZE_UNITS),
+    FieldSpec("y_off", "Transverse misalignment (y)", FieldKind.SCALAR, _LASER["y_off"], 0.0,
+              display_units=_SIZE_UNITS),
+    FieldSpec("t_off", "Timing offset", FieldKind.SCALAR, _LASER["t_off"], 0.0,
+              display_units=("fs", "ps", "ns", "s")),
     FieldSpec("theta_xz", "Crossing angle in xz", FieldKind.SCALAR, "rad", 0.0,
               display_units=_ANGLE_UNITS, value_range=(-math.pi, math.pi)),
     FieldSpec("theta_yz", "Crossing angle in yz", FieldKind.SCALAR, "rad", 0.0,
