@@ -196,9 +196,10 @@ def overlap_det(beam: GaussianElectronBeam, laser: GaussianParaxialLaser, z):
 def _overlap_quadratic_form(beam: GaussianElectronBeam, laser: GaussianParaxialLaser, z, u_shift: float = 0.0):
     """The reduced integrand of the overlap integral at lab positions ``z``.
 
-    Returns ``(S, det_A, sigma_ex, sigma_ey, s1, s2)`` where the longitudinal weight is
-    ``exp(-S z^2 / 2)`` and the transverse integrals have contributed
-    ``1 / sqrt(det_A)``. See `docs/DERIVATIONS.md` §A.6; in outline, at fixed ``t`` the
+    Returns ``(S, det_A, sigma_ex, sigma_ey, s1, s2, h)`` where the longitudinal weight is
+    ``exp(-S z^2 / 2)``, the transverse integrals have contributed ``1 / sqrt(det_A)``, and
+    ``h`` is the (z-independent) time-integration coefficient the caller needs for the
+    overall prefactor. See `docs/DERIVATIONS.md` §A.6; in outline, at fixed ``t`` the
     combined exponent is a quadratic form ``r^T M r / 2`` in lab coordinates with
 
         M_e = xx^T/sigma_ex^2(z) + yy^T/sigma_ey^2(z) + zz^T/sigma_ez^2

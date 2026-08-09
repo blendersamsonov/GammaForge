@@ -1264,10 +1264,12 @@ correctly while leaving that width component unmoved. The third item,
 collimated-spectrum construction, is untouched.
 
 Also a real behavioral narrowing: because `AnalyticalEngine` calls `overlap_yield`
-unguarded, the engine now **raises** on a crossing-angle or flying-focus laser where it
-previously returned a (wrong) number. No current caller does that —
-`validation.scenarios` leaves both at zero — but Phase 6 must decide what the GUI's
-estimates panel shows for such a configuration rather than propagating an exception.
+unguarded, the engine **raises** on a flying-focus laser where it previously returned a
+(wrong) number. No current caller does that — `validation.scenarios` leaves `beta_ff` at
+zero — but Phase 6 must decide what the GUI's estimates panel shows for such a
+configuration rather than propagating an exception. (This paragraph originally covered the
+crossing angle too; D041 supersedes that half — a crossing angle is now handled, not
+refused.)
 
 **Rationale.** The generalization invents no physics: every step is a Gaussian integral or a
 standard identity, and the transverse part collapses to a single determinant

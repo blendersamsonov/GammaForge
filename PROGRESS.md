@@ -996,7 +996,15 @@ leaving it to `io.laser.validate()`. This also resolves the inconsistency the pr
 session introduced, where analytical raised on a crossing angle while xigma warned and
 proceeded.
 
-Full suite: 338 passed, up from 324. `DECISIONS.md` gained D041 (superseding D039's
+**Grid resolution was checked, not assumed.** Crossing narrows the longitudinal support
+while `_overlap_grid`'s outer span still comes from the head-on scale, so `span/core`
+reaches ~60 at 50 mrad. The refined `1/sqrt(max S)` and `sigma_i/sin(theta)` windows absorb
+it: worst spacing inside the core stays under 0.008 of the core width, and the **schema
+default** `n_quad_overlap=2001` matches n=20001 to 1.2e-7 head-on and 2.3e-6 at the 0.4 rad
+adversarial fixture. Pinned by `test_schema_default_n_quad_resolves_a_crossed_collision`,
+since every other crossing test uses a generous n_quad and would not have noticed.
+
+Full suite: 342 passed, up from 324. `DECISIONS.md` gained D041 (superseding D039's
 crossing-angle refusal; the `beta_ff` refusal stands); `docs/GRAND_PLAN.md` bumped to v0.21.
 
 ---

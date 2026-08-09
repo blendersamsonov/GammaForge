@@ -28,6 +28,7 @@ from gammaforge.engines.analytical.formulas import (
     overlap_det,
     overlap_yield,
 )
+from gammaforge.engines.analytical.schema import default_parameters
 from gammaforge.engines.base import Engine
 from gammaforge.io.bunch import GaussianElectronBeam, _drift_fit, momenta, sample_gaussian_bunch
 from gammaforge.io.laser import GaussianParaxialLaser, lab_frame_axes
@@ -336,6 +337,40 @@ def test_crossing_angle_width_sampling_approximation_is_negligible():
     base = shifted(0.0)
     assert abs(shifted(+delta) / base - 1.0) < 1e-3
     assert abs(shifted(-delta) / base - 1.0) < 1e-3
+
+
+@pytest.mark.parametrize("theta", [0.02, 0.05, 0.4])
+def test_schema_default_n_quad_resolves_a_crossed_collision(theta):
+    """The **default** `n_quad_overlap`, not a generous test value, must resolve a crossing
+    angle. It is not automatic: crossing narrows the longitudinal support (5.8x at 50 mrad)
+    while `_overlap_grid`'s outer span still comes from the head-on scale, so `span/core`
+    reaches ~60. What saves it is the refined `1/sqrt(max S)` and `sigma_i/sin(theta)`
+    windows; without them the default would silently under-resolve the very effect the
+    crossing angle is about, and every other crossing test here uses n_quad=20001 and so
+    would not notice."""
+    beam = replace(scenarios.BASELINE.beam,
+                   sigma_x=Quantity(200.0, "um"), sigma_y=Quantity(200.0, "um"))
+    laser = replace(scenarios.BASELINE.laser,
+                    sigma_x=Quantity(2.0, "um"), sigma_y=Quantity(2.0, "um"),
+                    theta_xz=Quantity(theta, "rad"))
+    N_e = beam.n_electrons()
+    default_n = int(default_parameters().get_int("n_quad_overlap"))
+    assert overlap_yield(beam, laser, N_e, default_n) == pytest.approx(
+        overlap_yield(beam, laser, N_e, n_quad=20001), rel=1e-5
+    )
+
+
+def test_crossing_angle_suppression_at_the_baseline_is_what_the_docs_quote():
+    """`docs/DERIVATIONS.md` §A.6 and `PROGRESS.md` quote 1.07x / 2.18x / 5.77x at 5 / 20 /
+    50 mrad. Those are properties of `scenarios.BASELINE`, not constants, so pin them here —
+    otherwise the prose goes stale silently when the scenario moves (the same reasoning that
+    put a pin under the 3.285 figure)."""
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    N_e = beam.n_electrons()
+    head_on = overlap_yield(beam, laser, N_e, n_quad=20001)
+    for theta, expected in ((0.005, 1.07), (0.02, 2.18), (0.05, 5.77)):
+        crossed = overlap_yield(beam, replace(laser, theta_xz=Quantity(theta, "rad")), N_e, n_quad=20001)
+        assert head_on / crossed == pytest.approx(expected, rel=5e-3)
 
 
 def _monte_carlo_yield(beam, laser, n_particles=50_000, n_t=151, seed=0):
