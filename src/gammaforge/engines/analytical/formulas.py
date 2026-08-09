@@ -19,10 +19,15 @@ general integral reduces to it analytically — which makes it a real regression
 and because it pins port fidelity. It carries an approximation *and* a laser-divergence
 convention error; its own docstring says so. Prefer :func:`overlap_yield`.
 
-This closes two of the three growth items `DECISIONS.md` D035 left open (non-round yield,
-foci displacement). The third, constructing the collimated spectrum, is still open, as is
-the crossing angle (`GRAND_PLAN.md` §9.3) — :func:`overlap_yield` refuses one rather than
-returning a number its derivation does not cover, which is what P14c actually asks for.
+**What this closes, precisely.** Of `DECISIONS.md` D035's three growth items, non-round
+beams and foci displacement are closed **for the total yield** — that is
+:func:`overlap_yield`'s whole point. They are *not* closed for
+:func:`estimate_spectrum_width`, whose nonlinearity term still uses the pulse's own peak
+a0 rather than the a0 the bunch actually samples; that needs an overlap-weighted
+``<a0^2>``, a further derivation nobody has done here. The third item, constructing the
+collimated spectrum, is untouched. So is the crossing angle (`GRAND_PLAN.md` §9.3) —
+:func:`overlap_yield` refuses one rather than returning a number its derivation does not
+cover, which is what P14c actually asks for.
 """
 
 from __future__ import annotations
@@ -321,8 +326,16 @@ def estimate_spectrum_width(
 
     ``laser`` is the fitted `GaussianParaxialLaser` (see :func:`estimate_yield`);
     ``laser.a0_peak()`` stands in for the predecessor's ``pulse.a0_interaction`` — the
-    pulse's own maximum a0, not the a0 at the electron bunch's actual position, which is
-    the "foci displacement" growth item §4.3 lists as open (`DECISIONS.md` D035).
+    pulse's own maximum a0, not the a0 at the electron bunch's actual position.
+
+    **This is the one place foci displacement is still approximated.**
+    :func:`overlap_yield` closed that growth item for the *total yield*
+    (`DECISIONS.md` D039), but not here: the nonlinearity term needs the a0 the bunch
+    actually samples, i.e. an ``<a0^2>`` weighted by the same overlap integral, which is a
+    further derivation that has not been done. Displacing the foci therefore changes the
+    yield correctly while leaving this width component unmoved — a real remaining
+    limitation, not an oversight, and the reason `GRAND_PLAN.md` §11's Phase 4 row still
+    carries an exception.
     """
     gamma0 = beam.gamma0()
     sigma_gamma = beam.sigma_gamma()

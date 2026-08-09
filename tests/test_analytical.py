@@ -246,7 +246,12 @@ def test_overlap_yield_differs_from_the_legacy_closed_form_by_the_rayleigh_conve
     visible and cannot drift silently. The baseline's hourglass is almost entirely
     laser-driven (laser divergence 3e-2 rad against the bunch's 5e-6), so the factor-4 error
     in `lambda / (pi sigma)` vs `sigma / z_R = lambda / (4 pi sigma)` shows up nearly in
-    full. If this number ever moves, one of the two formulas changed — find out which."""
+    full.
+
+    3.285 is **not** a physical constant: it is the ratio *at* `scenarios.BASELINE`, and it
+    depends on that scenario's laser waist, wavelength and duration through how strongly the
+    hourglass suppresses the yield. So if this fails, check whether `BASELINE` moved before
+    concluding either formula did."""
     beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
     N_e = beam.n_electrons()
     ratio = overlap_yield(beam, laser, N_e, n_quad=32001) / estimate_yield(beam, laser, N_e)

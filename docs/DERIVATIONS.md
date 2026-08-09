@@ -121,6 +121,12 @@ round_beam_closed_form` checks this against an independently-coded closed form, 
 `test_electron_hourglass_matches_io_bunchs_own_drift` pins the `alpha` sign against
 `io.bunch._drift_fit` rather than against this document.
 
+Accuracy is a resolution question, so quote it with the grid: the reduction holds to
+5e-10 at `n_quad = 32001` (what the test asserts). At the schema default of
+`n_quad_overlap = 2001` the quadrature error is ~1e-7 on the round case and ~1e-6 on a
+displaced/astigmatic/rotated one — far below any physical uncertainty in the inputs, but
+not the machine-precision figure, and worth raising the knob for a convergence study.
+
 ### A.5 A discrepancy this derivation exposes
 
 The reduction in §A.4 identifies the laser term in `nu` as `sigma_l / z_R` exactly. Both

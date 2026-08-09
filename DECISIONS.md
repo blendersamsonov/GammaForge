@@ -1255,8 +1255,21 @@ exactly one longitudinal quadrature. `AnalyticalEngine` calls it.
 `engines.analytical.formulas.estimate_yield`'s round-beam closed form stays in the module
 but is no longer what the engine ships. The derivation is `docs/DERIVATIONS.md` §A.
 
-**Rationale.** This closes two of the three growth items D035 left open (non-round yield,
-foci displacement) without inventing any physics: every step is a Gaussian integral or a
+**Scope, precisely.** This closes two of D035's three growth items **for the total yield
+only** — non-round beams and foci displacement. It does *not* close them for
+`estimate_spectrum_width`, whose nonlinearity term still uses `laser.a0_peak()`, the
+pulse's own maximum, rather than the a0 the bunch actually samples; that needs an
+overlap-weighted `<a0^2>` and stays open. Displacing the foci therefore moves the yield
+correctly while leaving that width component unmoved. The third item,
+collimated-spectrum construction, is untouched.
+
+Also a real behavioral narrowing: because `AnalyticalEngine` calls `overlap_yield`
+unguarded, the engine now **raises** on a crossing-angle or flying-focus laser where it
+previously returned a (wrong) number. No current caller does that —
+`validation.scenarios` leaves both at zero — but Phase 6 must decide what the GUI's
+estimates panel shows for such a configuration rather than propagating an exception.
+
+**Rationale.** The generalization invents no physics: every step is a Gaussian integral or a
 standard identity, and the transverse part collapses to a single determinant
 (`engines.analytical.formulas.overlap_det`) that reduces to the round-beam
 `1/(2 pi sigma_0^2)` only when both ellipses are circular. Two properties make it safe to

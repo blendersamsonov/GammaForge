@@ -18,7 +18,7 @@ Phase numbers/names match `docs/GRAND_PLAN.md` §11.
 | 2.5. Stage 0 + minimal delta | 🟢 done — all four exit criteria met; §9.1 now a *derived* open question (see below) |
 | 3a. xigma engineering | 🟢 done — Stage 1/2, `Collision`, `XigmaEngine` landed 2026-08-08 (see below) |
 | 3b. Physics closure | 🟡 §9.1 done (2026-08-08) — §9.2/§9.3 blocked on the author; the paper has no formula for either, and both are non-blocking for 4–6 by design |
-| 4. analytical engine | ⚪ not started |
+| 4. analytical engine | 🟢 landed 2026-08-09 (branch `worktree-phase4-analytical-engine`) — estimates, width breakdown, quadrature spectrum, and the general overlap-integral yield (non-round + displaced foci). Open: collimated-spectrum construction, and the width's nonlinearity term still uses peak a0 |
 | 5. kascade port + delta full role | ⚪ not started |
 | 6. GUI | ⚪ not started |
 | 7. Validation completion | ⚪ not started |
@@ -902,15 +902,24 @@ quadrature over `z` with a strictly positive, smooth integrand — milliseconds,
 Carlo. Shipped as `engines.analytical.formulas.overlap_yield`; `AnalyticalEngine` now uses
 it instead of the round-beam closed form.
 
-**Two of D035's three growth items are therefore closed** — non-round-beam yield and foci
-displacement. Neither needed new schema state: the electron waist offset is already
-`GaussianElectronBeam.alpha_x`/`alpha_y` and the laser side is already
-`z_fx`/`z_fy`/`psi_focus` (P9). Collimated-spectrum construction stays open. Crossing angle
-stays deferred to §9.3, and `overlap_yield` **raises** on one rather than approximating.
+**Two of D035's three growth items are therefore closed *for the total yield*** —
+non-round-beam yield and foci displacement. Neither needed new schema state: the electron
+waist offset is already `GaussianElectronBeam.alpha_x`/`alpha_y` and the laser side is
+already `z_fx`/`z_fy`/`psi_focus` (P9). **Not** closed for `estimate_spectrum_width`: its
+nonlinearity term still uses the pulse's peak a0 rather than the a0 the bunch samples,
+which needs an overlap-weighted `<a0^2>` — so moving the foci now changes the yield
+correctly while leaving that width component unmoved. Collimated-spectrum construction
+stays open. Crossing angle stays deferred to §9.3, and `overlap_yield` **raises** on one
+rather than approximating — which means `AnalyticalEngine` now raises where it previously
+returned a wrong number. No current caller passes a crossing-angle or flying-focus laser
+(`validation.scenarios` leaves both zero), but Phase 6 must decide what the GUI estimates
+panel does with one instead of propagating the exception.
 
 **How it was verified** (the derivation is only as good as its checks):
-- reduces to the round-beam closed form to ~1e-9 against an independently-coded evaluation
-  — the derivation's own strongest test, since the two paths share no code;
+- reduces to the round-beam closed form to 5e-10 at `n_quad=32001`, against an
+  independently-coded evaluation — the derivation's own strongest test, since the two paths
+  share no code. At the schema default (`n_quad_overlap=2001`) the quadrature error is
+  ~1e-7 round / ~1e-6 on a displaced astigmatic case, not the machine-precision figure;
 - `_electron_sigma2` agrees with `io.bunch._drift_fit` to machine zero across an
   alpha × drift grid, which pins the `alpha` **sign** that no symmetric scenario can catch;
 - the yield peaks with the electron waist at +0.0995 cm against a laser focus at +0.1000 cm,
