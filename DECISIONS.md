@@ -1521,9 +1521,9 @@ is invariant under `beta_ff -> 1 / beta_ff`, because the spot depends on
 the head-on synchronized counter-propagating case; those expressions were not available
 here, so this is validated against the brute-force Monte Carlo only (1e-3 at
 `beta_ff` in -0.5, 0.5, 1, 2, with and without a crossing angle). The `(1 + beta_ff)`
-Rayleigh stretch in `io.laser.GaussianParaxialLaser.rayleigh_x` is inherited from the code,
-not re-derived, and the reciprocal symmetry above depends on it directly — so it is the
-first thing an independent check should target.
+Rayleigh stretch in `io.laser.GaussianParaxialLaser.rayleigh_x`, which the reciprocal
+symmetry depends on, was queried and confirmed by the author as a paraxial Maxwell result
+rather than a convention — so that symmetry is physical.
 
 **Rejected alternatives:**
 

@@ -412,9 +412,10 @@ while the longitudinal envelope stays a function of $u-ct$. The focal plane ther
 at $u_{\rm spot}=z_f$, i.e. at $u=z_f-\beta_{\rm ff}ct$, and **moves along $\hat{\mathbf k}$
 at velocity $-\beta_{\rm ff}c$.** Head-on, $\hat{\mathbf k}=-\hat{\mathbf z}$, so the focus
 travels at $+\beta_{\rm ff}c$ in $+z$: at $\beta_{\rm ff}=1$ it co-moves with the bunch.
-The Rayleigh range carries the repository's own $(1+\beta_{\rm ff})$ stretch
-(`rayleigh_x`), which is a modelling convention inherited from the predecessor's xigma,
-not something re-derived here.
+The Rayleigh range carries the $(1+\beta_{\rm ff})$ stretch of `rayleigh_x`. That factor is
+**not** a bookkeeping convention: it follows from the paraxial solution of Maxwell's
+equations for a sliding focus (author, 2026-08-09). §B.5's reciprocal symmetry depends on
+it, and is therefore a physical identity rather than an artefact.
 
 In §A the two spot sizes depended on $u$ alone, hence on $z$ alone head-on, and $t$ entered
 only the exponent — which is why §A.3 could integrate it. With $\beta_{\rm ff}\neq0$ the
