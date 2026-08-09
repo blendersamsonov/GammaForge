@@ -1239,7 +1239,13 @@ One caveat found by measuring: the illumination threshold must be set far lower 
 intuition suggests (1e-6, not 1e-3), because many weakly illuminated particles sum to a
 non-negligible contribution though none matters alone.
 
-Full suite: 390 passed, up from 382. `DECISIONS.md` gained D047.
+**Default threshold set from measurement, not analogy.** `prefilter_by_illumination`
+defaults to `1e-6`, *not* the `1e-3` that looks parallel to `prefilter_bunch`'s — the cone's
+threshold is a bound and safe by construction, while `1e-3` here induces **44% error** on
+the very scenario the filter exists for. That asymmetry is a genuine hazard for anyone
+reasoning by analogy, so it is a `.. warning::` on the function and pinned by a test.
+
+Full suite: 393 passed, up from 382. `DECISIONS.md` gained D047.
 
 ---
 

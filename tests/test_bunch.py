@@ -716,3 +716,46 @@ def test_illumination_filter_follows_a_misaligned_pulse():
     kept = prefilter_by_illumination(bunch, shifted, 1e-6)
     assert kept.n_particles > 100
     assert kept.x.mean() > 0.5 * shifted.m("x_off")
+
+
+def _bunch_yield(bunch, laser, beam, n_full, n_t=121):
+    """Brute-force yield from a (possibly filtered) bunch, normalized by the ORIGINAL
+    particle count — so a filter that drops real signal shows up as a deficit."""
+    px, py, pz = momenta(bunch)
+    bx, by, bz = px / bunch.gamma, py / bunch.gamma, pz / bunch.gamma
+    k_hat, _, _ = laser.focusing_axes()
+    flux = C_CGS * (1.0 - (bx * k_hat[0] + by * k_hat[1] + bz * k_hat[2]))
+    b0 = beam.beta0()
+    t_max = 10.0 * math.hypot(beam.m("sigma_z"), b0 * laser.sigma_ct()) / ((1.0 + b0) * C_CGS)
+    grid = np.linspace(-t_max, t_max, n_t)
+    per_t = [float(np.sum(laser.photon_density(bunch.x + C_CGS * bx * ti,
+                                               bunch.y + C_CGS * by * ti,
+                                               bunch.z + C_CGS * bz * ti, ti) * flux))
+             for ti in grid]
+    return float(np.trapezoid(per_t, grid)) / n_full
+
+
+@pytest.mark.parametrize("beta_ff", [0.0, 1.0])
+def test_illumination_filter_keeps_what_actually_contributes(beta_ff):
+    """The correctness statement, rather than a guess about which way the particle count
+    moves: whatever the filter discards must not have mattered. Checked with a flying focus
+    too, since that is where the frozen-width approximation was shown to fail badly for the
+    *yield* (34% at beta_ff = 1) — for a filter it only has to rank, but that deserves a
+    check rather than an assumption."""
+    beam, laser = _wide_mismatched()
+    laser = dataclasses.replace(laser, beta_ff=beta_ff)
+    bunch = sample_gaussian_bunch(beam, 30_000, 0)
+    kept = prefilter_by_illumination(bunch, laser, 1e-6)
+    assert 0 < kept.n_particles < bunch.n_particles
+
+    full = _bunch_yield(bunch, laser, beam, bunch.n_particles)
+    filtered = _bunch_yield(kept, laser, beam, bunch.n_particles)
+    assert filtered == pytest.approx(full, rel=5e-3)
+
+
+def test_illumination_default_threshold_is_the_measured_safe_one():
+    """Pins the default at the value measured safe (3.5e-4 induced error), not the value
+    that looks analogous to `prefilter_bunch`'s and induces 44%."""
+    import inspect
+
+    assert inspect.signature(prefilter_by_illumination).parameters["threshold"].default == 1e-6

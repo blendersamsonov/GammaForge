@@ -672,7 +672,7 @@ def peak_illumination(bunch: Bunch, laser, iterations: int = 2) -> np.ndarray:
     return brightness * np.exp(0.5 * (b**2 / a - c))
 
 
-def prefilter_by_illumination(bunch: Bunch, laser, threshold: float = 1e-3) -> Bunch:
+def prefilter_by_illumination(bunch: Bunch, laser, threshold: float = 1e-6) -> Bunch:
     """Drop macroparticles that never reach the region where photons are actually produced.
 
     Same *shape* of contract as `prefilter_bunch` — a threshold on intensity, a region test,
@@ -685,6 +685,15 @@ def prefilter_by_illumination(bunch: Bunch, laser, threshold: float = 1e-3) -> B
     it asks the question the cone approximates, and answers it in closed form. Against the
     cone at matched threshold, on a 400 um bunch meeting a 4 um / 1 ps pulse with displaced
     foci, it keeps a small fraction of what the cone does at a comparable induced error.
+
+    .. warning::
+
+       **The threshold does not mean what the same number means for `prefilter_bunch`.**
+       That one takes a bound: `1e-3` there is safe by construction. Here `1e-3` induces a
+       **44% error** on the scenario this function exists for, because many particles that
+       are individually dim still sum to a large contribution. The default is therefore
+       `1e-6`, which measures at 3.5e-4. Reasoning by analogy with the cone's threshold is
+       the mistake to avoid.
 
     Not a replacement for `prefilter_bunch`'s exact invariance: like
     :func:`prefilter_by_luminosity` it drops small-but-nonzero contributions, so the answer
