@@ -26,6 +26,7 @@ from gammaforge.engines.analytical.formulas import (
     estimate_spectrum_width,
     estimate_yield,
     overlap_det,
+    overlap_a0_sq_moments,
     overlap_mean_a0_sq,
     overlap_time_profile,
     overlap_transverse_profile,

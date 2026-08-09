@@ -1293,6 +1293,51 @@ Full suite: 399 passed, up from 393. `DECISIONS.md` gained D048.
 
 ---
 
+## 2026-08-09 — Phase 4: illumination window wired into xigma; a0^2 moments
+
+Same worktree/branch.
+
+**xigma can now sample trajectories over the illuminated window** (D050).
+`integrate_trajectories` gains `window="active_region" | "illumination"`, defaulting to the
+existing behavior. Stage 0 spends a fixed `n_steps` between `t0` and `t1`, so window width
+sets step size and any step outside the illuminated stretch is wasted resolution.
+
+Measured, and the honest picture is mixed rather than a clean win:
+
+| steps | baseline: cone | baseline: illum | tight focus: cone | tight focus: illum |
+|---|---|---|---|---|
+| 20 | 4.7e-3 | 1.3e-3 | 2.1e-2 | 3.6e-2 |
+| 50 | 3.3e-5 | 1.9e-6 | 4.7e-3 | 1.7e-3 |
+| 200 | 5.3e-14 | 1.9e-8 | 2.1e-5 | 1.7e-3 |
+
+So: **17x faster at 50 steps on the baseline**, but it has a truncation floor the geometric
+window does not, and on a tight focus it is already *behind* by 20 steps — the spot varies
+so much across the window that the frozen-width estimate mis-sizes it. That is why the
+default is unchanged. Worth reaching for at coarse step budgets on well-behaved geometry,
+measured per scenario rather than assumed.
+
+**`a0^2` moments** (D049). The spread is as easy as the mean, which is the useful part of
+the answer: `a0^2 = K p_L` exactly, so `a0^4 = K^2 p_L^2` and the second moment is the same
+overlap integral with the laser density **cubed** — `laser_power = 3`, one more call.
+Generally `<a0^(2n)>` needs `laser_power = n + 1`. Validated against the a0-weighted Monte
+Carlo to 4e-4.
+
+It is **not a small correction**: `std/mean` is 0.70 baseline, 1.22 tight focus, 0.64 with a
+synchronized flying focus. The intensity an electron samples varies by of order its own mean
+across the bunch — so the edge is smeared about as much as it is shifted.
+
+**The Compton-edge shift is deliberately NOT wired.** The mean sets where the edge sits
+(`1/(1 + ahat)`) and the spread smears it; both are now computable. What is not settled is
+the coefficient — `docs/DERIVATIONS.md` §0 records a **BLOCKING** finding that the code's
+`ahat` is twice the paper's, and a factor of two there is a factor of two in the shift.
+`AGENTS.md` is explicit that a paper-code disagreement stops rather than being guessed, so
+the moments are exposed and the edge is left alone. Wiring it is a small, well-defined change
+once §0 resolves.
+
+Full suite: 401 passed, up from 399. `DECISIONS.md` gained D049-D050.
+
+---
+
 ## How to update this file
 
 - One dated section per work session (or per meaningful chunk of a session).

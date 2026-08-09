@@ -1729,3 +1729,77 @@ bound, which is why `prefilter_bunch`'s exact invariance still rests on the geom
   for one inequality, free to disagree.
 - *Widen `overlap_time_window` to serve both.* It is a bound with a tested invariance
   depending on it; an estimate must not share its name.
+
+---
+
+### D049 — `a0^2`'s spread is computed and exposed; the Compton-edge shift is NOT wired, pending §0
+
+**Decision:** `engines.analytical.formulas.overlap_a0_sq_moments` returns `(mean, std)` of
+`a0^2` over the collision, luminosity-weighted.
+`engines.analytical.formulas.overlap_mean_a0_sq` is now a thin wrapper on it. The nonlinear
+red-shift of the Compton edge is **not** applied to `AnalyticalEngine`'s `SPECTRUM`.
+
+**Rationale, the easy half.** The spread costs one more call to machinery that already
+exists. Since `a0^2 = K p_L` exactly, `a0^4 = K^2 p_L^2`, so the second moment is the same
+overlap integral with the laser density entering *cubed* — `laser_power = 3`. In general
+`<a0^(2n)>` needs `laser_power = n + 1`, so every moment is available at the same price.
+Validated against the a0-weighted Monte Carlo to 4e-4.
+
+It is worth having because it is **not a small correction**: `std / mean` is 0.70 on the
+baseline, 1.22 at a tight focus, 0.64 with a synchronized flying focus. The intensity an
+electron samples varies by of order its own mean across the bunch.
+
+**Rationale, the blocked half.** The mean sets where the edge sits — the red-shift goes as
+`1 / (1 + ahat)` — and the spread is what turns that shift into a *broadening*, which is the
+quantity §4.3's width breakdown actually wants. Both are now computable. What is not
+settled is the coefficient: `docs/DERIVATIONS.md` §0 records a **BLOCKING** finding that the
+code's `ahat` is twice the paper's, and a factor of two in `ahat` is a factor of two in the
+edge shift. `AGENTS.md` is explicit that a paper-code disagreement stops rather than being
+guessed, and §0 is pending the author.
+
+So the moments are exposed and the edge is left alone. Wiring it is a small, well-defined
+change once §0 resolves — and worth noting that a mean-only correction would be misleading
+on its own anyway, since the spread is the same order as the mean, so the edge is smeared
+about as much as it is moved.
+
+**Rejected alternatives:**
+
+- *Apply the shift using the code's own `ahat` convention, for consistency with xigma.*
+  Internally consistent and cross-validatable, but it silently picks a side of an open
+  BLOCKING question in a place a reader would not look for one.
+- *Apply it with a factor the tests then pin.* Pinning a number that is under review makes
+  the test the authority, which is backwards.
+- *Wait and expose nothing.* The moments are correct and independently useful — the
+  blocked step is only the coefficient that converts them into an edge position.
+
+---
+
+### D050 — xigma can sample trajectories over the illuminated window, opt-in
+
+**Decision:** `engines.xigma.stages.integrate_trajectories` gains
+`window="active_region" | "illumination"`, defaulting to `"active_region"` — the existing
+`io.bunch.overlap_time_window` behavior, unchanged.
+
+**Rationale.** Stage 0 spends a *fixed* `n_steps` between `t0` and `t1`, so the window's
+width sets the step size and any step outside the illuminated stretch is wasted resolution.
+`io.bunch.illumination_window` brackets the illuminated stretch itself, and on the baseline
+scenario it converges 17x faster at 50 steps.
+
+The default stays the wider window for two reasons, both measured rather than assumed.
+The illuminated window truncates at its threshold, so it has an accuracy *floor* while the
+geometric one keeps converging — past ~100 steps on the baseline the geometric window wins.
+And the advantage is **scenario-dependent, not uniform**: on a tight-focus pulse the
+geometric window is already better by 20 steps, because the spot varies so much across the
+window that the frozen-width estimate mis-sizes it. A change that helps 17x in one place and
+hurts in another does not belong in a default that golden references and a parallel session
+both depend on.
+
+**Rejected alternatives:**
+
+- *Switch the default.* Would change every golden reference and xigma result for a
+  scenario-dependent gain, while the parallel Phase 3b session is live in the same files.
+- *Choose the window automatically from the geometry.* Requires a reliable predictor of
+  which regime a scenario is in; the measurements above say that predictor is not obvious,
+  and an engine silently changing its integration bounds is the harder thing to debug.
+- *Expose it as a xigma `FieldSpec`.* Reasonable eventually, but it selects an algorithm
+  rather than setting a numeric knob, and §3.1's schema is for the latter.

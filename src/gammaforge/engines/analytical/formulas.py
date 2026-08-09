@@ -65,6 +65,7 @@ __all__ = [
     "overlap_det",
     "overlap_yield",
     "overlap_mean_a0_sq",
+    "overlap_a0_sq_moments",
     "overlap_time_profile",
     "overlap_transverse_profile",
     "SpectrumWidthBreakdown",
@@ -703,10 +704,44 @@ def overlap_mean_a0_sq(
     Always ``<= laser.a0_peak()**2``, and approaching it only for a collision that is
     pointlike compared with every focal scale.
     """
+    return overlap_a0_sq_moments(beam, laser, n_quad, n_quad_u)[0]
+
+
+def overlap_a0_sq_moments(
+    beam: GaussianElectronBeam, laser: GaussianParaxialLaser, n_quad: int = 2001, n_quad_u: int = 1
+) -> tuple[float, float]:
+    """``(mean, std)`` of ``a0^2`` over the collision, luminosity-weighted.
+
+    The spread is as easy as the mean, which is not obvious and is worth stating: since
+    ``a0^2 = K p_L`` exactly, ``a0^4 = K^2 p_L^2``, so the *second* moment is the same
+    overlap integral with the laser density entering **cubed** rather than squared —
+    ``laser_power = 3``, one more call to the same machinery. Generally,
+    ``<a0^(2n)>`` needs ``laser_power = n + 1``:
+
+        <a0^2>  = K   sqrt(h1/h2) R2 / (R1 (2 pi)^{3/2} sigma_lz)
+        <a0^4>  = K^2 sqrt(h1/h3) R3 / (R1 (2 pi)^{3}   sigma_lz^2)
+
+    and ``std = sqrt(<a0^4> - <a0^2>^2)``.
+
+    Why it matters, per §4.3: the *mean* sets where the Compton edge sits (the nonlinear
+    red-shift goes as ``1 / (1 + ahat)``), while the *spread* is what turns that shift into
+    a broadening — different electrons see different intensities, so the edge is smeared
+    rather than merely moved. The width breakdown's nonlinearity term is the place that
+    spread belongs; see `DECISIONS.md` D049 for why it is computed but not yet wired
+    into the edge.
+
+    The ratio ``std / mean`` is a pure number for a given geometry — for the baseline it is
+    of order 1, i.e. the intensity spread across the bunch is *not* a small correction.
+    """
     k_const = laser.a0_profile(0.0, 0.0, 0.0, 0.0) ** 2 / laser.photon_density(0.0, 0.0, 0.0, 0.0)
+    s_ct = laser.sigma_ct()
     r1, h1 = _reduced_integral(beam, laser, n_quad, 1.0, n_quad_u)
     r2, h2 = _reduced_integral(beam, laser, n_quad, 2.0, n_quad_u)
-    return float(k_const * math.sqrt(h1 / h2) * r2 / (r1 * (2.0 * math.pi) ** 1.5 * laser.sigma_ct()))
+    r3, h3 = _reduced_integral(beam, laser, n_quad, 3.0, n_quad_u)
+
+    mean = k_const * math.sqrt(h1 / h2) * r2 / (r1 * (2.0 * math.pi) ** 1.5 * s_ct)
+    mean_sq = k_const**2 * math.sqrt(h1 / h3) * r3 / (r1 * (2.0 * math.pi) ** 3 * s_ct**2)
+    return float(mean), float(math.sqrt(max(0.0, mean_sq - mean**2)))
 
 
 def overlap_time_profile(
