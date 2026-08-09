@@ -19,6 +19,7 @@ from gammaforge.io.bunch import (
     chirp_to_correlation,
     dispersion_to_correlation,
     luminosity_weights,
+    illumination_report,
     illumination_window,
     peak_illumination,
     prefilter_by_illumination,
@@ -867,3 +868,47 @@ def test_illumination_window_spends_a_fixed_step_budget_better():
     coarse_cone = abs(integrate(c0, c1, 33) / reference - 1)
     coarse_illum = abs(integrate(i0, i1, 33) / reference - 1)
     assert coarse_illum < 0.5 * coarse_cone
+
+
+def test_illumination_report_pairs_discarded_charge_with_fit_quality():
+    """The two numbers a user needs before deciding to drop charge, and why they belong
+    together: the illumination estimate rests on a Gaussian picture, so how Gaussian the
+    bunch is determines how much the discard fraction can be trusted."""
+    beam, laser = _wide_mismatched()
+    bunch = sample_gaussian_bunch(beam, 20_000, 0)
+    report = illumination_report(bunch, laser, 1e-6)
+
+    assert 0.0 < report["charge_below"] < 1.0
+    assert report["particles_below"] < report["n_particles"]
+    assert report["threshold"] == 1e-6
+    # sampled from an analytic beam: Gaussian by construction, so no model error to report
+    assert report["ks_excess"] is None
+    assert report["gaussian_by_construction"] is True
+
+
+def test_illumination_report_uses_charge_not_particle_count():
+    """`Bunch.weight` is relative, so an imported bunch need not be uniformly weighted —
+    the fraction a user cares about is of charge."""
+    beam, laser = _wide_mismatched()
+    bunch = sample_gaussian_bunch(beam, 8_000, 0)
+    frac = peak_illumination(bunch, laser)
+    below = frac < 1e-6
+    # weight the dim particles far more heavily; the charge fraction must follow
+    heavy = np.where(below, 100.0, 1.0)
+    reweighted = dataclasses.replace(bunch, weight=heavy)
+    plain = illumination_report(bunch, laser, 1e-6)["charge_below"]
+    skewed = illumination_report(reweighted, laser, 1e-6)["charge_below"]
+    assert skewed > plain
+
+
+def test_illumination_report_surfaces_fit_quality_for_an_imported_bunch():
+    """A bunch that came from macroparticles carries a fit, and its `ks_excess` is what
+    tells the user whether the Gaussian-based discard estimate is trustworthy."""
+    beam, laser = _wide_mismatched()
+    sampled = sample_gaussian_bunch(beam, 20_000, 0)
+    refit = dataclasses.replace(
+        sampled, gaussian_fit=fit_gaussian(sampled, bunch_charge=beam.bunch_charge)
+    )
+    report = illumination_report(refit, laser, 1e-6)
+    assert report["gaussian_by_construction"] is False
+    assert report["ks_excess"] is not None and report["ks_excess"] == pytest.approx(0.0, abs=0.05)

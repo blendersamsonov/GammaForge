@@ -65,10 +65,10 @@ __all__ = [
     "overlap_det",
     "overlap_yield",
     "overlap_mean_a0_sq",
-    "overlap_a0_sq_moments",
     "overlap_time_profile",
     "overlap_transverse_profile",
     "SpectrumWidthBreakdown",
+    "NONLINEAR_BROADENING_RANGE",
     "estimate_spectrum_width",
     "angle_integrated_spectrum",
 ]
@@ -703,45 +703,27 @@ def overlap_mean_a0_sq(
 
     Always ``<= laser.a0_peak()**2``, and approaching it only for a collision that is
     pointlike compared with every focal scale.
-    """
-    return overlap_a0_sq_moments(beam, laser, n_quad, n_quad_u)[0]
 
+    **This is exactly the beam-averaged ``ahat``**, and that is not a coincidence. A photon's
+    formation length spans the *whole* trajectory, so the physical per-electron quantity is
+    ``ahat_i = Int a0^4 dt / Int a0^2 dt`` — one scalar per electron, not a per-timestep
+    intensity. Weighting those by luminosity (``L_i ~ Int a0^2 dt``) makes the denominators
+    cancel:
 
-def overlap_a0_sq_moments(
-    beam: GaussianElectronBeam, laser: GaussianParaxialLaser, n_quad: int = 2001, n_quad_u: int = 1
-) -> tuple[float, float]:
-    """``(mean, std)`` of ``a0^2`` over the collision, luminosity-weighted.
+        <ahat>_L = sum_i L_i ahat_i / sum_i L_i = Int n_e a0^4 / Int n_e a0^2
 
-    The spread is as easy as the mean, which is not obvious and is worth stating: since
-    ``a0^2 = K p_L`` exactly, ``a0^4 = K^2 p_L^2``, so the *second* moment is the same
-    overlap integral with the laser density entering **cubed** rather than squared —
-    ``laser_power = 3``, one more call to the same machinery. Generally,
-    ``<a0^(2n)>`` needs ``laser_power = n + 1``:
+    which is what this function evaluates. No trajectory is split anywhere. Checked against
+    `engines.xigma.stages.TrajectorySamples.ahat`, which averages each trajectory
+    numerically: agreement is within xigma's own particle-sampling noise.
 
-        <a0^2>  = K   sqrt(h1/h2) R2 / (R1 (2 pi)^{3/2} sigma_lz)
-        <a0^4>  = K^2 sqrt(h1/h3) R3 / (R1 (2 pi)^{3}   sigma_lz^2)
-
-    and ``std = sqrt(<a0^4> - <a0^2>^2)``.
-
-    Why it matters, per §4.3: the *mean* sets where the Compton edge sits (the nonlinear
-    red-shift goes as ``1 / (1 + ahat)``), while the *spread* is what turns that shift into
-    a broadening — different electrons see different intensities, so the edge is smeared
-    rather than merely moved. The width breakdown's nonlinearity term is the place that
-    spread belongs; see `DECISIONS.md` D049 for why it is computed but not yet wired
-    into the edge.
-
-    The ratio ``std / mean`` is a pure number for a given geometry — for the baseline it is
-    of order 1, i.e. the intensity spread across the bunch is *not* a small correction.
+    The **spread** of ``ahat`` across the beam does *not* follow the same way — see
+    :data:`NONLINEAR_BROADENING_RANGE` and `DECISIONS.md` D049 for why, and for what is
+    reported instead.
     """
     k_const = laser.a0_profile(0.0, 0.0, 0.0, 0.0) ** 2 / laser.photon_density(0.0, 0.0, 0.0, 0.0)
-    s_ct = laser.sigma_ct()
     r1, h1 = _reduced_integral(beam, laser, n_quad, 1.0, n_quad_u)
     r2, h2 = _reduced_integral(beam, laser, n_quad, 2.0, n_quad_u)
-    r3, h3 = _reduced_integral(beam, laser, n_quad, 3.0, n_quad_u)
-
-    mean = k_const * math.sqrt(h1 / h2) * r2 / (r1 * (2.0 * math.pi) ** 1.5 * s_ct)
-    mean_sq = k_const**2 * math.sqrt(h1 / h3) * r3 / (r1 * (2.0 * math.pi) ** 3 * s_ct**2)
-    return float(mean), float(math.sqrt(max(0.0, mean_sq - mean**2)))
+    return float(k_const * math.sqrt(h1 / h2) * r2 / (r1 * (2.0 * math.pi) ** 1.5 * laser.sigma_ct()))
 
 
 def overlap_time_profile(
@@ -841,6 +823,20 @@ def overlap_transverse_profile(
     return scale * line
 
 
+#: Empirical bracket on ``std(ahat) / <ahat>``, the beam-to-beam spread in nonlinear
+#: red-shift as a fraction of the mean shift. **Measured, not derived** — from
+#: `engines.xigma.stages.integrate_trajectories` (which averages each trajectory exactly)
+#: across thirteen geometries: focus scans, displaced and astigmatic foci, crossing angles,
+#: a flying focus, bunch-length and bunch-width scans, and transverse and timing offsets.
+#:
+#: It is wide because the factor is genuinely scenario-dependent, tracking the transverse
+#: size ratio ``sigma_beam / sigma_laser`` almost monotonically: 0.06 for a loose focus
+#: (nearly uniform illumination, so almost no spread), 0.39 at the baseline, 0.86 at a
+#: tight focus, 1.12 for a bunch ten times wider than the spot. A narrower bracket would be
+#: a nicer number and a false one.
+NONLINEAR_BROADENING_RANGE = (0.06, 1.12)
+
+
 @dataclass(frozen=True)
 class SpectrumWidthBreakdown:
     """The collimated-spectrum FWHM estimate (units of the Compton edge, dimensionless),
@@ -858,11 +854,30 @@ class SpectrumWidthBreakdown:
     collimation: float  #: from angular collimation, ``(gamma * theta_col)^2``
     emittance: float  #: from angular divergence, ``(gamma * sqrt(div_x * div_y))^2``
     energy_spread: float  #: from beam energy spread, ``sigma_gamma / gamma``
-    nonlinearity: float  #: from ponderomotive broadening, ``0.5 * a0_peak^2``
+    nonlinearity: float  #: ponderomotive, at the predecessor's implicit ``std = mean``
+    #: The nonlinear term is the one quantity here that cannot be pinned to a number: it is
+    #: set by the *spread* of ``ahat`` across the beam, which is not analytically available
+    #: (D049). These bracket it using :data:`NONLINEAR_BROADENING_RANGE`. ``nonlinearity``
+    #: above sits at a factor of 1, i.e. near the top of the measured bracket — the
+    #: predecessor's formula implicitly assumes the spread equals the mean, which
+    #: over-estimates the broadening for most geometries.
+    nonlinearity_lo: float = 0.0
+    nonlinearity_hi: float = 0.0
 
     @property
     def total(self) -> float:
         return math.hypot(self.collimation, self.emittance, self.energy_spread, self.nonlinearity)
+
+    @property
+    def total_range(self) -> tuple[float, float]:
+        """``(lo, hi)`` on the total width, from the nonlinear bracket.
+
+        Often the bracket barely matters — when beam quality dominates, the collimation,
+        emittance and energy-spread terms swamp the nonlinear one and ``lo`` and ``hi``
+        nearly coincide. That is worth reading off directly rather than assuming.
+        """
+        others = (self.collimation, self.emittance, self.energy_spread)
+        return math.hypot(*others, self.nonlinearity_lo), math.hypot(*others, self.nonlinearity_hi)
 
 
 def estimate_spectrum_width(
@@ -896,11 +911,15 @@ def estimate_spectrum_width(
     emit_width = math.sqrt(beam.divergence_x() * beam.divergence_y())
     mean_a0_sq = laser.a0_peak() ** 2 if a0_sq is None else a0_sq
     prefactor = 0.5 * 2.355
+    mean_shift = 0.5 * mean_a0_sq  # <ahat>, in the paper's convention (see the note below)
+    lo, hi = NONLINEAR_BROADENING_RANGE
     return SpectrumWidthBreakdown(
         collimation=prefactor * (gamma0 * theta_col) ** 2,
         emittance=prefactor * (gamma0 * emit_width) ** 2,
         energy_spread=prefactor * (sigma_gamma / gamma0),
-        nonlinearity=prefactor * (0.5 * mean_a0_sq),
+        nonlinearity=prefactor * mean_shift,
+        nonlinearity_lo=prefactor * lo * mean_shift,
+        nonlinearity_hi=prefactor * hi * mean_shift,
     )
 
 

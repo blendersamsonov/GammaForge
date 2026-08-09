@@ -65,6 +65,7 @@ __all__ = [
     "peak_illumination",
     "illumination_window",
     "prefilter_by_illumination",
+    "illumination_report",
     "prefilter_by_luminosity",
     "drift",
     "propagate",
@@ -753,6 +754,47 @@ def prefilter_by_illumination(bunch: Bunch, laser, threshold: float = 1e-6) -> B
     """
     t0, t1 = illumination_window(bunch, laser, threshold)
     return bunch.select(t0 <= t1)
+
+
+def illumination_report(bunch: Bunch, laser, threshold: float = 1e-6) -> dict:
+    """What `prefilter_by_illumination` would discard, and how much to trust that estimate.
+
+    A **pre-engine diagnostic**, meant to be shown to a user before anything expensive runs
+    so that dropping charge is their decision rather than a silent default. It answers two
+    questions that have to be read together:
+
+    * ``charge_below`` — the fraction of *charge* (not of particles: `Bunch.weight` is
+      relative, and an imported bunch need not be uniformly weighted) that never reaches
+      ``threshold`` of the pulse's peak illumination, and would therefore be dropped.
+    * ``ks_excess`` — how far the bunch is from the Gaussian description the estimate rests
+      on, above sampling noise, taken from `GaussianElectronBeam.fit_quality`. ``None`` when
+      the beam is analytic, which is a *stronger* statement than ignorance: such a bunch is
+      Gaussian by construction, so the estimate carries no model error at all.
+
+    The pairing is the point. Illumination is computed from a Gaussian picture of the pulse,
+    so a bunch that fits a Gaussian badly is exactly the case where the tails — the charge
+    this would discard — are least well described. "10% of the charge is below threshold" is
+    a different decision at ``ks_excess`` of 0.005 than at 0.2, and neither number alone
+    says which.
+
+    Unlike the analytical engine's own quantities this is `O(n_particles)`: it inspects real
+    macroparticles, which is the only way to answer "how much of *this* bunch". That cost
+    belongs to a diagnostic, not to any engine's estimate path.
+    """
+    fraction = peak_illumination(bunch, laser)
+    below = fraction < threshold
+    total_weight = float(np.sum(bunch.weight))
+    quality = getattr(bunch.gaussian_fit, "fit_quality", None) if bunch.gaussian_fit else None
+    return {
+        "threshold": threshold,
+        "charge_below": float(np.sum(bunch.weight[below]) / total_weight) if total_weight > 0 else 0.0,
+        "particles_below": int(np.count_nonzero(below)),
+        "n_particles": bunch.n_particles,
+        "median_illumination": float(np.median(fraction)),
+        "max_illumination": float(np.max(fraction)) if fraction.size else 0.0,
+        "ks_excess": None if quality is None else float(quality["ks_excess"]),
+        "gaussian_by_construction": quality is None,
+    }
 
 
 def prefilter_by_luminosity(bunch: Bunch, laser, epsilon: float = 1e-4) -> Bunch:

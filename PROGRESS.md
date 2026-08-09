@@ -1338,6 +1338,61 @@ Full suite: 401 passed, up from 399. `DECISIONS.md` gained D049-D050.
 
 ---
 
+## 2026-08-09 — Phase 4: nonlinear broadening as a bracket; illumination report
+
+Same worktree/branch. Author correction on the physics, acted on.
+
+**The formation length is the whole trajectory**, so `ahat_i` is one scalar per electron and
+the trajectory may not be chopped into locally-constant pieces. The correct order is:
+average along each trajectory, *then* take the spread across the beam.
+
+**The mean survives that exactly** — luminosity weighting cancels `ahat_i`'s denominator, so
+`<ahat>_L = Int n_e a0^4 / Int n_e a0^2`, which is what the overlap integral already
+evaluates, splitting nothing. Now pinned against xigma's per-particle `ahat()`.
+
+**The spread does not, and my earlier `std` was wrong.** Taking moments of the instantaneous
+`a0^2` over all (particle, time) pairs folds in the *within-trajectory* variation, which is
+already averaged away inside `ahat_i`. Tell: with every electron sharing one `ahat` the true
+beam spread is zero and the joint formula returns a positive number. Measured against xigma
+it over-stated by ~1.5x (0.70 against a true 0.39). `overlap_a0_sq_moments` is **removed**;
+`overlap_mean_a0_sq` stands alone. (Its tests never actually landed — the insertion targeted
+a name that did not exist and `str.replace` on a miss is silent — so nothing incorrect was
+committed, but I had reported them as added.)
+
+**No closed form for the right quantity.** `ahat_i` is a *ratio* of trajectory integrals, so
+`<ahat^2>` needs `(Int a0^4)^2 / (Int a0^2)` per particle — a reciprocal of a Gaussian
+integral inside a bunch integral. The shortcut that would have saved it (peak/sqrt(2), exact
+for a Gaussian temporal profile) fails: median 0.92 at baseline but 0.33 at tight focus.
+
+**So it is reported as a bracket** (D049), and per the author's constraint the
+semi-analytical path takes **no** `O(n_particles)` step — a per-particle trajectory
+quadrature was considered and rejected on exactly that ground.
+
+**The proposed 0.4-0.9 bracket does not hold.** Measured across thirteen geometries via
+xigma: **0.06 to 1.12**. Five fall below 0.4, one above 0.9. It tracks
+`sigma_beam / sigma_laser` almost monotonically — 0.06 loose focus, 0.39 baseline, 0.86
+tight focus, 1.12 for a bunch ten times wider than the spot. Shipped as
+`NONLINEAR_BROADENING_RANGE = (0.06, 1.12)`, flagged as empirical rather than derived. The
+width breakdown gains `nonlinearity_lo`/`_hi` and `total_range`; the legacy scalar sits at a
+factor of 1, i.e. near the *top* of the bracket, so the predecessor's formula over-estimates
+nonlinear broadening for most geometries. When beam quality dominates the bracket nearly
+collapses — asserted, since that is the whole argument for reporting a range.
+
+**Discarding charge is now reported, never decided** (D051). `illumination_report` returns
+the fraction of *charge* (not particles — `Bunch.weight` is relative) below a threshold,
+paired with the bunch's Gaussian `ks_excess`. The pairing is the point: the estimate rests
+on a Gaussian picture, so a poorly-fitting bunch is exactly where the tails it would drop
+are least trustworthy. `ks_excess` is `None` for an analytic beam, reported as
+`gaussian_by_construction` — no model error, which is stronger than ignorance. `O(n_particles)`
+and correctly so: it inspects a real bunch, and that cost belongs to a diagnostic rather than
+to any engine.
+
+Still blocked: applying the edge shift, pending §0's factor of two (author rethinking).
+
+Full suite: 407 passed. `DECISIONS.md` D049 rewritten, D051 added.
+
+---
+
 ## How to update this file
 
 - One dated section per work session (or per meaningful chunk of a session).

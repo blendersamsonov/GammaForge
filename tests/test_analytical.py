@@ -17,6 +17,7 @@ import pytest
 
 from gammaforge.engines.analytical.engine import AnalyticalEngine
 from gammaforge.engines.analytical.formulas import (
+    NONLINEAR_BROADENING_RANGE,
     SpectrumWidthBreakdown,
     _electron_sigma2,
     _erfcx,
@@ -26,7 +27,6 @@ from gammaforge.engines.analytical.formulas import (
     estimate_spectrum_width,
     estimate_yield,
     overlap_det,
-    overlap_a0_sq_moments,
     overlap_mean_a0_sq,
     overlap_time_profile,
     overlap_transverse_profile,
@@ -438,6 +438,49 @@ def test_exact_2d_mode_converges_toward_the_1d_path_at_a_small_crossing_angle():
               for n in (101, 301, 901)]
     assert errors[0] > errors[1] > errors[2]
     assert errors[-1] < 1e-3
+
+
+def test_nonlinear_broadening_is_reported_as_a_bracket_not_a_number():
+    """The spread of `ahat` across the beam is what broadens the edge, and it is not
+    analytically available (D049) — so the width breakdown brackets it rather than inventing
+    a value. The scalar `nonlinearity` sits at a factor of 1, near the *top* of the measured
+    bracket, because the predecessor's formula implicitly assumes spread equals mean."""
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    width = estimate_spectrum_width(beam, laser, theta_col=1e-3, a0_sq=1e-2)
+    lo, hi = NONLINEAR_BROADENING_RANGE
+    assert width.nonlinearity_lo == pytest.approx(lo * width.nonlinearity)
+    assert width.nonlinearity_hi == pytest.approx(hi * width.nonlinearity)
+
+    total_lo, total_hi = width.total_range
+    assert total_lo <= width.total <= total_hi
+    assert lo < 1.0 < hi  # the legacy scalar really is inside the measured bracket
+
+
+def test_total_range_collapses_when_beam_quality_dominates():
+    """Why a wide bracket is tolerable: when the other terms dominate, the nonlinear
+    uncertainty barely moves the total. That is the whole argument for reporting a range
+    instead of chasing a number, so it is asserted rather than asserted-in-prose."""
+    beam = replace(scenarios.BASELINE.beam, rel_energy_spread=0.05)
+    width = estimate_spectrum_width(beam, scenarios.BASELINE.laser, theta_col=5e-3, a0_sq=1e-2)
+    lo, hi = width.total_range
+    assert (hi - lo) / width.total < 0.02
+
+
+def test_mean_a0_sq_is_the_beam_averaged_ahat_that_xigma_computes_per_particle():
+    """`overlap_mean_a0_sq` is not merely *like* the trajectory-averaged `ahat` — weighting
+    per-electron `ahat_i` by luminosity cancels its denominator, leaving exactly
+    `Int n_e a0^4 / Int n_e a0^2`. Checked against xigma, which averages each trajectory
+    numerically and splits nothing, so this pins the identity rather than a resemblance."""
+    from gammaforge.engines.xigma.stages import integrate_trajectories
+
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    bunch = sample_gaussian_bunch(beam, 30_000, 0)
+    samples = integrate_trajectories(bunch, laser, beam.n_electrons(), n_steps=2000, threshold=1e-8)
+    live = samples.luminosity > 0
+    reference = float(np.average(samples.ahat()[live], weights=samples.luminosity[live]))
+    # 0.5 * <a0^2> is <ahat> in the paper's convention; xigma's ahat is the code's, which
+    # DERIVATIONS.md §0 records as twice the paper's — so compare the code convention.
+    assert overlap_mean_a0_sq(beam, laser, n_quad=8001) == pytest.approx(reference, rel=1e-2)
 
 
 @pytest.mark.parametrize("name", ["baseline", "full_geometry"])

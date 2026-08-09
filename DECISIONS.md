@@ -1732,47 +1732,70 @@ bound, which is why `prefilter_bunch`'s exact invariance still rests on the geom
 
 ---
 
-### D049 — `a0^2`'s spread is computed and exposed; the Compton-edge shift is NOT wired, pending §0
+### D049 — the mean red-shift is exact; its spread is reported as a measured bracket
 
-**Decision:** `engines.analytical.formulas.overlap_a0_sq_moments` returns `(mean, std)` of
-`a0^2` over the collision, luminosity-weighted.
-`engines.analytical.formulas.overlap_mean_a0_sq` is now a thin wrapper on it. The nonlinear
-red-shift of the Compton edge is **not** applied to `AnalyticalEngine`'s `SPECTRUM`.
+**Decision:** `engines.analytical.formulas.overlap_mean_a0_sq` gives the beam-averaged
+`ahat` exactly. The broadening it causes is **not** computed — it is bracketed by
+`engines.analytical.formulas.NONLINEAR_BROADENING_RANGE`, an empirical `(0.06, 1.12)` on
+`std(ahat) / <ahat>`, surfaced through `SpectrumWidthBreakdown`'s `nonlinearity_lo`/`_hi`
+and `total_range`. The Compton-edge shift itself is still not applied, pending
+`docs/DERIVATIONS.md` §0.
 
-**Rationale, the easy half.** The spread costs one more call to machinery that already
-exists. Since `a0^2 = K p_L` exactly, `a0^4 = K^2 p_L^2`, so the second moment is the same
-overlap integral with the laser density entering *cubed* — `laser_power = 3`. In general
-`<a0^(2n)>` needs `laser_power = n + 1`, so every moment is available at the same price.
-Validated against the a0-weighted Monte Carlo to 4e-4.
+**Rationale.** A photon's formation length spans the whole trajectory, so the physical
+per-electron quantity is one scalar, `ahat_i = Int a0^4 dt / Int a0^2 dt` — the trajectory
+may not be chopped into locally-constant pieces. The *mean* survives that constraint
+exactly, because luminosity weighting (`L_i ~ Int a0^2 dt`) cancels `ahat_i`'s denominator:
 
-It is worth having because it is **not a small correction**: `std / mean` is 0.70 on the
-baseline, 1.22 at a tight focus, 0.64 with a synchronized flying focus. The intensity an
-electron samples varies by of order its own mean across the bunch.
+    <ahat>_L = sum_i L_i ahat_i / sum_i L_i = Int n_e a0^4 / Int n_e a0^2
 
-**Rationale, the blocked half.** The mean sets where the edge sits — the red-shift goes as
-`1 / (1 + ahat)` — and the spread is what turns that shift into a *broadening*, which is the
-quantity §4.3's width breakdown actually wants. Both are now computable. What is not
-settled is the coefficient: `docs/DERIVATIONS.md` §0 records a **BLOCKING** finding that the
-code's `ahat` is twice the paper's, and a factor of two in `ahat` is a factor of two in the
-edge shift. `AGENTS.md` is explicit that a paper-code disagreement stops rather than being
-guessed, and §0 is pending the author.
+which is precisely what the overlap integral evaluates, splitting nothing. Verified against
+`engines.xigma.stages.TrajectorySamples.ahat`, which averages each trajectory numerically.
 
-So the moments are exposed and the edge is left alone. Wiring it is a small, well-defined
-change once §0 resolves — and worth noting that a mean-only correction would be misleading
-on its own anyway, since the spread is the same order as the mean, so the edge is smeared
-about as much as it is moved.
+The *spread* does not survive it. An earlier version of this entry claimed a computable
+`std`; that was wrong and is corrected here. Taking moments of the instantaneous `a0^2` over
+all (particle, time) pairs mixes the **within-trajectory** variation into the answer, and
+that variation is already averaged away inside `ahat_i` — it must not broaden anything. The
+tell: with every electron sharing one `ahat` but `a0^2` varying along each trajectory, the
+true beam spread is zero and the joint formula returns a positive number. Measured against
+xigma, the joint version over-states by ~1.5x (0.70 against a true 0.39 at the baseline).
+
+The correct quantity has no clean closed form: `ahat_i` is a *ratio* of trajectory
+integrals, so `<ahat^2>` needs `(Int a0^4)^2 / (Int a0^2)` per particle — a reciprocal of a
+Gaussian integral inside a bunch integral. The one shortcut that would have rescued it,
+*ahat_i = A_i / sqrt(2)* — exact if the profile along a trajectory were Gaussian, with the
+peak available in closed form from `io.bunch.peak_illumination` — fails in practice: median ratio 0.92 at
+the baseline but 0.33 at a tight focus, because the spot varies too much across the
+encounter. Scenario-dependent, so no fixed correction rescues it either.
+
+Hence a bracket, and hence *no* per-particle path in the semi-analytical engine: a
+trajectory quadrature per macroparticle was considered and rejected, because the engine's
+defining property is that its cost is `O(n_quad)` and never `O(n_particles)`.
+
+**The bracket is measured, and wider than first proposed.** Thirteen geometries through
+xigma — focus scans, displaced and astigmatic foci, crossing angles, a flying focus, bunch
+length and width scans, transverse and timing offsets — give 0.06 to 1.12, not the 0.4-0.9
+first suggested. It tracks `sigma_beam / sigma_laser` almost monotonically: 0.06 for a loose
+focus (nearly uniform illumination, so almost no spread), 0.39 at the baseline, 0.86 at a
+tight focus, 1.12 for a bunch ten times wider than the spot. A narrower bracket would read
+better and be false.
+
+Its width is usually tolerable for the reason the range exists at all: when beam quality
+dominates, the collimation, emittance and energy-spread terms swamp the nonlinear one and
+`total_range` nearly collapses — asserted as a test, not assumed. xigma computes the exact
+value when it matters.
+
+Recorded because it is easy to misread: the legacy scalar `nonlinearity` corresponds to a
+factor of **1**, near the *top* of the bracket, so the predecessor's formula over-estimates
+the nonlinear broadening for most geometries.
 
 **Rejected alternatives:**
 
-- *Apply the shift using the code's own `ahat` convention, for consistency with xigma.*
-  Internally consistent and cross-validatable, but it silently picks a side of an open
-  BLOCKING question in a place a reader would not look for one.
-- *Apply it with a factor the tests then pin.* Pinning a number that is under review makes
-  the test the authority, which is backwards.
-- *Wait and expose nothing.* The moments are correct and independently useful — the
-  blocked step is only the coefficient that converts them into an edge position.
-
----
+- *Report `std` from the joint distribution.* Wrong quantity, and dangerous precisely
+  because it looks like the right one.
+- *A per-particle trajectory quadrature for `ahat_i`.* Correct and affordable in isolation,
+  but `O(n_particles)` in the one place that must not have it.
+- *Use the 0.4-0.9 bracket as proposed.* Five of thirteen measured geometries fall outside
+  it, one above.
 
 ### D050 — xigma can sample trajectories over the illuminated window, opt-in
 
@@ -1803,3 +1826,41 @@ both depend on.
   and an engine silently changing its integration bounds is the harder thing to debug.
 - *Expose it as a xigma `FieldSpec`.* Reasonable eventually, but it selects an algorithm
   rather than setting a numeric knob, and §3.1's schema is for the latter.
+
+---
+
+### D051 — discarding charge is reported to the user, never decided silently
+
+**Decision:** `io.bunch.illumination_report` returns the fraction of **charge** below an
+illumination threshold together with the bunch's Gaussian `ks_excess`, as a pre-engine
+diagnostic. No filter is applied automatically anywhere.
+
+**Rationale.** The measurements behind D047 make the choice scenario-dependent — on a
+well-matched collision there is nothing to discard, and on a mismatched one there is a lot —
+so the code cannot pick a default that is right in both. But it is not a *blind* choice
+either: `io.bunch.peak_illumination` is one pass and its distribution says exactly how much
+charge is discardable, before anything expensive runs.
+
+The two numbers must be read together, which is why one function returns both. The
+illumination estimate rests on a Gaussian picture of the collision, so a bunch that fits a
+Gaussian badly is exactly the case where its *tails* — the charge a filter would drop — are
+least well described. "10% of the charge is below threshold" is a different decision at a
+`ks_excess` of 0.005 than at 0.2, and neither number alone says which. `ks_excess` is
+`None` for an analytic beam, which is reported as `gaussian_by_construction` rather than as
+missing data: that beam has no model error, which is a stronger statement than ignorance.
+
+Charge rather than particle count, because `Bunch.weight` is relative and an imported bunch
+need not be uniformly weighted — the two coincide only for a freshly sampled one.
+
+This is `O(n_particles)` and that is correct: it inspects real macroparticles, which is the
+only way to answer "how much of *this* bunch". The cost belongs to a diagnostic, not to any
+engine's estimate path (D049).
+
+**Rejected alternatives:**
+
+- *Auto-select a filter from the report.* Changes results silently on a judgement the user
+  is better placed to make, and the plan already rejects that class of hidden behavior.
+- *Report the particle fraction.* Wrong for exactly the bunches — imported, non-uniformly
+  weighted — where the question is most likely to be asked.
+- *Fold it into `prefilter_by_illumination`.* A function that filters should filter; a
+  function that informs should inform.
