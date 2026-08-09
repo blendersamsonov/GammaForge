@@ -31,9 +31,11 @@ tier                                    cost        what it assumes
 ======================================  ==========  ===================================
 
 The first two are real-time at any interaction rate; the third is a deliberate
-semi-analytical mode. The 1D and 2D paths agree to 4e-5 at 20 mrad and 1.6e-3 at a 0.4 rad
-crossing with a tight focus, so the exact mode is a check and a future-proofing option
-rather than a correction anyone routinely needs.
+semi-analytical mode. Measured on the worst corner available — a 2 um waist against a
+200 um bunch — the 1D path is within 1.9e-4 at 20 mrad and 1.6e-3 at 0.4 rad, so the exact
+mode is a check and a future-proofing option rather than a correction anyone routinely
+needs. It also converges *more slowly* than the 1D path at small crossing angles, where
+the widths barely vary along the direction it adds; it earns its cost at large ones.
 
 **What this closes, precisely.** All three of `DECISIONS.md` D035's growth items for the
 **total yield**: non-round beams, foci displacement, and (with :func:`overlap_mean_a0_sq`
@@ -448,13 +450,14 @@ def _reduced_integral(
     span_q = 8.0 / math.sqrt(float(np.min(usable)))
     q1 = np.linspace(-span_q, span_q, n_quad_u)
 
+    # h is z-independent by construction, so take it once rather than from whichever
+    # block happened to run last — which would be correct only by accident.
+    h_out = _form_pieces(beam, laser, 0.0, laser_power=laser_power).h
     total = 0.0
-    h_out = 0.0
     for z_block, w_block in _z_blocks(z):
         zz, qq = z_block[:, None], q1[None, :]
         pieces = _form_pieces(beam, laser, zz, u_shift=sin_cross * qq, laser_power=laser_power)
         m = pieces.m_prime()
-        h_out = pieces.h
         m11 = cos_a**2 * m[0, 0] + 2 * cos_a * sin_a * m[0, 1] + sin_a**2 * m[1, 1]
         m22 = sin_a**2 * m[0, 0] - 2 * cos_a * sin_a * m[0, 1] + cos_a**2 * m[1, 1]
         m12 = -cos_a * sin_a * m[0, 0] + (cos_a**2 - sin_a**2) * m[0, 1] + cos_a * sin_a * m[1, 1]
@@ -646,11 +649,10 @@ def overlap_transverse_profile(
     xs, ys = xb[..., None], yb[..., None]
 
     line = np.zeros(xb.shape)
-    h = 1.0
+    h = _form_pieces(beam, laser, 0.0).h  # z-independent; see _reduced_integral
     for z_block, weights in _z_blocks(z):
         pieces = _form_pieces(beam, laser, z_block)
         m = pieces.m_prime()
-        h = pieces.h
         exponent = -0.5 * (
             m[0, 0] * xs**2 + m[1, 1] * ys**2 + m[2, 2] * z_block**2
             + 2.0 * (m[0, 1] * xs * ys + m[0, 2] * xs * z_block + m[1, 2] * ys * z_block)

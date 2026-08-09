@@ -399,28 +399,44 @@ def test_exact_2d_mode_is_identical_to_the_1d_path_head_on():
     assert overlap_yield(beam, laser, N_e, 4001, n_quad_u=41) == overlap_yield(beam, laser, N_e, 4001)
 
 
-@pytest.mark.parametrize("theta, n_u", [(0.02, 901), (0.4, 301)])
-def test_exact_2d_mode_bounds_the_1d_approximation_error(theta, n_u):
-    """What the exact mode is *for*: measuring the 1D path's error instead of trusting the
-    `delta/z_R` argument. Deliberately the worst corner this model has — a 2 um waist
-    against a 200 um bunch — and even there the 1D path is within 2e-3.
-
-    Note how many nodes the small-angle case needs. As `theta -> 0` the widths stop
-    depending on `q1`, so the 2D mode spends its nodes re-integrating a direction the 1D
-    path handles analytically, and converges *more slowly* than the approximation it is
-    checking. The exact mode earns its cost at large crossing angles, not small ones."""
+def _adversarial(theta):
+    """The worst corner this model has: a 2 um waist against a 200 um bunch, so the dropped
+    transverse term `delta = k_x x + k_y y` is a large fraction of the Rayleigh range."""
     beam = replace(scenarios.BASELINE.beam,
                    sigma_x=Quantity(200.0, "um"), sigma_y=Quantity(200.0, "um"))
     laser = replace(scenarios.BASELINE.laser,
                     sigma_x=Quantity(2.0, "um"), sigma_y=Quantity(2.0, "um"),
                     theta_xz=Quantity(theta, "rad"))
+    return beam, laser
+
+
+def test_exact_2d_mode_bounds_the_1d_error_at_a_large_crossing_angle():
+    """Where the exact mode earns its cost. At 0.4 rad it converges quickly — n_u = 301 and
+    901 agree to 5e-7 — so the residual gap to the 1D path is genuinely the 1D
+    approximation's error and not the 2D grid's, and it is 1.6e-3."""
+    beam, laser = _adversarial(0.4)
+    N_e = beam.n_electrons()
+    exact = overlap_yield(beam, laser, N_e, 4001, n_quad_u=301)
+    assert exact == pytest.approx(overlap_yield(beam, laser, N_e, 4001, n_quad_u=901), rel=1e-5)
+    assert exact == pytest.approx(overlap_yield(beam, laser, N_e, 4001), rel=3e-3)
+
+
+def test_exact_2d_mode_converges_toward_the_1d_path_at_a_small_crossing_angle():
+    """The counterintuitive half, asserted rather than described. As `theta -> 0` the widths
+    stop depending on `q1`, so the 2D mode spends nodes re-integrating a direction the 1D
+    path does analytically and converges *more slowly* than the approximation it checks —
+    at 20 mrad, n_u = 301 is still 1.3e-2 away from n_u = 901.
+
+    So the test is directional, not a tolerance: adding nodes must move the 2D result toward
+    the 1D one, which is the statement that the 1D path is the accurate one here. A fixed
+    band would either pass vacuously or pin the 2D grid's own error."""
+    beam, laser = _adversarial(0.02)
     N_e = beam.n_electrons()
     approx = overlap_yield(beam, laser, N_e, 4001)
-    exact = overlap_yield(beam, laser, N_e, 4001, n_quad_u=n_u)
-    coarser = overlap_yield(beam, laser, N_e, 4001, n_quad_u=n_u // 3)
-    # The 2D result must be converged, or the "1D error" below is just its own grid error.
-    assert exact == pytest.approx(coarser, rel=2e-2)
-    assert exact == pytest.approx(approx, rel=3e-3)
+    errors = [abs(overlap_yield(beam, laser, N_e, 4001, n_quad_u=n) / approx - 1.0)
+              for n in (101, 301, 901)]
+    assert errors[0] > errors[1] > errors[2]
+    assert errors[-1] < 1e-3
 
 
 @pytest.mark.parametrize("name", ["baseline", "full_geometry"])
