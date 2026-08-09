@@ -8,10 +8,21 @@ macroparticle argument anywhere, by construction).
 Ported (algorithm and constants, not code) from the predecessor's
 ``ComptonSuite/src/gammaforge/models/analytical.py`` — SI/pint ``CollisionParams``
 throughout there, CGS-Gaussian ``GaussianElectronBeam``/``GaussianParaxialLaser`` here
-(P1). Round-beam and no-foci-displacement approximations are carried over unchanged;
-generalizing them is out of scope for this landing (`DECISIONS.md` D035) — inventing a
-non-round or displaced-focus overlap integral the paper does not derive would be the
-P14c failure mode.
+(P1).
+
+**Two yield functions, and which to use.** :func:`overlap_yield` evaluates the general
+Gaussian luminosity overlap integral: non-round beams, per-axis focusing, displaced and
+astigmatic foci, and a rotated laser ellipse, all exactly. It is what `AnalyticalEngine`
+calls, and the derivation behind it is written out in `docs/DERIVATIONS.md` §A.
+:func:`estimate_yield` is the predecessor's round-beam closed form, kept because the
+general integral reduces to it analytically — which makes it a real regression anchor —
+and because it pins port fidelity. It carries an approximation *and* a laser-divergence
+convention error; its own docstring says so. Prefer :func:`overlap_yield`.
+
+This closes two of the three growth items `DECISIONS.md` D035 left open (non-round yield,
+foci displacement). The third, constructing the collimated spectrum, is still open, as is
+the crossing angle (`GRAND_PLAN.md` §9.3) — :func:`overlap_yield` refuses one rather than
+returning a number its derivation does not cover, which is what P14c actually asks for.
 """
 
 from __future__ import annotations
@@ -27,6 +38,8 @@ from ...io.units import C_CGS, SIGMA_T_CGS
 
 __all__ = [
     "estimate_yield",
+    "overlap_det",
+    "overlap_yield",
     "SpectrumWidthBreakdown",
     "estimate_spectrum_width",
     "angle_integrated_spectrum",
@@ -77,6 +90,23 @@ def estimate_yield(beam: GaussianElectronBeam, laser: GaussianParaxialLaser, N_e
     The laser's transverse profile is treated as round (geometric-mean effective size
     ``sqrt(sigma_x * sigma_y)``) since the underlying formula assumes a round beam — an
     elliptical laser is only approximated, not modeled exactly (see the module docstring).
+
+    .. warning::
+
+       **This function's laser hourglass term disagrees with this repository's own
+       Rayleigh-range convention by a factor of 4 in the angle**, and it is kept only as
+       a port-fidelity anchor. :func:`overlap_yield` is the one to use.
+
+       The ``lambda^2 / (pi^2 sigma_lr0^2)`` term below is a laser divergence of
+       ``lambda / (pi sigma)``. The generalized derivation (`docs/DERIVATIONS.md` §A)
+       shows the coefficient is exactly ``sigma_l / z_R``, and both this repository's
+       `GaussianParaxialLaser.rayleigh_x` *and the predecessor's own pulse class* define
+       ``z_R = 4 pi sigma^2 / lambda`` (``w0 = 2 sigma``), giving ``lambda / (4 pi
+       sigma)``. The predecessor's ``analytical.py`` is therefore inconsistent with the
+       predecessor's *own* laser model; the port carried that faithfully rather than
+       introducing it. On the baseline scenario — where the hourglass is almost entirely
+       laser-driven — the discrepancy is a factor of 3.3 in the yield
+       (`DECISIONS.md` D040).
     """
     sigma_ex = beam.m("sigma_x")
     sigma_ey = beam.m("sigma_y")
@@ -96,6 +126,163 @@ def estimate_yield(beam: GaussianElectronBeam, laser: GaussianParaxialLaser, N_e
         / math.sqrt(sb_av**2 + lambda_l**2 / math.pi**2 / sigma_lr0**2)
     )
     return N_e * laser.n_photons() * SIGMA_T_CGS / 2.0 / math.sqrt(math.pi) / sigma0**2 * nu * _erfcx(nu)
+
+
+def _electron_sigma2(beam: GaussianElectronBeam, z):
+    """``(sigma_ex^2(z), sigma_ey^2(z))``: the bunch's transverse variances at lab
+    position ``z``, the reference point being ``z = 0``.
+
+    The standard Twiss drift, identical to the one `gammaforge.io.bunch._drift_plane`
+    applies (``beta -> beta - 2 alpha L + gamma_twiss L^2``) — the electron-side
+    "foci displacement" needs **no new schema field**, because `GaussianElectronBeam`
+    already carries it as ``alpha_x``/``alpha_y``: the waist sits at
+    ``z_w = alpha beta_0 / (1 + alpha^2)``, so ``alpha > 0`` means a still-converging
+    bunch whose waist is downstream. A beam given at its waist (``alpha == 0``) reduces
+    to the symmetric ``sigma^2 (1 + z^2 / beta_0^2)`` hourglass.
+    """
+    out = []
+    for sigma, emit, alpha in (
+        (beam.m("sigma_x"), beam.m("emit_x"), beam.alpha_x),
+        (beam.m("sigma_y"), beam.m("emit_y"), beam.alpha_y),
+    ):
+        beta_0 = sigma**2 / emit
+        gamma_twiss = (1.0 + alpha**2) / beta_0
+        out.append(emit * (beta_0 - 2.0 * alpha * z + gamma_twiss * z**2))
+    return out[0], out[1]
+
+
+def _laser_covariance(laser: GaussianParaxialLaser, z):
+    """The pulse's transverse covariance ``(c_xx, c_xy, c_yy)`` in **lab** x/y at lab ``z``.
+
+    Two coordinate facts, both read off `GaussianParaxialLaser` rather than assumed:
+    the pulse propagates along ``k_hat``, which is ``-z`` head-on, so its own longitudinal
+    coordinate is ``u = -z`` and its per-axis waists ``z_fx``/``z_fy`` (offsets *along*
+    ``k_hat``) sit at lab ``z = -z_fx``/``-z_fy``; and ``psi_focus`` rotates the focusing
+    axes within the transverse plane, so the pulse's variance ellipse is generally **not**
+    diagonal in the bunch's own x/y. Carrying the full 2x2 covariance rather than a pair
+    of widths is what lets `overlap_yield` handle a rotated elliptical spot exactly
+    instead of approximating it (`DECISIONS.md` D039).
+    """
+    s1, s2 = laser.spot_sizes(-np.asarray(z, dtype=float))
+    psi = laser.m("psi_focus")
+    c, s = math.cos(psi), math.sin(psi)
+    s1sq, s2sq = s1**2, s2**2
+    return (
+        c * c * s1sq + s * s * s2sq,
+        c * s * (s1sq - s2sq),
+        s * s * s1sq + c * c * s2sq,
+    )
+
+
+def overlap_det(beam: GaussianElectronBeam, laser: GaussianParaxialLaser, z):
+    """``det(C_e(z) + C_l(z))``, the determinant of the summed transverse covariances.
+
+    The transverse part of the luminosity overlap integral is
+    ``1 / (2 pi sqrt(det(C_e + C_l)))`` — a single scalar that already accounts for
+    unequal x/y sizes, unequal x/y focusing, astigmatic laser waists and a ``psi_focus``
+    rotation between the two ellipses. Reducing it to the round-beam ``1 / (2 pi
+    sigma_0^2)`` requires *both* ellipses to be circular; nothing here assumes that.
+    """
+    ex2, ey2 = _electron_sigma2(beam, z)
+    c_xx, c_xy, c_yy = _laser_covariance(laser, z)
+    return (ex2 + c_xx) * (ey2 + c_yy) - c_xy**2
+
+
+def _overlap_grid(beam, laser, sigma_z_eff: float, n_quad: int) -> np.ndarray:
+    """Quadrature nodes for :func:`overlap_yield`, resolving every longitudinal scale.
+
+    The integrand is a Gaussian of width ``sigma_z_eff`` times ``1/sqrt(det)``, and those
+    two carry independent scales: the four hourglass/Rayleigh lengths can each be orders
+    of magnitude *shorter* than the Gaussian (the baseline scenario's ``z_R`` is 1.2 mm
+    against a 9.5 mm longitudinal overlap), and displaced foci push their structure away
+    from ``z = 0``. A single uniform grid over the Gaussian support would silently
+    under-resolve exactly the peak that dominates the answer, so the nodes are the union
+    of a grid over the Gaussian support and one locally refined window per waist — which
+    keeps convergence independent of how the foci are placed, not merely true at the
+    aligned default.
+    """
+    span = 8.0 * sigma_z_eff
+    grids = [np.linspace(-span, span, n_quad)]
+
+    beta_0x = beam.m("sigma_x") ** 2 / beam.m("emit_x")
+    beta_0y = beam.m("sigma_y") ** 2 / beam.m("emit_y")
+    waists = (
+        (beam.alpha_x * beta_0x / (1.0 + beam.alpha_x**2), beta_0x / (1.0 + beam.alpha_x**2)),
+        (beam.alpha_y * beta_0y / (1.0 + beam.alpha_y**2), beta_0y / (1.0 + beam.alpha_y**2)),
+        (-laser.m("z_fx"), laser.rayleigh_x()),
+        (-laser.m("z_fy"), laser.rayleigh_y()),
+    )
+    for center, scale in waists:
+        lo = max(center - 8.0 * scale, -span)
+        hi = min(center + 8.0 * scale, span)
+        if hi > lo:
+            grids.append(np.linspace(lo, hi, n_quad))
+    return np.unique(np.concatenate(grids))
+
+
+def overlap_yield(
+    beam: GaussianElectronBeam, laser: GaussianParaxialLaser, N_e: float, n_quad: int = 2001
+) -> float:
+    """Total photon yield from the **general** Gaussian luminosity overlap integral.
+
+    Supersedes :func:`estimate_yield`'s round-beam closed form: it drops the round-beam
+    and aligned-foci approximations and keeps the collision geometry exactly as
+    `gammaforge.io` already describes it — per-axis bunch sizes and emittances, per-axis
+    Twiss ``alpha`` (electron waist displacement), per-axis laser waists and Rayleigh
+    ranges, astigmatic ``z_fx``/``z_fy`` focal offsets, and the ``psi_focus`` rotation
+    between the two transverse ellipses. Head-on only (see the guards below).
+
+    Derivation in `docs/DERIVATIONS.md` §A. In outline: the yield is
+    ``sigma_T (1 + beta_0) c`` times the space-time overlap of the two densities; the two
+    transverse integrals are Gaussian and collapse to ``1 / (2 pi sqrt(det(C_e + C_l)))``
+    (:func:`overlap_det`), and the time integral is Gaussian and collapses to a
+    longitudinal weight of width ``sigma_z_eff = D / (1 + beta_0)`` with
+    ``D = sqrt(sigma_ez^2 + beta_0^2 sigma_lz^2)``. What is left is the single
+    longitudinal quadrature this function evaluates::
+
+        N = sigma_T (1 + beta_0) N_e N_L / (2 pi sqrt(2 pi) D)
+            * Int dz exp(-z^2 / (2 sigma_z_eff^2)) / sqrt(det(C_e(z) + C_l(z)))
+
+    The integrand is strictly positive and smooth, so a fixed grid converges fast and
+    monotonically — there is no cancellation to lose precision to.
+
+    In the round, aligned, ``alpha = 0`` limit this reduces **analytically** to
+    :func:`estimate_yield`'s closed form with ``nu = L (1 + beta_0) / (sqrt(2) D)``, and
+    `tests/test_analytical.py` pins that reduction numerically to ~1e-12 rather than
+    asserting it in a comment.
+
+    Raises ``ValueError`` for a crossing angle (``theta_xz``/``theta_yz`` nonzero) or a
+    flying focus (``beta_ff`` nonzero). Neither is an oversight: a crossing angle is
+    `GRAND_PLAN.md` §9.3's open derivation, and a flying focus makes the spot-size
+    evaluation point ``u_spot = u + beta_ff * ct`` time-dependent, which is precisely what
+    breaks the analytic time integration this whole result rests on. Refusing beats
+    returning a number whose derivation does not apply (P14c).
+    """
+    if laser.m("theta_xz") != 0.0 or laser.m("theta_yz") != 0.0:
+        raise ValueError(
+            "overlap_yield: the overlap integral is derived head-on; a crossing angle "
+            f"(theta_xz={laser.m('theta_xz')!r}, theta_yz={laser.m('theta_yz')!r}) is "
+            "GRAND_PLAN.md §9.3's open derivation, not something this closed form covers"
+        )
+    if laser.beta_ff != 0.0:
+        raise ValueError(
+            f"overlap_yield: a flying focus (beta_ff={laser.beta_ff!r}) makes the spot size "
+            "depend on time as well as position, which breaks the analytic time integration "
+            "this result is derived from"
+        )
+    if n_quad < 11:
+        raise ValueError(f"overlap_yield: n_quad must be >= 11 (got {n_quad!r})")
+
+    beta_0 = beam.beta0()
+    sigma_lz = laser.m("duration") * C_CGS
+    D = math.sqrt(beam.m("sigma_z") ** 2 + (beta_0 * sigma_lz) ** 2)
+    sigma_z_eff = D / (1.0 + beta_0)
+
+    z = _overlap_grid(beam, laser, sigma_z_eff, n_quad)
+    integrand = np.exp(-(z**2) / (2.0 * sigma_z_eff**2)) / np.sqrt(overlap_det(beam, laser, z))
+    integral = float(np.trapezoid(integrand, z))
+
+    return SIGMA_T_CGS * (1.0 + beta_0) * N_e * laser.n_photons() / (2.0 * math.pi * math.sqrt(2.0 * math.pi) * D) * integral
 
 
 @dataclass(frozen=True)

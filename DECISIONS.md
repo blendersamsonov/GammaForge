@@ -1242,3 +1242,91 @@ this same port already uses elsewhere for elliptical inputs — the laser waist
 - *Take `min(theta_x_col, theta_y_col)` (the tighter, more conservative aperture).*
   Defensible, but inconsistent with every other x/y-combining choice this module already
   makes, all of which use the geometric mean.
+
+---
+
+### D039 — the analytical yield is a general overlap quadrature, not the round-beam closed form
+
+**Decision:** `engines.analytical.formulas.overlap_yield` evaluates the Gaussian
+luminosity overlap integral in its general form — per-axis bunch sizes and emittances,
+per-axis Twiss `alpha`, per-axis laser waists and Rayleigh ranges, astigmatic `z_fx`/`z_fy`
+focal offsets, and the `psi_focus` rotation between the two transverse ellipses — leaving
+exactly one longitudinal quadrature. `AnalyticalEngine` calls it.
+`engines.analytical.formulas.estimate_yield`'s round-beam closed form stays in the module
+but is no longer what the engine ships. The derivation is `docs/DERIVATIONS.md` §A.
+
+**Rationale.** This closes two of the three growth items D035 left open (non-round yield,
+foci displacement) without inventing any physics: every step is a Gaussian integral or a
+standard identity, and the transverse part collapses to a single determinant
+(`engines.analytical.formulas.overlap_det`) that reduces to the round-beam
+`1/(2 pi sigma_0^2)` only when both ellipses are circular. Two properties make it safe to
+prefer over the closed form. It reduces to that closed form *analytically* in the round,
+aligned, `alpha = 0` limit, so the old formula becomes a regression anchor rather than
+being discarded — `test_overlap_yield_reduces_to_the_round_beam_closed_form` pins the
+reduction against an independently-coded evaluation. And it needs **no new schema state**:
+the electron waist displacement is already `GaussianElectronBeam.alpha_x`/`alpha_y`
+(verified against `io.bunch._drift_fit` to machine precision, which pins the sign that no
+symmetric test can catch), and the laser side is already `z_fx`/`z_fy`/`psi_focus` — P9
+applies here exactly as it did in D038.
+
+The integrand is strictly positive and smooth, so the cost is a fixed grid, not a Monte
+Carlo. Only its *resolution* needs care: the hourglass and Rayleigh scales can be far
+shorter than the longitudinal weight and displaced foci move that structure off the
+origin, so `_overlap_grid` unions a grid over the Gaussian support with one refined window
+per waist. `n_quad_overlap` is a separate `FieldSpec` from `n_quad` because it governs a
+different integral with different convergence behavior.
+
+`overlap_yield` raises on a crossing angle (`theta_xz`/`theta_yz`) and on a flying focus
+(`beta_ff`). The first is `GRAND_PLAN.md` §9.3's open derivation; the second makes the
+spot-size evaluation point time-dependent, which breaks the analytic time integration the
+result rests on. Refusing is the P14c-compliant move — the failure mode P14c names is
+returning a plausible number whose derivation does not apply.
+
+**Rejected alternatives:**
+
+- *Keep `estimate_yield` as the engine's yield and expose the general form as an opt-in.*
+  Leaves the engine shipping approximations that the collision geometry in `io` already
+  has the data to avoid, and (see D040) a known convention error as well.
+- *Generalize the closed form's `nu` instead of integrating numerically.* There is no
+  closed form to generalize to: `det(C_e + C_l)` is a quartic in `z` once the ellipses are
+  unequal and rotated, and `Gaussian / sqrt(quartic)` is not elementary.
+- *Add explicit waist-position fields for the bunch.* Duplicates what `alpha_x`/`alpha_y`
+  already encode, and would immediately desync from `io.bunch.drift` (P9).
+
+---
+
+### D040 — `estimate_yield`'s laser-divergence convention error is flagged and pinned, not fixed
+
+**Decision:** `engines.analytical.formulas.estimate_yield` keeps the predecessor's
+`lambda^2 / (pi^2 sigma_lr0^2)` hourglass term unchanged, with a `.. warning::` in its
+docstring and a test — `test_overlap_yield_differs_from_the_legacy_closed_form_by_the_rayleigh_convention`
+— pinning the resulting 3.285x disagreement with `overlap_yield` on the baseline scenario.
+
+**Rationale.** The general derivation (`docs/DERIVATIONS.md` §A.5) identifies that term's
+coefficient as `sigma_l / z_R` exactly. Both `io.laser.GaussianParaxialLaser.rayleigh_x`
+and the predecessor's *own* pulse class define `z_R = 4 pi sigma^2 / lambda` (`w0 = 2
+sigma`), giving `lambda / (4 pi sigma)` — so the predecessor's `analytical.py` is
+internally inconsistent with the predecessor's own laser model, by a factor of 4 in the
+angle. The port carried that faithfully; it was not introduced here.
+
+Changing it is not this session's call to make. `estimate_yield`'s entire remaining value
+is that it reproduces the predecessor's worked example to ~1e-6 (the `_PREDECESSOR_YIELD`
+pin), and "correcting" it would destroy that without any code depending on the result —
+`AnalyticalEngine` uses `overlap_yield`, which is free of the issue because it reads
+`rayleigh_x()`/`rayleigh_y()` directly. Pinning the discrepancy as a test makes it visible
+and prevents it drifting silently, which is what the situation actually needs. Worth
+recording explicitly: nothing in the suite before this was sensitive to that term at all —
+the predecessor pin tests port fidelity, and the Thomson-limit anchor drives `nu` to
+infinity, which removes the hourglass term entirely.
+
+**Rejected alternatives:**
+
+- *Fix `estimate_yield` to use `rayleigh_x()`.* Makes the function correct and useless at
+  the same time: it then reproduces neither the predecessor (breaking `_PREDECESSOR_YIELD`,
+  its only remaining purpose) nor anything `overlap_yield` does not already do better.
+- *Delete `estimate_yield`.* Loses the analytic reduction anchor that gives
+  `overlap_yield` its strongest test, and the port-fidelity record.
+- *Treat it as a `GRAND_PLAN.md` §0 BLOCKING paper-code discrepancy.* §0 covers code
+  disagreeing with the paper. The paper does not contain this formula; this is code
+  disagreeing with *other code* in a way settled by an independent derivation and an
+  exact numerical reduction, so it is reportable rather than blocking.

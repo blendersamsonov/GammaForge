@@ -18,15 +18,19 @@ import pytest
 from gammaforge.engines.analytical.engine import AnalyticalEngine
 from gammaforge.engines.analytical.formulas import (
     SpectrumWidthBreakdown,
+    _electron_sigma2,
+    _erfcx,
     angle_integrated_spectrum,
     estimate_spectrum_width,
     estimate_yield,
+    overlap_det,
+    overlap_yield,
 )
 from gammaforge.engines.base import Engine
-from gammaforge.io.bunch import GaussianElectronBeam
+from gammaforge.io.bunch import GaussianElectronBeam, _drift_fit
 from gammaforge.io.laser import GaussianParaxialLaser
 from gammaforge.io.target import OutputKind, OutputRequest
-from gammaforge.io.units import Quantity
+from gammaforge.io.units import C_CGS, SIGMA_T_CGS, Quantity
 from gammaforge.validation import scenarios
 
 _EXAMPLE_BEAM = GaussianElectronBeam(
@@ -102,6 +106,151 @@ def test_estimate_yield_matches_the_thomson_limit_closed_form():
     sigma_lr0 = math.sqrt(laser.m("sigma_x") * laser.m("sigma_y"))
     thomson_limit = N_e * laser.n_photons() * SIGMA_T_CGS / (2.0 * math.pi * (sigma_ex**2 + sigma_lr0**2))
     assert y == pytest.approx(thomson_limit, rel=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# overlap_yield — the general luminosity overlap integral (docs/DERIVATIONS.md §A)
+# ---------------------------------------------------------------------------
+def _round_scenario():
+    """Round in every sense the closed form needs: equal sizes *and* equal emittances
+    (so beta_x == beta_y), round laser, both foci at the origin, alpha == 0."""
+    beam = replace(scenarios.BASELINE.beam, emit_y=scenarios.BASELINE.beam.emit_x,
+                   sigma_y=scenarios.BASELINE.beam.sigma_x)
+    laser = replace(scenarios.BASELINE.laser, sigma_y=scenarios.BASELINE.laser.sigma_x)
+    return beam, laser
+
+
+def _closed_form_round(beam, laser, N_e):
+    """The round-beam closed form, evaluated independently of `formulas.estimate_yield`
+    and using this repo's own `rayleigh_x()` — the analytic limit `overlap_yield` must
+    reproduce, with ``nu = L (1 + beta_0) / (sqrt(2) D)`` (docs/DERIVATIONS.md §A.4)."""
+    beta_0 = beam.beta0()
+    D = math.hypot(beam.m("sigma_z"), beta_0 * laser.m("duration") * C_CGS)
+    sigma0_sq = beam.m("sigma_x") ** 2 + laser.m("sigma_x") ** 2
+    inv_L2 = (
+        beam.m("sigma_x") ** 2 / beam.beta_star_x() ** 2
+        + laser.m("sigma_x") ** 2 / laser.rayleigh_x() ** 2
+    ) / sigma0_sq
+    nu = (1.0 + beta_0) / (math.sqrt(2.0 * inv_L2) * D)
+    return SIGMA_T_CGS * N_e * laser.n_photons() * nu * _erfcx(nu) / (2.0 * math.sqrt(math.pi) * sigma0_sq)
+
+
+def test_overlap_yield_reduces_to_the_round_beam_closed_form():
+    """The whole derivation, checked end to end: in the round/aligned/alpha=0 limit the
+    quadrature must reproduce an independently-evaluated closed form, not merely sit near
+    it. This is the §7 "exact identity where the contract guarantees one" for the yield."""
+    beam, laser = _round_scenario()
+    N_e = beam.n_electrons()
+    expected = _closed_form_round(beam, laser, N_e)
+    assert overlap_yield(beam, laser, N_e, n_quad=32001) == pytest.approx(expected, rel=1e-8)
+
+
+def test_overlap_yield_converges_on_a_displaced_non_round_astigmatic_scenario():
+    """Convergence has to hold where the integrand is *hard* — displaced, astigmatic,
+    rotated foci push the structure of `1/sqrt(det)` away from z = 0 and onto scales far
+    shorter than the Gaussian weight. On the aligned baseline this would pass trivially."""
+    beam = replace(scenarios.BASELINE.beam, alpha_x=2.5, alpha_y=-1.3)
+    laser = replace(
+        scenarios.BASELINE.laser,
+        sigma_x=Quantity(8.0, "um"), sigma_y=Quantity(22.0, "um"),
+        z_fx=Quantity(0.03, "cm"), z_fy=Quantity(-0.05, "cm"),
+        psi_focus=Quantity(0.7, "rad"),
+    )
+    N_e = beam.n_electrons()
+    coarse = overlap_yield(beam, laser, N_e, n_quad=8001)
+    fine = overlap_yield(beam, laser, N_e, n_quad=32001)
+    assert coarse == pytest.approx(fine, rel=1e-5)
+
+
+def test_electron_hourglass_matches_io_bunchs_own_drift():
+    """`_electron_sigma2` re-expresses the Twiss drift `io.bunch` already owns, so it must
+    agree with `_drift_fit` exactly — including the **sign** of `alpha`, which no symmetric
+    scenario can catch (a flipped sign puts the waist on the wrong side and is invisible
+    at alpha = 0 and in any test symmetric about z = 0)."""
+    for alpha in (-2.0, -0.7, 0.0, 0.7, 2.0):
+        beam = replace(scenarios.BASELINE.beam, alpha_x=alpha, alpha_y=-0.5 * alpha)
+        for length in (-7.0, -1.0, 0.0, 1.0, 7.0):
+            ex2, ey2 = _electron_sigma2(beam, length)
+            reference = _drift_fit(beam, length)
+            assert math.sqrt(ex2) == pytest.approx(reference.m("sigma_x"), rel=1e-13)
+            assert math.sqrt(ey2) == pytest.approx(reference.m("sigma_y"), rel=1e-13)
+
+
+def test_overlap_yield_peaks_when_the_two_waists_coincide():
+    """The physical statement of the same sign convention, across the two *independent*
+    sign conventions this integral joins: the bunch's `alpha` and the pulse's `z_fx`
+    (an offset along `k_hat`, which is -z head-on). Yield is largest when the electron
+    waist sits at the laser focus; if either sign were flipped the peak would land on the
+    opposite side. Needs beta_0 comparable to the Rayleigh range, or the electron waist
+    position simply does not influence the answer."""
+    emit = Quantity(5e-6, "cm * rad")
+    base = replace(scenarios.BASELINE.beam, emit_x=emit, emit_y=emit)
+    beta_0 = base.m("sigma_x") ** 2 / base.m("emit_x")
+    focus_at = 0.10  # cm, lab position of the laser focus
+    laser = replace(
+        scenarios.BASELINE.laser,
+        z_fx=Quantity(-focus_at, "cm"), z_fy=Quantity(-focus_at, "cm"),
+    )
+    N_e = base.n_electrons()
+
+    alphas = np.linspace(-1.5, 1.5, 31)
+    yields = [
+        overlap_yield(replace(base, alpha_x=float(a), alpha_y=float(a)), laser, N_e, n_quad=8001)
+        for a in alphas
+    ]
+    best = float(alphas[int(np.argmax(yields))])
+    waist_at = best * beta_0 / (1.0 + best**2)
+    assert waist_at == pytest.approx(focus_at, abs=0.02 * beta_0)
+
+
+def test_psi_focus_is_a_noop_for_a_round_laser():
+    """Rotating a circle changes nothing — a structural check on the 2x2 covariance."""
+    beam = scenarios.BASELINE.beam
+    laser = replace(scenarios.BASELINE.laser, sigma_y=scenarios.BASELINE.laser.sigma_x)
+    N_e = beam.n_electrons()
+    rotated = replace(laser, psi_focus=Quantity(0.9, "rad"))
+    assert overlap_yield(beam, laser, N_e) == pytest.approx(overlap_yield(beam, rotated, N_e), rel=1e-13)
+
+
+def test_psi_focus_matters_when_both_ellipses_are_flat():
+    """The generalization is real, not decorative: aligning a flat pulse with a flat bunch
+    against crossing them changes the yield by tens of percent. A round bunch would hide
+    this almost entirely, which is why the fixture flattens both."""
+    flat = replace(scenarios.BASELINE.beam, sigma_x=Quantity(30.0, "um"), sigma_y=Quantity(3.0, "um"))
+    laser = replace(scenarios.BASELINE.laser, sigma_x=Quantity(30.0, "um"), sigma_y=Quantity(3.0, "um"))
+    N_e = flat.n_electrons()
+    aligned = overlap_yield(flat, laser, N_e, n_quad=8001)
+    crossed = overlap_yield(flat, replace(laser, psi_focus=Quantity(math.pi / 2, "rad")), N_e, n_quad=8001)
+    assert aligned > 1.2 * crossed
+
+
+def test_overlap_det_is_sigma0_squared_for_a_round_aligned_collision_at_the_origin():
+    beam, laser = _round_scenario()
+    expected = (beam.m("sigma_x") ** 2 + laser.m("sigma_x") ** 2) ** 2
+    assert float(overlap_det(beam, laser, 0.0)) == pytest.approx(expected, rel=1e-13)
+
+
+def test_overlap_yield_refuses_geometries_its_derivation_does_not_cover():
+    """A crossing angle is GRAND_PLAN.md §9.3's open derivation and a flying focus breaks
+    the analytic time integration. Refusing beats returning a plausible wrong number (P14c)."""
+    beam, laser = _round_scenario()
+    N_e = beam.n_electrons()
+    with pytest.raises(ValueError, match="head-on"):
+        overlap_yield(beam, replace(laser, theta_xz=Quantity(0.01, "rad")), N_e)
+    with pytest.raises(ValueError, match="flying focus"):
+        overlap_yield(beam, replace(laser, beta_ff=0.2), N_e)
+
+
+def test_overlap_yield_differs_from_the_legacy_closed_form_by_the_rayleigh_convention():
+    """Pins the size of the `estimate_yield` laser-divergence discrepancy (D040) so it stays
+    visible and cannot drift silently. The baseline's hourglass is almost entirely
+    laser-driven (laser divergence 3e-2 rad against the bunch's 5e-6), so the factor-4 error
+    in `lambda / (pi sigma)` vs `sigma / z_R = lambda / (4 pi sigma)` shows up nearly in
+    full. If this number ever moves, one of the two formulas changed — find out which."""
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    N_e = beam.n_electrons()
+    ratio = overlap_yield(beam, laser, N_e, n_quad=32001) / estimate_yield(beam, laser, N_e)
+    assert ratio == pytest.approx(3.285, rel=1e-3)
 
 
 def test_estimate_spectrum_width_is_positive_finite():

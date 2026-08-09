@@ -1,9 +1,22 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.19 — 2026-08-09
+**Status:** draft v0.20 — 2026-08-09
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 **Changelog**
+- **v0.20**: Two of §4.3's three "growth items" **closed** — non-round-beam yield and
+  foci displacement — by deriving the Gaussian luminosity overlap integral in general
+  (`docs/DERIVATIONS.md` §A) rather than approximating it. All integrations are analytic
+  except one longitudinal quadrature over a strictly positive, smooth integrand, so the
+  cost stays milliseconds. `overlap_yield` handles per-axis sizes and focusing, Twiss
+  `alpha` (the electron waist offset — already in the data model, no new schema), the
+  astigmatic `z_fx`/`z_fy` offsets and the `psi_focus` rotation between the two transverse
+  ellipses; it reduces analytically to the old closed form in the round/aligned limit,
+  which is now a pinned regression anchor. `AnalyticalEngine` ships it. Only
+  collimated-spectrum construction remains open of the three. **The derivation also
+  exposed a factor-4 laser-divergence convention error in `estimate_yield`, inherited
+  from the predecessor and worth 3.3x in the baseline yield** — flagged, pinned by test,
+  deliberately not "fixed" (`DECISIONS.md` D039–D040). `PROGRESS.md` 2026-08-09.
 - **v0.19**: Phase 4 (`engines/analytical`, §4.3) **landed**, built concurrently with
   Phase 3b in an isolated worktree/branch (§11's "Phases 4–6 must not wait on physics
   derivations"). `estimate_yield`, `estimate_spectrum_width` (now returning its four
@@ -728,9 +741,17 @@ The tabulated-overlap pipeline, restructured into composable stages:
 
 Closed-form estimates, no per-particle Monte Carlo:
 
-- `estimate_yield(beam, laser, N_e)`: total yield (closed form). `N_e` is explicit
+- `overlap_yield(beam, laser, N_e, n_quad)`: total yield from the **general** Gaussian
+  luminosity overlap integral — non-round beams, per-axis focusing, displaced/astigmatic
+  foci, rotated laser ellipse. One longitudinal quadrature; everything else is analytic
+  (`docs/DERIVATIONS.md` §A). This is what the engine uses. `N_e` is explicit
   (`InteractionParameters.N_e`) rather than derived from `beam`, so the io-level cheap
-  charge-only rescale path (§5) stays correct.
+  charge-only rescale path (§5) stays correct. Refuses a crossing angle (§9.3) or a
+  flying focus rather than returning a number its derivation does not cover.
+- `estimate_yield(beam, laser, N_e)`: the predecessor's round-beam closed form. Retained
+  as the analytic limit `overlap_yield` reduces to (a regression anchor) and as the
+  port-fidelity pin — **not** for use: it carries a laser-divergence convention error
+  worth 3.3x on the baseline scenario (D040).
 - `estimate_spectrum_width(beam, laser, theta_col)`: collimated width with a
   **per-component breakdown** — collimation `(γθ_col)⁴`, emittance/divergence
   `(γσ_θ)⁴`, energy spread `(σ_γ/γ)²`, nonlinearity `(a0²/2)²` — each reported
@@ -1061,7 +1082,7 @@ annotated at both equations.
 | **2.5. Stage 0 + minimal delta** | **Stage 0** (`integrate_trajectories`) and the **shared auto-chunk + OOM-retry utility** (§4.2), pulled forward from 3a because delta needs both; delta itself scoped to Stage-2 normalization arbitration, built on top of Stage 0 (§4.5) | Stage 0 tests green; chunk-invariance holds; delta produces independent spectra on baseline scenarios; identity harness (`kernel` vs `reference` vs `direct binning` vs delta) executable |
 | **3a. xigma engineering** — **landed 2026-08-08** | Stage 1/2 pure functions; Collision facade + stage cache; Engine wrapper; numpy kernel for Stages 1/2, cupy/numba gated like Stage 0 until real kernels exist (**Stage 0 and the chunking utility already built in 2.5**; D029); geometry/a0/ellipticity parameters wired as explicit identity/no-op placeholders (P14c) | Stage architecture tests green; placeholders documented |
 | **3b. Physics closure** — **§9.1 landed 2026-08-08; §9.2/§9.3 open, non-blocking** | ~2π resolution (§9.1 — **closed**: traced in 2.5, applied in 3b, D033), crossing-angle derivation (§9.3), ellipticity→a0 (§9.2) — **runs concurrently with Phases 4 and 5, not serially** | §9.1's constant set in Stage 2 and the identity harness re-gated against 1.0 rather than 2π — **met**; §9.2/§9.3 derivations landed if author completes them in parallel (never blocking 4–6) — **outstanding, and the paper contains no formula for either**, so both stay wired as documented no-ops with `validate()` warnings (D034) |
-| **4. analytical engine** — **estimates/breakdown/quadrature spectrum landed 2026-08-09; growth items open** | estimates + component breakdown; quadrature spectrum; growth items (foci displacement, non-round beam, collimated spectrum) | Closed-form limits match — **met** (Thomson-limit anchor test, §7); validation anchor ready — **met** for `TOTAL_YIELD`/`SPECTRUM`; growth items (foci displacement, non-round beam, collimated-spectrum construction) — **outstanding**, `DECISIONS.md` D035 |
+| **4. analytical engine** — **landed 2026-08-09; one growth item open** | estimates + component breakdown; quadrature spectrum; general overlap-integral yield (non-round + displaced foci); remaining growth item (collimated spectrum) | Closed-form limits match — **met** (Thomson-limit anchor *and* the analytic reduction of `overlap_yield` to the round-beam closed form, §7); validation anchor ready — **met** for `TOTAL_YIELD`/`SPECTRUM`; foci displacement + non-round beam — **met** via `docs/DERIVATIONS.md` §A (`DECISIONS.md` D039); collimated-spectrum construction — **outstanding**; crossing-angle geometry deferred to §9.3 |
 | **5. kascade port + delta full role** | minimal kascade behind interface **+ its Thomson-limit sanity check (B4)**; delta full cross-validation role | 4-method cross-validation runs; kascade sanity check passes |
 | **6. GUI** | schema-driven two-tab app; overlays + per-engine show/hide; save plots/HDF5; grey-out/release; sketch panel (headless module first); **import-boundary check enforced in CI (B3)** | GUI runs headless-smoke; all planned interactions work; boundary check green |
 | **7. Validation completion** | full scenario bank, convergence, chunk-invariance, closed-form identities, golden cross-checks | Full suite green; results reproducible; 3b closures integrated |

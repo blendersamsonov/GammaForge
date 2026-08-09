@@ -22,6 +22,19 @@ ANALYTICAL_SPECS: tuple[FieldSpec, ...] = (
         integer=True,
         value_range=(11, 100_001),
     ),
+    # A separate knob from `n_quad`, deliberately: this is the longitudinal overlap
+    # integral, whose integrand carries the four hourglass/Rayleigh scales and the focal
+    # offsets, and it converges on its own terms. Sharing one field would tie the
+    # spectrum's energy-spread quadrature to a count chosen for a different integral.
+    FieldSpec(
+        key="n_quad_overlap",
+        label="Overlap-integral quadrature points",
+        kind=FieldKind.SCALAR,
+        unit=DIMENSIONLESS,
+        default=2001,
+        integer=True,
+        value_range=(11, 1_000_001),
+    ),
 )
 
 

@@ -17,7 +17,7 @@ from ...io.results import Axis, PhasespaceSlice, Results
 from ...io.schema import Parameters
 from ...io.target import OutputKind, OutputRequest, auto_ranges, slice_axis_values
 from ..base import RecomputeCost
-from .formulas import angle_integrated_spectrum, estimate_spectrum_width, estimate_yield
+from .formulas import angle_integrated_spectrum, estimate_spectrum_width, overlap_yield
 from .schema import default_parameters
 
 __all__ = ["AnalyticalEngine"]
@@ -50,7 +50,13 @@ class AnalyticalEngine:
         photon_energy = metrics.photon_energy()
         n_quad = params.get_int("n_quad")
 
-        total_yield = estimate_yield(beam, metrics, interaction.N_e)
+        # The general overlap integral, not `formulas.estimate_yield`'s round-beam closed
+        # form: it keeps the per-axis sizes, the Twiss `alpha` (electron waist offset), the
+        # astigmatic laser waists and the `psi_focus` rotation that this collision geometry
+        # actually has, and it uses this repository's own Rayleigh-range convention
+        # (`DECISIONS.md` D039/D040). The closed form stays available as the reduction
+        # anchor and port-fidelity pin, but the engine does not ship its approximations.
+        total_yield = overlap_yield(beam, metrics, interaction.N_e, params.get_int("n_quad_overlap"))
         # Target already owns the two collimation half-angles separately; a single
         # scalar theta_col for the width breakdown is their geometric mean, the same
         # x/y-combining convention `formulas.py` uses for the laser waist (D038).

@@ -887,6 +887,60 @@ the `SPECTRUM`-is-defined-not-reconciled rescale, hand-rolled `erfcx`, geometric
 
 ---
 
+## 2026-08-09 — Phase 4 follow-up: the general overlap integral closes two growth items
+
+Same worktree/branch as the Phase 4 landing above. Prompted by the observation that the
+overlap integral can be done analytically except for one quadrature — which is exactly how
+it came out.
+
+**Derived and implemented** (`docs/DERIVATIONS.md` §A, new file): the Gaussian luminosity
+overlap integral in general form. Both transverse integrals collapse to a single
+determinant `det(C_e + C_l)` (which carries unequal x/y sizes, unequal focusing, astigmatic
+laser waists and the `psi_focus` rotation between the two ellipses), and the time integral
+collapses to a longitudinal Gaussian of width `D / (1 + beta_0)`. What is left is one
+quadrature over `z` with a strictly positive, smooth integrand — milliseconds, no Monte
+Carlo. Shipped as `engines.analytical.formulas.overlap_yield`; `AnalyticalEngine` now uses
+it instead of the round-beam closed form.
+
+**Two of D035's three growth items are therefore closed** — non-round-beam yield and foci
+displacement. Neither needed new schema state: the electron waist offset is already
+`GaussianElectronBeam.alpha_x`/`alpha_y` and the laser side is already
+`z_fx`/`z_fy`/`psi_focus` (P9). Collimated-spectrum construction stays open. Crossing angle
+stays deferred to §9.3, and `overlap_yield` **raises** on one rather than approximating.
+
+**How it was verified** (the derivation is only as good as its checks):
+- reduces to the round-beam closed form to ~1e-9 against an independently-coded evaluation
+  — the derivation's own strongest test, since the two paths share no code;
+- `_electron_sigma2` agrees with `io.bunch._drift_fit` to machine zero across an
+  alpha × drift grid, which pins the `alpha` **sign** that no symmetric scenario can catch;
+- the yield peaks with the electron waist at +0.0995 cm against a laser focus at +0.1000 cm,
+  independently confirming the relative sign of `alpha` and `z_fx`;
+- convergence checked on a *displaced, non-round, astigmatic, rotated* scenario, not on the
+  aligned baseline where it would pass trivially.
+
+**Found, flagged, not fixed — worth the next session's attention.** The derivation pins the
+laser hourglass coefficient as `sigma_l / z_R` exactly. This repo's
+`GaussianParaxialLaser.rayleigh_x` *and the predecessor's own pulse class* both define
+`z_R = 4 pi sigma^2 / lambda`, but the predecessor's `analytical.py` uses a divergence 4x
+larger — so the predecessor is inconsistent with its own laser model, and the port carried
+that faithfully. On the baseline scenario, where the hourglass is almost entirely
+laser-driven, **it is worth a factor of 3.285 in the yield.** `overlap_yield` is free of it;
+`estimate_yield` keeps it, now with a docstring warning and a test pinning the 3.285 so it
+cannot drift silently (D040). Nothing in the suite before this was sensitive to that term —
+the predecessor pin tests port fidelity, and the Thomson-limit anchor removes the hourglass
+term entirely by construction. **This is a judgement call for the author:** if the correct
+convention is confirmed, the predecessor's published yields are low by that factor.
+
+Full suite: 324 passed, up from 315 (30 in `tests/test_analytical.py`). `DECISIONS.md` gained D039–D040;
+`docs/GRAND_PLAN.md` bumped to v0.20 (§4.3 and §11's Phase 4 row).
+
+**Merge note:** `docs/DERIVATIONS.md` is a new file here *and* an untracked file in the main
+checkout (the parallel Phase 3b session's §9.2/§9.3 material). The two hold independent
+sections — mine is lettered §A precisely so they concatenate; resolve the add/add conflict
+by keeping both.
+
+---
+
 ## How to update this file
 
 - One dated section per work session (or per meaningful chunk of a session).
