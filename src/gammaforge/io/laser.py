@@ -235,10 +235,12 @@ class GaussianParaxialLaser:
     duration: Quantity  # time, RMS intensity duration
     z_fx: Quantity = Quantity(0.0, "cm")  # focal offset of axis 1 along k_hat
     z_fy: Quantity = Quantity(0.0, "cm")  # focal offset of axis 2 along k_hat
-    # Misalignment of the pulse against the bunch, which defines the origin. Transverse
-    # (lab x/y) plus timing is the complete *independent* set: a longitudinal spatial
-    # offset is degenerate with `t_off` for a pulse travelling at c, so there is
-    # deliberately no `z_off` — adding one would duplicate `t_off`, not extend it.
+    # Misalignment of the pulse against the bunch, which defines the origin. There is no
+    # `z_off` because a longitudinal spatial offset is degenerate with `t_off` **given** `z_fx`/`z_fy`: a rigid shift of the pulse by `Delta`
+    # along `k_hat` moves the focus *and* the envelope, so it is exactly
+    # `(z_fx += Delta, z_fy += Delta, t_off += Delta/c)`. Focus position and arrival time
+    # are genuinely independent — coincident foci still miss if the arrival times differ —
+    # and both are present; only the redundant fourth combination is omitted.
     x_off: Quantity = Quantity(0.0, "cm")
     y_off: Quantity = Quantity(0.0, "cm")
     t_off: Quantity = Quantity(0.0, "s")  # pulse centre reaches the origin at t = t_off

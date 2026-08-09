@@ -1191,6 +1191,58 @@ bumped to v0.24.
 
 ---
 
+## 2026-08-09 — Phase 4: z_off reconsidered, and the illumination prefilter
+
+Same worktree/branch. Two follow-ups from review.
+
+**The `z_off` justification was wrong even though the conclusion held.** I had written that
+a longitudinal offset "is degenerate with `t_off` for a pulse travelling at c". That is not
+the reason. The focal plane is fixed in space while the envelope sweeps through it at `c`,
+so **focus position and arrival time are independent** — two pulses whose foci coincide
+exactly still miss if they arrive at different times, and that configuration is real and
+representable (`z_fx = z_fy = 0`, `t_off != 0`). Measured with coincident foci: the yield
+falls to 0.99 at 5 ps, 0.86 at 20 ps, 0.41 at 50 ps and 0.01 at 200 ps, because the beams
+meet a distance `c t_off / 2` from the focus.
+
+What actually makes `z_off` redundant is that a *rigid* shift moves the focus **and** the
+envelope, so it is already `(z_fx += D, z_fy += D, t_off += D/c)`. Three longitudinal
+degrees of freedom, not four. Corrected in `laser.py`, `fields.py`, §A.11 and D046, and
+pinned by two tests — one that coincident foci can still miss in time, one that focus and
+timing shifts are distinguishable.
+
+**Built the illumination prefilter** (D047), which is the idea as actually described: use
+the production profile to define the region, then test whether each particle ever enters it.
+`peak_illumination` returns the highest photon density a particle ever meets as a fraction
+of the pulse peak — closed-form, since frozen widths make the density quadratic in `t` along
+a straight trajectory, so its maximum sits at the stationary point. Same machinery as
+`luminosity_weights`, read at its peak instead of integrated.
+
+**Why it beats the cone, precisely:** the bright region is not the geometric one. Away from
+focus the spot grows but dims as `1/(s1 s2)`, and `active_region` deliberately ignores that
+decay. Measured: on a wide bunch meeting a small displaced pulse the cone keeps 94% of the
+bunch, and the *median* particle it keeps is illuminated below `1e-6` of the peak.
+
+| filter | keeps | induced error |
+|---|---|---|
+| cone, 1e-6 | 94.1% | 0 (exact) |
+| illumination, 1e-6 | 28.4% | 3.5e-4 |
+| weight, 1e-4 | 31.3% | 1.3e-4 |
+
+On a well-matched collision all three keep 100% — correctly, since every electron passes
+through the pulse. Both tolerance filters are kept: illumination is a region test (the
+cone's own contract shape, drop-in, dwell-time independent), weight thresholds integrated
+contribution (directly meaningful when the question is "how much luminosity am I
+discarding"). Neither replaces `prefilter_bunch`, whose exact invariance is a stronger
+guarantee than either.
+
+One caveat found by measuring: the illumination threshold must be set far lower than
+intuition suggests (1e-6, not 1e-3), because many weakly illuminated particles sum to a
+non-negligible contribution though none matters alone.
+
+Full suite: 390 passed, up from 382. `DECISIONS.md` gained D047.
+
+---
+
 ## How to update this file
 
 - One dated section per work session (or per meaningful chunk of a session).

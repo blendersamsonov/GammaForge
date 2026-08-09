@@ -191,9 +191,28 @@ again. A dropped piece **shifts** the answer rather than making it diverge, so t
 regression net is that $\mathsf D=\mathbf 0$ must reproduce the previous result *bit for
 bit*, which is asserted.
 
-**Why there is no $z_{\rm off}$.** For a pulse travelling at $c$, a longitudinal spatial
-offset is the same thing as a timing offset. Three parameters — two transverse and one
-temporal — are the complete independent set; a fourth would duplicate, not extend.
+**Why there is no $z_{\rm off}$ — stated carefully.** It is *not* that a longitudinal
+offset simply equals a timing offset. The focal plane is fixed in space (for
+$\beta_{\rm ff}=0$) while the envelope sweeps through it at $c$, so **focus position and
+arrival time are independent**: two pulses whose foci coincide exactly still miss if they
+arrive at different times, and that is a real, representable configuration
+($z_{fx}=z_{fy}=0$, $t_{\rm off}\neq0$ — measured below).
+
+What makes $z_{\rm off}$ redundant is that a *rigid* shift by $\Delta$ along
+$\hat{\mathbf k}$ moves the focus **and** the envelope together, so it is already
+
+$$
+z_{fx}\to z_{fx}+\Delta,\qquad z_{fy}\to z_{fy}+\Delta,\qquad
+t_{\rm off}\to t_{\rm off}+\Delta/c
+$$
+
+The longitudinal degrees of freedom are therefore three — $z_{fx}$, $z_{fy}$,
+$t_{\rm off}$ — and a fourth would be a linear combination of them, not new physics. Both
+of the user-facing quantities ("where is the focus" and "when does it arrive") are present
+and independent; only the redundant combination is omitted. With coincident foci the yield
+falls purely from the timing slip: $0.99$ at 5 ps, $0.86$ at 20 ps, $0.41$ at 50 ps and
+$0.01$ at 200 ps, since the beams then meet a distance $c\,t_{\rm off}/2$ away from the
+focus.
 
 **Exact check.** With both hourglasses switched off, a transverse misalignment reduces the
 yield by exactly

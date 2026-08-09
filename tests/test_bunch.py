@@ -19,6 +19,8 @@ from gammaforge.io.bunch import (
     chirp_to_correlation,
     dispersion_to_correlation,
     luminosity_weights,
+    peak_illumination,
+    prefilter_by_illumination,
     prefilter_by_luminosity,
     drift,
     fit_gaussian,
@@ -645,3 +647,72 @@ def test_prefilter_by_luminosity_rejects_a_nonsense_epsilon():
     for bad in (0.0, 1.0, -0.5):
         with pytest.raises(ValueError, match="epsilon"):
             prefilter_by_luminosity(bunch, laser, bad)
+
+
+def test_peak_illumination_is_a_fraction_of_the_pulse_peak():
+    """Dimensionless and bounded: 1 means a particle passes through the focus at the peak
+    of the pulse, and nothing can exceed that."""
+    beam, laser = _wide_mismatched()
+    bunch = sample_gaussian_bunch(beam, 20_000, 0)
+    frac = peak_illumination(bunch, laser)
+    # >= 0 rather than > 0: a particle far enough out underflows to exactly zero, which is
+    # the correct answer for one that never meaningfully meets the pulse.
+    assert np.all(frac >= 0.0) and np.all(np.isfinite(frac))
+    assert frac.max() <= 1.0 + 1e-9
+    assert frac.max() > 1e-3  # some particle does get reasonably well illuminated
+
+
+def test_peak_illumination_sees_the_dimming_the_cone_ignores():
+    """The point of the whole idea. `active_region` bounds the pulse geometrically and
+    deliberately ignores the `1/(s1 s2)` amplitude decay, so it keeps particles sitting in
+    the large-but-dim diverged beam. Peak illumination includes that decay, so a particle
+    far from focus scores far below one near it even when both are 'inside' the cone."""
+    beam, laser = _wide_mismatched()
+    bunch = sample_gaussian_bunch(beam, 40_000, 0)
+    inside_cone = prefilter_bunch(bunch, laser, 1e-6)
+    frac = peak_illumination(inside_cone, laser)
+    # the cone keeps most of the bunch, yet most of what it keeps is barely illuminated
+    assert inside_cone.n_particles > 0.8 * bunch.n_particles
+    assert np.median(frac) < 1e-6
+
+
+def test_prefilter_by_illumination_matches_the_cone_when_nothing_should_be_dropped():
+    """On a well-matched collision every electron passes through the pulse, so a correct
+    filter keeps everything — exactly as the cone does. A filter that trims here would be
+    discarding real signal."""
+    from gammaforge.validation import scenarios
+
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    bunch = sample_gaussian_bunch(beam, 20_000, 0)
+    assert prefilter_bunch(bunch, laser, 1e-6).n_particles == bunch.n_particles
+    assert prefilter_by_illumination(bunch, laser, 1e-6).n_particles == bunch.n_particles
+
+
+def test_prefilter_by_illumination_is_far_tighter_where_the_cone_is_loose():
+    beam, laser = _wide_mismatched()
+    bunch = sample_gaussian_bunch(beam, 60_000, 0)
+    cone = prefilter_bunch(bunch, laser, 1e-6)
+    bright = prefilter_by_illumination(bunch, laser, 1e-6)
+    assert bright.n_particles < 0.4 * cone.n_particles
+
+
+def test_prefilter_by_illumination_is_monotone_and_validated():
+    beam, laser = _wide_mismatched()
+    bunch = sample_gaussian_bunch(beam, 20_000, 0)
+    counts = [prefilter_by_illumination(bunch, laser, thr).n_particles
+              for thr in (1e-2, 1e-4, 1e-6)]
+    assert counts[0] < counts[1] < counts[2]
+    for bad in (0.0, 1.0, -1.0):
+        with pytest.raises(ValueError, match="threshold"):
+            prefilter_by_illumination(bunch, laser, bad)
+
+
+def test_illumination_filter_follows_a_misaligned_pulse():
+    """Offsets must reach the filter, or it would keep the wrong particles entirely: with
+    the pulse displaced transversely the surviving particles sit around the new axis."""
+    beam, laser = _wide_mismatched()
+    shifted = dataclasses.replace(laser, x_off=Q(300.0, "um"))
+    bunch = sample_gaussian_bunch(beam, 40_000, 0)
+    kept = prefilter_by_illumination(bunch, shifted, 1e-6)
+    assert kept.n_particles > 100
+    assert kept.x.mean() > 0.5 * shifted.m("x_off")

@@ -635,6 +635,42 @@ def test_a_timing_offset_and_a_crossing_angle_do_not_act_independently():
     assert loss(0.05) < loss(0.0)
 
 
+def test_coincident_foci_can_still_miss_in_time():
+    """Focus position and arrival time are independent, which is why omitting `z_off` costs
+    nothing but omitting `t_off` would have cost a lot.
+
+    Here the foci coincide *exactly* — laser at `z_f = 0`, bunch at its waist — and only the
+    arrival time differs. The beams then meet a distance `c t_off / 2` from the focus, so the
+    yield falls monotonically to nothing. A parametrization that treated a longitudinal
+    displacement as purely a focus shift could not express this configuration at all."""
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    N_e = beam.n_electrons()
+    assert laser.m("z_fx") == 0.0 and beam.alpha_x == 0.0  # foci really do coincide
+
+    yields = [overlap_yield(beam, replace(laser, t_off=Quantity(ps, "ps")), N_e)
+              for ps in (0.0, 20.0, 50.0, 200.0)]
+    assert yields[0] > yields[1] > yields[2] > yields[3]
+    assert yields[3] < 0.05 * yields[0]
+
+
+def test_focus_shift_and_timing_shift_are_independent_knobs():
+    """The other half of the same statement: shifting the focus and slipping the timing are
+    different physical changes, so a rigid translation — which does both — is their
+    combination rather than a third independent parameter."""
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    N_e = beam.n_electrons()
+    delta = 0.2  # cm
+    focus_only = replace(laser, z_fx=Quantity(delta, "cm"), z_fy=Quantity(delta, "cm"))
+    time_only = replace(laser, t_off=Quantity(delta / C_CGS, "s"))
+    rigid = replace(focus_only, t_off=Quantity(delta / C_CGS, "s"))
+
+    y_focus = overlap_yield(beam, focus_only, N_e)
+    y_time = overlap_yield(beam, time_only, N_e)
+    y_rigid = overlap_yield(beam, rigid, N_e)
+    assert y_focus != pytest.approx(y_time, rel=1e-3)
+    assert y_rigid < min(y_focus, y_time)
+
+
 def test_offsets_reach_the_engine_and_reduce_its_yield():
     interaction = _interaction(outputs=(OutputRequest(OutputKind.TOTAL_YIELD),))
     engine = AnalyticalEngine()

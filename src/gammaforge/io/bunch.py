@@ -62,6 +62,8 @@ __all__ = [
     "overlap_time_window",
     "prefilter_bunch",
     "luminosity_weights",
+    "peak_illumination",
+    "prefilter_by_illumination",
     "prefilter_by_luminosity",
     "drift",
     "propagate",
@@ -616,6 +618,83 @@ def luminosity_weights(bunch: Bunch, laser, iterations: int = 2) -> np.ndarray:
         t_star = -b / a
         u_eval = u0 + (du + metrics.beta_ff * C_CGS) * t_star
     return (C_CGS - du) / (s1 * s2 * np.sqrt(a)) * np.exp(0.5 * (b**2 / a - c))
+
+
+def peak_illumination(bunch: Bunch, laser, iterations: int = 2) -> np.ndarray:
+    """The highest photon density each macroparticle ever meets, as a fraction of the
+    pulse's own peak — i.e. "how far into the production region does this particle get".
+
+    The region where Compton photons are actually produced is where the pulse is *bright*,
+    and that is **not** the region the pulse geometrically occupies. Away from focus the
+    spot grows but dims as ``1 / (s1 s2)``, so a particle can sit well inside the diverged
+    beam and still see almost nothing. `GaussianParaxialLaser.active_region` deliberately
+    ignores that decay (its docstring says so) because a bound may only ever err towards
+    keeping particles — which is correct, but leaves the cone keeping a lot of particles
+    that contribute nothing.
+
+    This measures the real thing instead: maximise the photon density along each particle's
+    straight-line trajectory. Frozen widths make the exponent quadratic in ``t``, so the
+    maximum is closed-form at ``t* = -b/a`` — the same machinery as
+    :func:`luminosity_weights`, read at its peak rather than integrated.
+
+    Returns a dimensionless ratio in ``(0, 1]``: 1 for a particle that passes exactly
+    through the focus at the peak of the pulse.
+    """
+    from .laser import fit_gaussian_paraxial
+
+    metrics = fit_gaussian_paraxial(laser)
+    k_hat, f1, f2 = metrics.focusing_axes()
+    px, py, pz = momenta(bunch)
+    vx, vy, vz = (C_CGS * p / bunch.gamma for p in (px, py, pz))
+
+    x = bunch.x - metrics.m("x_off")
+    y = bunch.y - metrics.m("y_off")
+    ct_off = C_CGS * metrics.m("t_off")
+    xi1 = f1[0] * x + f1[1] * y + f1[2] * bunch.z
+    xi2 = f2[0] * x + f2[1] * y + f2[2] * bunch.z
+    u0 = k_hat[0] * x + k_hat[1] * y + k_hat[2] * bunch.z
+    d1 = f1[0] * vx + f1[1] * vy + f1[2] * vz
+    d2 = f2[0] * vx + f2[1] * vy + f2[2] * vz
+    du = k_hat[0] * vx + k_hat[1] * vy + k_hat[2] * vz
+    s_ct = metrics.sigma_ct()
+
+    u_eval = np.zeros_like(bunch.x)
+    for _ in range(max(1, iterations)):
+        s1, s2 = metrics.spot_sizes(u_eval)
+        a = d1**2 / s1**2 + d2**2 / s2**2 + (du - C_CGS) ** 2 / s_ct**2
+        b = xi1 * d1 / s1**2 + xi2 * d2 / s2**2 + (u0 + ct_off) * (du - C_CGS) / s_ct**2
+        c = xi1**2 / s1**2 + xi2**2 / s2**2 + (u0 + ct_off) ** 2 / s_ct**2
+        t_star = -b / a
+        u_eval = u0 + (du + metrics.beta_ff * C_CGS) * t_star
+    # density relative to the pulse's own maximum: the exponential, times the 1/(s1 s2)
+    # amplitude decay that makes the bright region so much smaller than the geometric one.
+    brightness = (metrics.m("sigma_x") * metrics.m("sigma_y")) / (s1 * s2)
+    return brightness * np.exp(0.5 * (b**2 / a - c))
+
+
+def prefilter_by_illumination(bunch: Bunch, laser, threshold: float = 1e-3) -> Bunch:
+    """Drop macroparticles that never reach the region where photons are actually produced.
+
+    Same *shape* of contract as `prefilter_bunch` — a threshold on intensity, a region test,
+    over-inclusive by construction — but the region is the pulse's **bright** volume rather
+    than a geometric cone around it, so it is far tighter wherever the pulse diverges. A
+    particle is kept if the photon density it meets ever exceeds ``threshold`` times the
+    pulse's own peak (:func:`peak_illumination`).
+
+    This is the natural filter now that the collision profiles are available analytically:
+    it asks the question the cone approximates, and answers it in closed form. Against the
+    cone at matched threshold, on a 400 um bunch meeting a 4 um / 1 ps pulse with displaced
+    foci, it keeps a small fraction of what the cone does at a comparable induced error.
+
+    Not a replacement for `prefilter_bunch`'s exact invariance: like
+    :func:`prefilter_by_luminosity` it drops small-but-nonzero contributions, so the answer
+    moves by roughly ``threshold``. Unlike that one it thresholds *peak illumination* rather
+    than *integrated contribution*, which is what makes it a region test — cheaper to reason
+    about, and independent of how long a particle dwells in the beam.
+    """
+    if not 0.0 < threshold < 1.0:
+        raise ValueError(f"prefilter_by_illumination: threshold must be in (0, 1), got {threshold}")
+    return bunch.select(peak_illumination(bunch, laser) >= threshold)
 
 
 def prefilter_by_luminosity(bunch: Bunch, laser, epsilon: float = 1e-4) -> Bunch:
