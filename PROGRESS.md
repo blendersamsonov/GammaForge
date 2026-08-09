@@ -1116,6 +1116,40 @@ bumped to v0.23.
 
 ---
 
+## 2026-08-09 — Phase 4: luminosity-weight particle filter (measured, then landed)
+
+Same worktree/branch. Idea: rank macroparticles by their actual contribution instead of
+bounding them with a geometric cone.
+
+**Closed form, so it is cheap.** Each particle's expected luminosity contribution is
+`w_i = Int dt n_L(r_i + v_i t, t) (c - v_i . k)`, and freezing the spot sizes makes that
+integrand Gaussian in `t` — one vectorized pass, no time stepping, `O(n_particles)`. The
+frozen widths are taken at each particle's own closest approach (stationary point, iterated
+twice). `io.bunch.luminosity_weights`.
+
+**It is a different contract from `prefilter_bunch`, and that is the load-bearing point.**
+The cone drops only particles proven to contribute exactly zero, so results are
+bit-identical with it on or off — a tested invariance. A relevance ranking drops particles
+that contribute a little. Both now exist side by side; the cone is untouched and remains
+the default (D045).
+
+**Measured, and the answer is "it depends", quantitatively:**
+
+| scenario | cone keeps | weight keeps (<=1.3e-4 induced error) |
+|---|---|---|
+| well-matched baseline | 100% | no headroom — nothing to discard |
+| 400 um bunch vs 4 um / 1 ps pulse | 36% | **4.7%** |
+| same, with displaced foci | 94% | **31%** |
+
+The third row is the real case: a displaced focus forces the cone to widen conservatively
+to 94%, while ranking by relevance keeps 31% at 1.3e-4 error (42% at 7.5e-6). So this is
+worth reaching for exactly when the geometry is mismatched, and worth nothing when it is
+not — which is the honest recommendation rather than "more precise than the cone".
+
+Full suite: 369 passed, up from 364. `DECISIONS.md` gained D045.
+
+---
+
 ## How to update this file
 
 - One dated section per work session (or per meaningful chunk of a session).
