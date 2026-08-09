@@ -42,10 +42,11 @@ the coordinates along the focusing axes. For the bunch:
 
     n_e = N_e / ((2 pi)^{3/2} sigma_ex(z) sigma_ey(z) sigma_ez) exp(-x^2/(2 sigma_ex^2(z)) - y^2/(2 sigma_ey^2(z)) - (z - beta_0 ct)^2/(2 sigma_ez^2))
 
-**Scope.** Head-on (`theta_xz = theta_yz = 0`, so `k_hat = -z` and `u = -z`) and no
-flying focus (`beta_ff = 0`). Both are enforced by `overlap_yield`, not assumed silently:
-a crossing angle is `GRAND_PLAN.md` §9.3's open item, and `beta_ff != 0` makes
-`u_spot = u + beta_ff ct` time-dependent, which destroys the time integration in §A.3.
+**Scope.** §A.2–§A.5 are written head-on (`theta_xz = theta_yz = 0`, so `k_hat = -z` and
+`u = -z`), which is the clearest way to see the structure; **§A.6 generalizes to a
+crossing angle** and is what `overlap_yield` actually implements. Excluded throughout:
+`beta_ff != 0`, which makes `u_spot = u + beta_ff ct` time-dependent and destroys the
+time integration in §A.3 — `overlap_yield` raises on it rather than assuming it away.
 
 ### A.2 The transverse integrals: two Gaussians, one determinant
 
@@ -149,3 +150,75 @@ value is precisely that it reproduces the predecessor (`DECISIONS.md` D040).
 Nothing in the pre-existing test suite was sensitive to this: the predecessor pin checks
 port fidelity, and the Thomson-limit anchor deliberately drives `nu -> infinity`, which
 removes the hourglass term altogether.
+
+### A.6 Crossing angle
+
+**Status: implemented.** A crossing angle changes the *geometry* of the overlap, which is
+a solvable Gaussian problem. It is a separate question from `GRAND_PLAN.md` §9.3, whose
+open item is the polarization structure of the **emission kernel** — what spectrum comes
+out at an angle. The §9.2/§9.3 notes elsewhere in this file record that the
+relative-velocity factor and the resonance frequency are already general in the paper, so
+nothing there blocks the luminosity.
+
+Write the whole exponent as a quadratic form instead of tracking terms one at a time. At
+fixed `t` the two densities contribute
+
+    M_e(z) = xx^T/sigma_ex^2(z) + yy^T/sigma_ey^2(z) + zz^T/sigma_ez^2
+    M_l(u) = f1 f1^T/s_1^2(u) + f2 f2^T/s_2^2(u) + k k^T/s_ct^2
+
+with `(k_hat, f1, f2)` from `lab_frame_axes` — head-on `k_hat = -z` recovers §A.2. The
+`t`-dependence is entirely in the two longitudinal terms, and collecting it gives
+
+    E = r^T M r / 2 - ct (g . r) + h (ct)^2 / 2,
+    g = beta_0 zhat/sigma_ez^2 + khat/s_ct^2,   h = beta_0^2/sigma_ez^2 + 1/s_ct^2
+
+so the time integral is Gaussian and simply replaces `M` by
+
+    M' = M - g g^T / h
+
+Integrating the two transverse directions out of `M'` leaves its upper-left 2x2 block `A`
+and the Schur complement `S = M'_zz - b^T A^-1 b` with `b = (M'_xz, M'_yz)`:
+
+    N = sigma_T (1 + beta_0) N_e N_L sqrt(2 pi / h) / (4 pi^2 sigma_ez sigma_lz)
+        * Int dz exp(-S(z) z^2 / 2) / (sigma_ex sigma_ey s_1 s_2 sqrt(det A(z)))
+
+**This is not a second code path.** Head-on it collapses to §A.4 identically: `A` becomes
+diagonal, `b = 0`, `sigma_ex sigma_ey s_1 s_2 sqrt(det A) = sqrt(det(C_e + C_l))`, and
+
+    S = ab'(1+beta_0)^2/(beta_0^2 a + b') = (1+beta_0)^2/D^2,   a = 1/sigma_ez^2, b' = 1/s_ct^2
+
+with the prefactors matching through `4 pi^2 / sqrt(2 pi) = 2 pi sqrt(2 pi)`.
+`overlap_yield` therefore evaluates one expression for every geometry.
+
+**The one approximation.** The bunch's hourglass varies along `z`; the pulse's varies
+along `u = k_hat . r`. With a crossing angle these are different directions, so an exact
+reduction leaves a **2D** quadrature — "everything analytic but one integral" is a
+head-on statement. The spot sizes are therefore sampled at `u = (k_hat . zhat) z`,
+dropping `delta = k_x x + k_y y`. Nothing in the *exponent* is approximated, including the
+`xi_1 ~ x cos - z sin` term that produces the entire crossing-angle suppression; only the
+argument of the slowly varying widths is.
+
+The relevant bound is `delta / z_R`, **not** `delta / sigma_z` — the widths vary on the
+Rayleigh scale — and it is not always small: a 0.4 rad crossing with a 2 um waist and a
+200 um bunch puts it at 1.6. Measured rather than argued
+(`test_crossing_angle_width_sampling_approximation_is_negligible`), the yield still moves
+by `< 1.3e-4` even there, because the dropped term enters an *even*, slowly varying
+prefactor, so its first-order effect cancels; a coherent `+/- delta` probe is already a
+conservative overestimate of a term whose true mean is zero.
+
+**Verification** — three independent checks, in increasing generality:
+
+| check | what it isolates | agreement |
+|---|---|---|
+| constant-width closed form (3x3 determinant, no quadrature) | the crossing geometry alone | ~1e-14, to 0.4 rad, both planes |
+| Piwinski `1/sqrt(1 + (sigma_s tan θ / sigma_perp)^2)` | that the suppression is the known physics | 1e-6 at 2 mrad (the formula is itself small-angle) |
+| brute-force Monte Carlo over `GaussianParaxialLaser.photon_density` with real macroparticles | everything at once, sharing no algebra | few 1e-4, converged separately in particle count and time grid |
+
+The suppression is large and worth internalizing. At the baseline scenario (3 mm bunch,
+10 um spots) the yield falls by a factor 1.07 at 5 mrad, **2.18 at 20 mrad** and 5.77 at
+50 mrad — the geometric cost of crossing dominates anything else in this model.
+
+**What is still head-on.** The emitted spectrum. `AnalyticalEngine` normalizes `SPECTRUM`
+to this yield, so with a crossing angle the slice's *integral* is right while its *shape*
+is not — a combination that looks more correct than it is, which is why the engine reports
+it on `Results.model_specific["warnings"]` rather than leaving it to `io.laser.validate`.

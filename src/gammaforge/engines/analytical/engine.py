@@ -83,7 +83,32 @@ class AnalyticalEngine:
                 "spectrum_width_fwhm": width,
                 "a0_peak": metrics.a0_peak(),
                 "n_photons": metrics.n_photons(),
+                "warnings": self._geometry_warnings(metrics, slices),
             },
+        )
+
+    @staticmethod
+    def _geometry_warnings(metrics, slices) -> tuple[str, ...]:
+        """Where this engine's answer is only partly covered by its own derivation.
+
+        `overlap_yield` handles a crossing angle exactly, so `TOTAL_YIELD` is right. The
+        emitted *spectrum* is a different question — `GRAND_PLAN.md` §9.3's open item is
+        the polarization structure of the emission kernel — so `SPECTRUM`'s **shape** is
+        still head-on while its integral is correct. That combination looks more right than
+        it is, which is exactly why it is reported rather than left to
+        `io.laser.validate()`: nothing forces a caller to run that, and this engine is the
+        one that knows both quantities were just mixed. Returned as strings on `Results`,
+        following this repo's convention that validation reports rather than raises
+        (`io.laser.validate`/`io.bunch.validate` both return `list[str]`).
+        """
+        if metrics.m("theta_xz") == 0.0 and metrics.m("theta_yz") == 0.0:
+            return ()
+        if OutputKind.SPECTRUM not in slices:
+            return ()
+        return (
+            "SPECTRUM was computed with a nonzero crossing angle: its integral (the total "
+            "yield) accounts for the crossing geometry exactly, but its shape is still the "
+            "head-on kinematics — GRAND_PLAN.md §9.3's emission-kernel derivation is open.",
         )
 
     def _fill(

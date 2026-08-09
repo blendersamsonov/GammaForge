@@ -950,6 +950,57 @@ by keeping both.
 
 ---
 
+## 2026-08-09 — Phase 4: the crossing angle, and a brute-force overlap check
+
+Same worktree/branch. The previous session deferred the crossing angle to §9.3; that was
+wrong, and this session says so. §9.3's open item is the polarization structure of the
+**emission kernel**. The **overlap geometry** is a separate, entirely solvable Gaussian
+problem — and `docs/DERIVATIONS.md`'s own §9.3 notes (from the parallel 3b session) already
+record that the relative-velocity factor and the resonance frequency are general in the
+paper. The yield was never blocked.
+
+**Implemented** (`docs/DERIVATIONS.md` §A.6): the overlap integral rewritten as a quadratic
+form. Eliminating time replaces `M` by `M - g g^T / h`, and the transverse integrals leave
+a 2x2 determinant and a Schur complement. That single expression covers **every** geometry,
+with head-on falling out as an identity — the strongest evidence being that no head-on test
+changed when this landed, including the exact reduction to the round-beam closed form.
+
+**One approximation, stated and measured.** With a crossing angle the two hourglasses vary
+along different directions (`z` for the bunch, `u = k_hat . r` for the pulse), so an exact
+reduction leaves a **2D** quadrature — "everything analytic but one integral" is a head-on
+statement. The spot sizes are sampled at `u = (k_hat . zhat) z`; the exponent stays exact,
+so the whole crossing-angle suppression is exact. The bound is `delta / z_R`, not
+`delta / sigma_z`, and it is *not* always small — a 0.4 rad crossing with a 2 um waist and a
+200 um bunch puts it at 1.6. Measured rather than argued: the yield still moves by < 1.3e-4
+there, because the dropped term enters an even, slowly varying prefactor.
+
+**Validated three ways, in increasing generality:**
+- a constant-width closed form (3x3 determinant, no quadrature) — isolates the crossing
+  geometry: agreement ~1e-14 out to 0.4 rad, in both crossing planes and combined;
+- the Piwinski suppression `1/sqrt(1 + (sigma_s tan(theta)/sigma_perp)^2)` — confirms it is
+  the known physics, to 1e-6 at 2 mrad (that formula is itself small-angle);
+- **a brute-force Monte Carlo** over `GaussianParaxialLaser.photon_density` with real
+  sampled macroparticles, sharing no algebra with `formulas.py` — a few 1e-4, converged
+  separately in particle count and in time grid so a passing result cannot be a t-grid
+  artifact. This is now a committed test, parametrized over head-on, a crossing angle, and
+  a crossing angle combined with non-round/astigmatic/displaced/rotated foci.
+
+**The effect is large.** At the baseline scenario the yield falls by 1.07x at 5 mrad,
+**2.18x at 20 mrad**, 5.77x at 50 mrad. Any scenario quoting a crossing angle needs this.
+
+**Scope, explicitly.** The crossing angle is covered for the **total yield**. `SPECTRUM`'s
+*shape* is still head-on while its integral is now correct — the engine normalizes the
+slice to the yield, so that combination looks more right than it is, and
+`AnalyticalEngine` now reports it on `Results.model_specific["warnings"]` rather than
+leaving it to `io.laser.validate()`. This also resolves the inconsistency the previous
+session introduced, where analytical raised on a crossing angle while xigma warned and
+proceeded.
+
+Full suite: 338 passed, up from 324. `DECISIONS.md` gained D041 (superseding D039's
+crossing-angle refusal; the `beta_ff` refusal stands); `docs/GRAND_PLAN.md` bumped to v0.21.
+
+---
+
 ## How to update this file
 
 - One dated section per work session (or per meaningful chunk of a session).

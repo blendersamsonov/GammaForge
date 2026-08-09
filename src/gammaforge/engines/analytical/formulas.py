@@ -193,6 +193,60 @@ def overlap_det(beam: GaussianElectronBeam, laser: GaussianParaxialLaser, z):
     return (ex2 + c_xx) * (ey2 + c_yy) - c_xy**2
 
 
+def _overlap_quadratic_form(beam: GaussianElectronBeam, laser: GaussianParaxialLaser, z, u_shift: float = 0.0):
+    """The reduced integrand of the overlap integral at lab positions ``z``.
+
+    Returns ``(S, det_A, sigma_ex, sigma_ey, s1, s2)`` where the longitudinal weight is
+    ``exp(-S z^2 / 2)`` and the transverse integrals have contributed
+    ``1 / sqrt(det_A)``. See `docs/DERIVATIONS.md` §A.6; in outline, at fixed ``t`` the
+    combined exponent is a quadratic form ``r^T M r / 2`` in lab coordinates with
+
+        M_e = xx^T/sigma_ex^2(z) + yy^T/sigma_ey^2(z) + zz^T/sigma_ez^2
+        M_l = f1 f1^T/s1^2(u) + f2 f2^T/s2^2(u) + k k^T/s_ct^2
+
+    Doing the (Gaussian) time integral first replaces ``M`` by ``M' = M - g g^T / h`` with
+    ``g = beta_0 zhat/sigma_ez^2 + khat/s_ct^2`` and ``h = beta_0^2/sigma_ez^2 + 1/s_ct^2``;
+    integrating the two transverse directions out of ``M'`` then leaves ``det_A`` (its
+    upper-left 2x2 block) and the Schur complement ``S = M'_zz - b^T A^-1 b``.
+
+    Head-on this collapses to the §A.4 result exactly — ``S = (1 + beta_0)^2 / D^2`` and
+    ``sigma_ex sigma_ey s1 s2 sqrt(det_A) = sqrt(det(C_e + C_l))`` — which is why the
+    crossing-angle generalization did not need a second code path.
+
+    ``u_shift`` displaces the point at which the *slowly varying* spot sizes are sampled;
+    it exists so `tests/test_analytical.py` can measure the one approximation this
+    function makes (see :func:`overlap_yield`), not for production use.
+    """
+    z = np.asarray(z, dtype=float)
+    k_hat, f1, f2 = laser.focusing_axes()
+    beta_0 = beam.beta0()
+    inv_sez2 = 1.0 / beam.m("sigma_z") ** 2
+    s_ct = laser.sigma_ct()
+    inv_sct2 = 1.0 / s_ct**2
+
+    ex2, ey2 = _electron_sigma2(beam, z)
+    s1, s2 = laser.spot_sizes(k_hat[2] * z + u_shift)
+
+    g = beta_0 * np.array([0.0, 0.0, 1.0]) * inv_sez2 + k_hat * inv_sct2
+    h = beta_0**2 * inv_sez2 + inv_sct2
+
+    def m_prime(i: int, j: int):
+        diag_e = (1.0 / ex2 if i == 0 else 1.0 / ey2 if i == 1 else inv_sez2) if i == j else 0.0
+        return (
+            diag_e
+            + f1[i] * f1[j] / s1**2
+            + f2[i] * f2[j] / s2**2
+            + k_hat[i] * k_hat[j] * inv_sct2
+            - g[i] * g[j] / h
+        )
+
+    a00, a01, a11 = m_prime(0, 0), m_prime(0, 1), m_prime(1, 1)
+    b0, b1 = m_prime(0, 2), m_prime(1, 2)
+    det_a = a00 * a11 - a01**2
+    schur = m_prime(2, 2) - (a11 * b0**2 - 2.0 * a01 * b0 * b1 + a00 * b1**2) / det_a
+    return schur, det_a, np.sqrt(ex2), np.sqrt(ey2), s1, s2, h
+
+
 def _overlap_grid(beam, laser, sigma_z_eff: float, n_quad: int) -> np.ndarray:
     """Quadrature nodes for :func:`overlap_yield`, resolving every longitudinal scale.
 
@@ -205,19 +259,41 @@ def _overlap_grid(beam, laser, sigma_z_eff: float, n_quad: int) -> np.ndarray:
     of a grid over the Gaussian support and one locally refined window per waist — which
     keeps convergence independent of how the foci are placed, not merely true at the
     aligned default.
+
+    With a crossing angle two further things change and both are handled here rather than
+    assumed away. The longitudinal weight is no longer ``exp(-z^2/2 sigma_z_eff^2)`` but
+    ``exp(-S(z) z^2/2)``, and `S` is not monotonic once foci are displaced — so the extent
+    comes from a coarse pre-scan (``1/sqrt(min S)``) and the refined core from
+    ``1/sqrt(max S)``, neither of them from an assumed inequality. And the crossing angle
+    introduces a **new** longitudinal scale, ``s_i / sin(theta)``: the bunch's longitudinal
+    extent maps into the pulse's *transverse* coordinate through ``xi_1 ~ x cos - z sin``,
+    which is the whole Piwinski suppression, and it can be far shorter than every other
+    scale here. A grid windowed only on the waists would silently under-resolve exactly
+    the effect the crossing angle is about.
     """
-    span = 8.0 * sigma_z_eff
+    scan = np.linspace(-12.0 * sigma_z_eff, 12.0 * sigma_z_eff, 401)
+    schur = _overlap_quadratic_form(beam, laser, scan)[0]
+    schur = schur[np.isfinite(schur) & (schur > 0.0)]
+    span = 8.0 / math.sqrt(float(np.min(schur))) if schur.size else 8.0 * sigma_z_eff
     grids = [np.linspace(-span, span, n_quad)]
 
     beta_0x = beam.m("sigma_x") ** 2 / beam.m("emit_x")
     beta_0y = beam.m("sigma_y") ** 2 / beam.m("emit_y")
-    waists = (
+    windows = [
         (beam.alpha_x * beta_0x / (1.0 + beam.alpha_x**2), beta_0x / (1.0 + beam.alpha_x**2)),
         (beam.alpha_y * beta_0y / (1.0 + beam.alpha_y**2), beta_0y / (1.0 + beam.alpha_y**2)),
         (-laser.m("z_fx"), laser.rayleigh_x()),
         (-laser.m("z_fy"), laser.rayleigh_y()),
-    )
-    for center, scale in waists:
+    ]
+    if schur.size:
+        windows.append((0.0, 1.0 / math.sqrt(float(np.max(schur)))))
+    k_hat, _, _ = laser.focusing_axes()
+    sin_cross = math.hypot(k_hat[0], k_hat[1])
+    if sin_cross > 0.0:
+        windows.append((0.0, laser.m("sigma_x") / sin_cross))
+        windows.append((0.0, laser.m("sigma_y") / sin_cross))
+
+    for center, scale in windows:
         lo = max(center - 8.0 * scale, -span)
         hi = min(center + 8.0 * scale, span)
         if hi > lo:
@@ -234,41 +310,51 @@ def overlap_yield(
     and aligned-foci approximations and keeps the collision geometry exactly as
     `gammaforge.io` already describes it — per-axis bunch sizes and emittances, per-axis
     Twiss ``alpha`` (electron waist displacement), per-axis laser waists and Rayleigh
-    ranges, astigmatic ``z_fx``/``z_fy`` focal offsets, and the ``psi_focus`` rotation
-    between the two transverse ellipses. Head-on only (see the guards below).
+    ranges, astigmatic ``z_fx``/``z_fy`` focal offsets, the ``psi_focus`` rotation between
+    the two transverse ellipses, **and a crossing angle** (``theta_xz``/``theta_yz``).
 
     Derivation in `docs/DERIVATIONS.md` §A. In outline: the yield is
-    ``sigma_T (1 + beta_0) c`` times the space-time overlap of the two densities; the two
-    transverse integrals are Gaussian and collapse to ``1 / (2 pi sqrt(det(C_e + C_l)))``
-    (:func:`overlap_det`), and the time integral is Gaussian and collapses to a
-    longitudinal weight of width ``sigma_z_eff = D / (1 + beta_0)`` with
-    ``D = sqrt(sigma_ez^2 + beta_0^2 sigma_lz^2)``. What is left is the single
-    longitudinal quadrature this function evaluates::
+    ``sigma_T (1 + beta_0) c`` times the space-time overlap of the two densities, whose
+    combined exponent is a quadratic form in ``(x, y, z, t)``. The time integral and the
+    two transverse integrals are Gaussian and close analytically
+    (:func:`_overlap_quadratic_form`), leaving one longitudinal quadrature::
 
-        N = sigma_T (1 + beta_0) N_e N_L / (2 pi sqrt(2 pi) D)
-            * Int dz exp(-z^2 / (2 sigma_z_eff^2)) / sqrt(det(C_e(z) + C_l(z)))
+        N = sigma_T (1 + beta_0) N_e N_L sqrt(2 pi / h) / (4 pi^2 sigma_ez sigma_lz)
+            * Int dz exp(-S(z) z^2 / 2) / (sigma_ex sigma_ey s1 s2 sqrt(det A(z)))
 
     The integrand is strictly positive and smooth, so a fixed grid converges fast and
     monotonically — there is no cancellation to lose precision to.
 
-    In the round, aligned, ``alpha = 0`` limit this reduces **analytically** to
-    :func:`estimate_yield`'s closed form with ``nu = L (1 + beta_0) / (sqrt(2) D)``, and
-    `tests/test_analytical.py` pins that reduction numerically to ~1e-12 rather than
-    asserting it in a comment.
+    Head-on, ``S = (1 + beta_0)^2 / D^2`` and the widths regroup into
+    ``sqrt(det(C_e + C_l))`` (:func:`overlap_det`), recovering the simpler §A.4 form; in
+    the round, aligned, ``alpha = 0`` limit that reduces **analytically** to
+    :func:`estimate_yield`'s closed form. `tests/test_analytical.py` pins both reductions
+    numerically rather than asserting them in a comment.
 
-    Raises ``ValueError`` for a crossing angle (``theta_xz``/``theta_yz`` nonzero) or a
-    flying focus (``beta_ff`` nonzero). Neither is an oversight: a crossing angle is
-    `GRAND_PLAN.md` §9.3's open derivation, and a flying focus makes the spot-size
-    evaluation point ``u_spot = u + beta_ff * ct`` time-dependent, which is precisely what
-    breaks the analytic time integration this whole result rests on. Refusing beats
-    returning a number whose derivation does not apply (P14c).
+    **The one approximation.** With a crossing angle the bunch's hourglass varies along
+    ``z`` while the pulse's varies along ``u = k_hat . r``, which are different directions;
+    an exact reduction would leave a 2D quadrature. The spot sizes are therefore sampled at
+    ``u = (k_hat . zhat) z``, dropping the transverse contribution
+    ``delta = k_x x + k_y y``. Everything in the *exponent* stays exact, including the
+    ``xi_1 ~ x cos - z sin`` term that produces the whole crossing-angle (Piwinski)
+    suppression — only the argument of the slowly varying widths is approximated, and the
+    error is second order in ``delta / z_R``. That ratio, not ``delta / sigma_z``, is what
+    must be small: `test_crossing_angle_width_sampling_approximation_is_negligible`
+    measures the resulting shift directly, at deliberately adversarial parameters. The
+    regime to watch is a large crossing angle with a tight focus and a wide bunch.
+
+    Raises ``ValueError`` for a flying focus (``beta_ff`` nonzero), which makes the
+    spot-size evaluation point ``u_spot = u + beta_ff * ct`` time-dependent and so breaks
+    the time integration this result rests on. Refusing beats returning a number whose
+    derivation does not apply (P14c).
+
+    .. note::
+
+       A crossing angle is covered **for the total yield**. It is not covered for the
+       emitted *spectrum*: `GRAND_PLAN.md` §9.3's open item is the polarization structure
+       of the emission kernel, a different question from this overlap geometry.
+       `AnalyticalEngine` says so on the `Results` when both are in play.
     """
-    if laser.m("theta_xz") != 0.0 or laser.m("theta_yz") != 0.0:
-        raise ValueError(
-            "overlap_yield: the overlap integral is derived head-on; a crossing angle "
-            f"(theta_xz={laser.m('theta_xz')!r}, theta_yz={laser.m('theta_yz')!r}) is "
-            "GRAND_PLAN.md §9.3's open derivation, not something this closed form covers"
-        )
     if laser.beta_ff != 0.0:
         raise ValueError(
             f"overlap_yield: a flying focus (beta_ff={laser.beta_ff!r}) makes the spot size "
@@ -279,15 +365,23 @@ def overlap_yield(
         raise ValueError(f"overlap_yield: n_quad must be >= 11 (got {n_quad!r})")
 
     beta_0 = beam.beta0()
-    sigma_lz = laser.m("duration") * C_CGS
+    sigma_lz = laser.sigma_ct()
     D = math.sqrt(beam.m("sigma_z") ** 2 + (beta_0 * sigma_lz) ** 2)
-    sigma_z_eff = D / (1.0 + beta_0)
 
-    z = _overlap_grid(beam, laser, sigma_z_eff, n_quad)
-    integrand = np.exp(-(z**2) / (2.0 * sigma_z_eff**2)) / np.sqrt(overlap_det(beam, laser, z))
+    z = _overlap_grid(beam, laser, D / (1.0 + beta_0), n_quad)
+    schur, det_a, sigma_ex, sigma_ey, s1, s2, h = _overlap_quadratic_form(beam, laser, z)
+    integrand = np.exp(-0.5 * schur * z**2) / (sigma_ex * sigma_ey * s1 * s2 * np.sqrt(det_a))
     integral = float(np.trapezoid(integrand, z))
 
-    return SIGMA_T_CGS * (1.0 + beta_0) * N_e * laser.n_photons() / (2.0 * math.pi * math.sqrt(2.0 * math.pi) * D) * integral
+    return (
+        SIGMA_T_CGS
+        * (1.0 + beta_0)
+        * N_e
+        * laser.n_photons()
+        * math.sqrt(2.0 * math.pi / h)
+        / (4.0 * math.pi**2 * beam.m("sigma_z") * sigma_lz)
+        * integral
+    )
 
 
 @dataclass(frozen=True)

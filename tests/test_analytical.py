@@ -20,6 +20,8 @@ from gammaforge.engines.analytical.formulas import (
     SpectrumWidthBreakdown,
     _electron_sigma2,
     _erfcx,
+    _overlap_grid,
+    _overlap_quadratic_form,
     angle_integrated_spectrum,
     estimate_spectrum_width,
     estimate_yield,
@@ -27,8 +29,8 @@ from gammaforge.engines.analytical.formulas import (
     overlap_yield,
 )
 from gammaforge.engines.base import Engine
-from gammaforge.io.bunch import GaussianElectronBeam, _drift_fit
-from gammaforge.io.laser import GaussianParaxialLaser
+from gammaforge.io.bunch import GaussianElectronBeam, _drift_fit, momenta, sample_gaussian_bunch
+from gammaforge.io.laser import GaussianParaxialLaser, lab_frame_axes
 from gammaforge.io.target import OutputKind, OutputRequest
 from gammaforge.io.units import C_CGS, SIGMA_T_CGS, Quantity
 from gammaforge.validation import scenarios
@@ -231,14 +233,153 @@ def test_overlap_det_is_sigma0_squared_for_a_round_aligned_collision_at_the_orig
 
 
 def test_overlap_yield_refuses_geometries_its_derivation_does_not_cover():
-    """A crossing angle is GRAND_PLAN.md §9.3's open derivation and a flying focus breaks
-    the analytic time integration. Refusing beats returning a plausible wrong number (P14c)."""
+    """A flying focus makes the spot-size evaluation point time-dependent, which breaks the
+    analytic time integration. Refusing beats returning a plausible wrong number (P14c).
+    A crossing angle is *not* on this list any more — see the crossing-angle tests below."""
     beam, laser = _round_scenario()
-    N_e = beam.n_electrons()
-    with pytest.raises(ValueError, match="head-on"):
-        overlap_yield(beam, replace(laser, theta_xz=Quantity(0.01, "rad")), N_e)
     with pytest.raises(ValueError, match="flying focus"):
-        overlap_yield(beam, replace(laser, beta_ff=0.2), N_e)
+        overlap_yield(beam, replace(laser, beta_ff=0.2), beam.n_electrons())
+
+
+# ---------------------------------------------------------------------------
+# Crossing angle (docs/DERIVATIONS.md §A.6)
+# ---------------------------------------------------------------------------
+def _constant_width_closed_form(beam, laser, N_e, theta_xz, theta_yz=0.0):
+    """Exact yield when both hourglasses are switched off, at any crossing angle::
+
+        N = sigma_T (1+beta_0) N_e N_L
+            / (2 pi sqrt(h det M') sigma_ex sigma_ey sigma_ez s1 s2 s_ct)
+
+    Independent of `formulas.py`: it builds the 3x3 quadratic form directly and takes a
+    `numpy` determinant, so agreement isolates the crossing-angle *geometry* from the
+    hourglass and from the quadrature."""
+    beta_0 = beam.beta0()
+    k_hat, f1, f2 = lab_frame_axes(theta_xz, theta_yz, laser.m("psi_focus"))
+    sex, sey, sez = beam.m("sigma_x"), beam.m("sigma_y"), beam.m("sigma_z")
+    s1, s2, s_ct = laser.m("sigma_x"), laser.m("sigma_y"), laser.sigma_ct()
+    m = np.diag([1 / sex**2, 1 / sey**2, 1 / sez**2])
+    m = m + np.outer(f1, f1) / s1**2 + np.outer(f2, f2) / s2**2 + np.outer(k_hat, k_hat) / s_ct**2
+    g = beta_0 * np.array([0.0, 0.0, 1.0]) / sez**2 + k_hat / s_ct**2
+    h = beta_0**2 / sez**2 + 1 / s_ct**2
+    m_prime = m - np.outer(g, g) / h
+    return (
+        SIGMA_T_CGS * (1 + beta_0) * N_e * laser.n_photons()
+        / (2 * math.pi * math.sqrt(h * float(np.linalg.det(m_prime))) * sex * sey * sez * s1 * s2 * s_ct)
+    )
+
+
+def _no_hourglass():
+    """Tiny emittance -> enormous beta*; tiny wavelength -> enormous z_R. Both hourglass
+    scales far exceed the bunch length, so the spot sizes are constant across the collision
+    and the integral has the closed form above."""
+    beam = replace(scenarios.BASELINE.beam,
+                   emit_x=Quantity(1e-12, "cm * rad"), emit_y=Quantity(1e-12, "cm * rad"))
+    laser = replace(scenarios.BASELINE.laser, wavelength=Quantity(1e-7, "um"))
+    return beam, laser
+
+
+@pytest.mark.parametrize("theta_xz, theta_yz", [
+    (0.0, 0.0), (0.002, 0.0), (0.05, 0.0), (0.4, 0.0), (0.0, 0.05), (0.03, -0.02),
+])
+def test_crossing_angle_matches_the_constant_width_closed_form(theta_xz, theta_yz):
+    """The crossing-angle geometry, checked at machine precision against an independently
+    built quadratic form — in both crossing planes and combined, out to 0.4 rad."""
+    beam, laser = _no_hourglass()
+    laser = replace(laser, theta_xz=Quantity(theta_xz, "rad"), theta_yz=Quantity(theta_yz, "rad"))
+    expected = _constant_width_closed_form(beam, laser, beam.n_electrons(), theta_xz, theta_yz)
+    assert overlap_yield(beam, laser, beam.n_electrons(), n_quad=20001) == pytest.approx(expected, rel=1e-9)
+
+
+def test_crossing_angle_reproduces_the_piwinski_suppression():
+    """The physics content, not just the algebra: at small angles the suppression must be
+    the textbook crossing-angle luminosity reduction `1/sqrt(1 + (sigma_s tan(theta)/sigma_perp)^2)`.
+    That form is itself a small-angle result, so it is asserted only where it is valid —
+    the machine-precision check above is what covers large angles."""
+    beam, laser = _no_hourglass()
+    N_e = beam.n_electrons()
+    head_on = _constant_width_closed_form(beam, laser, N_e, 0.0)
+    sigma_s = math.hypot(beam.m("sigma_z"), laser.sigma_ct()) / 2.0
+    sigma_perp = math.hypot(beam.m("sigma_x"), laser.m("sigma_x"))
+    for theta in (0.002, 0.01):
+        ratio = _constant_width_closed_form(beam, laser, N_e, theta) / head_on
+        piwinski = 1.0 / math.sqrt(1.0 + (sigma_s * math.tan(theta) / sigma_perp) ** 2)
+        assert ratio == pytest.approx(piwinski, rel=2e-4)
+
+
+def test_crossing_angle_width_sampling_approximation_is_negligible():
+    """Measures the single approximation `overlap_yield` makes with a crossing angle —
+    sampling the slowly varying spot sizes at `u = (k.z) z`, dropping `delta = k_x x + k_y y`.
+
+    Deliberately adversarial: a 0.4 rad crossing, a 2 um waist and a 200 um bunch push
+    `delta/z_R` past 1, well outside any regime where the naive bound is small. The yield
+    still moves by <1e-3 under a *coherent* `+/- delta` shift, because the dropped term
+    enters only an even, slowly varying prefactor while the exponent — which carries the
+    whole Piwinski suppression — stays exact. The real error is smaller still, since the
+    true `delta` averages to zero and this probe does not."""
+    beam = replace(scenarios.BASELINE.beam,
+                   sigma_x=Quantity(200.0, "um"), sigma_y=Quantity(200.0, "um"))
+    laser = replace(scenarios.BASELINE.laser,
+                    sigma_x=Quantity(2.0, "um"), sigma_y=Quantity(2.0, "um"),
+                    theta_xz=Quantity(0.4, "rad"))
+    N_e = beam.n_electrons()
+
+    k_hat, _, _ = laser.focusing_axes()
+    delta = math.hypot(beam.m("sigma_x"), laser.m("sigma_x")) * math.hypot(k_hat[0], k_hat[1])
+    assert delta / laser.rayleigh_x() > 1.0, "fixture is meant to be adversarial"
+
+    def shifted(u_shift):
+        z = _overlap_grid(beam, laser, math.hypot(beam.m("sigma_z"), beam.beta0() * laser.sigma_ct())
+                          / (1.0 + beam.beta0()), 20001)
+        schur, det_a, sex, sey, s1, s2, _ = _overlap_quadratic_form(beam, laser, z, u_shift=u_shift)
+        return float(np.trapezoid(np.exp(-0.5 * schur * z**2) / (sex * sey * s1 * s2 * np.sqrt(det_a)), z))
+
+    base = shifted(0.0)
+    assert abs(shifted(+delta) / base - 1.0) < 1e-3
+    assert abs(shifted(-delta) / base - 1.0) < 1e-3
+
+
+def _monte_carlo_yield(beam, laser, n_particles=50_000, n_t=151, seed=0):
+    """Brute-force overlap using `io`'s own `photon_density` and real macroparticles,
+    sharing no algebra with `formulas.py`: drift each particle ballistically and integrate
+    `sigma_T n_L (c - v.k_hat)` over time."""
+    bunch = sample_gaussian_bunch(beam, n_particles, seed)
+    px, py, pz = momenta(bunch)
+    bx, by, bz = px / bunch.gamma, py / bunch.gamma, pz / bunch.gamma
+    k_hat, _, _ = laser.focusing_axes()
+    flux = C_CGS * (1.0 - (bx * k_hat[0] + by * k_hat[1] + bz * k_hat[2]))
+
+    beta_0 = beam.beta0()
+    t_max = 8.0 * math.hypot(beam.m("sigma_z"), beta_0 * laser.sigma_ct()) / ((1.0 + beta_0) * C_CGS)
+    t_grid = np.linspace(-t_max, t_max, n_t)
+    per_t = np.array([
+        float(np.sum(laser.photon_density(bunch.x + C_CGS * bx * t,
+                                          bunch.y + C_CGS * by * t,
+                                          bunch.z + C_CGS * bz * t, t) * flux))
+        for t in t_grid
+    ])
+    return (SIGMA_T_CGS * laser.n_photons() * beam.n_electrons() / n_particles
+            * float(np.trapezoid(per_t, t_grid)))
+
+
+@pytest.mark.parametrize("name", ["head_on", "crossing", "crossing_plus_everything", "both_planes"])
+def test_overlap_yield_matches_a_brute_force_monte_carlo(name):
+    """The end-to-end independent check: no step of the derivation is shared with the
+    reference, which samples macroparticles and evaluates `GaussianParaxialLaser`'s own
+    `photon_density`. Agreement at a few 1e-4 across head-on, a crossing angle, and a
+    crossing angle combined with everything else the integral claims to handle."""
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    if name == "crossing":
+        laser = replace(laser, theta_xz=Quantity(0.02, "rad"))
+    elif name == "crossing_plus_everything":
+        beam = replace(beam, sigma_x=Quantity(20.0, "um"), sigma_y=Quantity(6.0, "um"))
+        laser = replace(laser, sigma_x=Quantity(8.0, "um"), sigma_y=Quantity(22.0, "um"),
+                        z_fx=Quantity(0.03, "cm"), z_fy=Quantity(-0.05, "cm"),
+                        psi_focus=Quantity(0.7, "rad"), theta_xz=Quantity(0.05, "rad"))
+    elif name == "both_planes":
+        laser = replace(laser, theta_xz=Quantity(0.03, "rad"), theta_yz=Quantity(-0.02, "rad"))
+
+    exact = overlap_yield(beam, laser, beam.n_electrons(), n_quad=20001)
+    assert _monte_carlo_yield(beam, laser) == pytest.approx(exact, rel=5e-3)
 
 
 def test_overlap_yield_differs_from_the_legacy_closed_form_by_the_rayleigh_convention():
@@ -256,6 +397,31 @@ def test_overlap_yield_differs_from_the_legacy_closed_form_by_the_rayleigh_conve
     N_e = beam.n_electrons()
     ratio = overlap_yield(beam, laser, N_e, n_quad=32001) / estimate_yield(beam, laser, N_e)
     assert ratio == pytest.approx(3.285, rel=1e-3)
+
+
+def test_engine_reports_that_a_crossed_spectrum_has_head_on_shape():
+    """The yield accounts for the crossing angle; the spectrum's shape does not. Since the
+    engine normalizes SPECTRUM to that yield, the slice's integral is right while its shape
+    is not — it must say so rather than looking correct."""
+    outputs = (OutputRequest(OutputKind.TOTAL_YIELD), OutputRequest(OutputKind.SPECTRUM, resolution=(64,)))
+    interaction = _interaction(outputs=outputs)
+    crossed = replace(interaction, laser=replace(interaction.laser, theta_xz=Quantity(0.02, "rad")))
+    engine = AnalyticalEngine()
+
+    assert engine.run(interaction, engine.schema).model_specific["warnings"] == ()
+    warned = engine.run(crossed, engine.schema).model_specific["warnings"]
+    assert len(warned) == 1 and "head-on" in warned[0]
+
+
+def test_engine_total_yield_tracks_the_crossing_angle():
+    """A 20 mrad crossing more than halves the baseline yield — the engine must carry that
+    through, not report the head-on number."""
+    interaction = _interaction(outputs=(OutputRequest(OutputKind.TOTAL_YIELD),))
+    engine = AnalyticalEngine()
+    crossed = replace(interaction, laser=replace(interaction.laser, theta_xz=Quantity(0.02, "rad")))
+    head_on_yield = float(engine.run(interaction, engine.schema).photon_slices[OutputKind.TOTAL_YIELD].distr)
+    crossed_yield = float(engine.run(crossed, engine.schema).photon_slices[OutputKind.TOTAL_YIELD].distr)
+    assert crossed_yield < 0.6 * head_on_yield
 
 
 def test_estimate_spectrum_width_is_positive_finite():
