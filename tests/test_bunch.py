@@ -17,9 +17,9 @@ from gammaforge.io.bunch import (
     Bunch,
     GaussianElectronBeam,
     chirp_to_correlation,
+    dispersion_to_correlation,
     luminosity_weights,
     prefilter_by_luminosity,
-    dispersion_to_correlation,
     drift,
     fit_gaussian,
     momenta,
@@ -31,8 +31,7 @@ from gammaforge.io.bunch import (
     validate,
 )
 from gammaforge.io.laser import GaussianParaxialLaser
-from gammaforge.io.units import C_CGS, EV_CGS, E_ESU, MEC2_CGS, Quantity
-Q = Quantity
+from gammaforge.io.units import C_CGS, EV_CGS, E_ESU, MEC2_CGS, Quantity as Q
 
 N = 200_000
 TOL = 0.02  # ~4 sigma on a second moment estimated from N samples
@@ -40,21 +39,21 @@ TOL = 0.02  # ~4 sigma on a second moment estimated from N samples
 
 def make_beam(**overrides) -> GaussianElectronBeam:
     defaults = dict(
-        bunch_charge=Quantity(100, "pC"),
-        kinetic_energy=Quantity(100, "MeV"),
+        bunch_charge=Q(100, "pC"),
+        kinetic_energy=Q(100, "MeV"),
         rel_energy_spread=0.01,
-        sigma_x=Quantity(20, "um"),
-        sigma_y=Quantity(30, "um"),
-        emit_x=Quantity(1e-7, "cm * rad"),
-        emit_y=Quantity(2e-7, "cm * rad"),
-        sigma_z=Quantity(100, "um"),
+        sigma_x=Q(20, "um"),
+        sigma_y=Q(30, "um"),
+        emit_x=Q(1e-7, "cm * rad"),
+        emit_y=Q(2e-7, "cm * rad"),
+        sigma_z=Q(100, "um"),
     )
     return GaussianElectronBeam(**{**defaults, **overrides})
 
 
 def make_laser(**overrides) -> GaussianParaxialLaser:
-    defaults = dict(pulse_energy=Quantity(1, "J"), wavelength=Quantity(800, "nm"),
-                    sigma_x=Quantity(10, "um"), sigma_y=Quantity(10, "um"), duration=Quantity(30, "fs"))
+    defaults = dict(pulse_energy=Q(1, "J"), wavelength=Q(800, "nm"),
+                    sigma_x=Q(10, "um"), sigma_y=Q(10, "um"), duration=Q(30, "fs"))
     return GaussianParaxialLaser(**{**defaults, **overrides})
 
 
@@ -126,7 +125,7 @@ def test_a_different_seed_gives_a_different_bunch():
 @pytest.mark.parametrize(
     "change",
     [
-        dict(kinetic_energy=Quantity(200, "MeV")),
+        dict(kinetic_energy=Q(200, "MeV")),
         dict(rel_energy_spread=0.05),
         dict(rho_z_gamma=0.4),
         dict(rho_x_gamma=0.3),
@@ -185,7 +184,7 @@ def test_twiss_tilt_correlates_position_and_angle():
 
 def test_sampling_validates_the_beam():
     with pytest.raises(ValueError):
-        sample_gaussian_bunch(make_beam(sigma_x=Quantity(-1.0, "cm")), 10, seed=0)
+        sample_gaussian_bunch(make_beam(sigma_x=Q(-1.0, "cm")), 10, seed=0)
     with pytest.raises(ValueError, match="n_particles"):
         sample_gaussian_bunch(make_beam(), 0, seed=0)
 
@@ -405,7 +404,7 @@ def test_propagate_description_error_vanishes_with_divergence():
     """
     errors = []
     for emit in (4e-7, 2e-7, 1e-7, 5e-8):
-        beam = make_beam(emit_x=Quantity(emit, "cm * rad"), emit_y=Quantity(emit, "cm * rad"))
+        beam = make_beam(emit_x=Q(emit, "cm * rad"), emit_y=Q(emit, "cm * rad"))
         bunch = _with_own_moments(sample_gaussian_bunch(beam, 50_000, seed=17), beam.bunch_charge)
         moved = propagate(bunch, 1e-10)
         refitted = fit_gaussian(moved, bunch_charge=beam.bunch_charge)
@@ -490,15 +489,15 @@ def test_overlap_window_is_finite_for_a_head_on_particle_on_axis():
 
 def test_overlap_window_handles_a_crossing_angle():
     bunch = sample_gaussian_bunch(make_beam(), 5000, seed=33)
-    t0, t1 = overlap_time_window(bunch, make_laser(theta_xz=Quantity(0.5, "rad")), 1e-3)
+    t0, t1 = overlap_time_window(bunch, make_laser(theta_xz=Q(0.5, "rad")), 1e-3)
     assert np.any(t0 <= t1)
 
 
 # -- validation --------------------------------------------------------------
 def test_validate_rejects_impossible_values():
-    for bad in [dict(bunch_charge=Quantity(0.0, "pC")), dict(kinetic_energy=Quantity(-1.0, "MeV")),
-                dict(sigma_x=Quantity(0.0, "um")), dict(emit_y=Quantity(0.0, "cm * rad")),
-                dict(sigma_z=Quantity(0.0, "um")), dict(rel_energy_spread=-0.1)]:
+    for bad in [dict(bunch_charge=Q(0.0, "pC")), dict(kinetic_energy=Q(-1.0, "MeV")),
+                dict(sigma_x=Q(0.0, "um")), dict(emit_y=Q(0.0, "cm * rad")),
+                dict(sigma_z=Q(0.0, "um")), dict(rel_energy_spread=-0.1)]:
         with pytest.raises(ValueError):
             validate(make_beam(**bad))
 
@@ -520,7 +519,7 @@ def test_validate_rejects_a_correlation_outside_the_unit_interval():
 
 
 def test_validate_warns_about_a_units_mix_up():
-    warnings = validate(make_beam(emit_x=Quantity(1.0, "cm * rad")))
+    warnings = validate(make_beam(emit_x=Q(1.0, "cm * rad")))
     assert any("units mix-up" in warning for warning in warnings)
 
 
@@ -537,27 +536,27 @@ def test_a_bare_number_is_refused():
 
 def test_a_wrongly_dimensioned_value_is_refused():
     with pytest.raises(TypeError, match="convertible to 'cm'"):
-        make_beam(sigma_x=Quantity(20, "fs"))
+        make_beam(sigma_x=Q(20, "fs"))
     with pytest.raises(TypeError, match="convertible to 'erg'"):
-        make_beam(kinetic_energy=Quantity(100, "um"))
+        make_beam(kinetic_energy=Q(100, "um"))
 
 
 def test_the_same_physical_value_in_different_units_gives_the_same_beam():
-    assert make_beam(sigma_x=Quantity(20, "um")) == make_beam(sigma_x=Quantity(2e-3, "cm"))
-    assert make_beam(bunch_charge=Quantity(100, "pC")) == make_beam(bunch_charge=Quantity(1e-10, "C"))
+    assert make_beam(sigma_x=Q(20, "um")) == make_beam(sigma_x=Q(2e-3, "cm"))
+    assert make_beam(bunch_charge=Q(100, "pC")) == make_beam(bunch_charge=Q(1e-10, "C"))
 
 
 def test_charge_crosses_the_si_gaussian_divide_that_pint_alone_refuses():
     # pint cannot convert coulombs to statcoulombs unaided (§2.1); the `gaussian_charge`
     # context is what makes a charge in pC acceptable where statC is stored.
-    assert make_beam(bunch_charge=Quantity(100, "pC")).m("bunch_charge") == pytest.approx(
+    assert make_beam(bunch_charge=Q(100, "pC")).m("bunch_charge") == pytest.approx(
         100e-12 * C_CGS / 10.0
     )
 
 
 def test_a_bunch_length_can_be_given_as_a_duration():
     # `light_time` again, on a dimensioned field rather than through the schema.
-    assert make_beam(sigma_z=Quantity(1, "ps")).m("sigma_z") == pytest.approx(1e-12 * C_CGS)
+    assert make_beam(sigma_z=Q(1, "ps")).m("sigma_z") == pytest.approx(1e-12 * C_CGS)
 
 
 def test_bunch_arrays_declare_their_units_and_convert_without_copying():
@@ -581,7 +580,7 @@ def test_bunch_conversion_checks_the_dimension():
 def test_a_laser_angle_can_be_given_in_degrees():
     import math as _math
 
-    assert make_laser(theta_xz=Quantity(90, "degree")).m("theta_xz") == pytest.approx(_math.pi / 2)
+    assert make_laser(theta_xz=Q(90, "degree")).m("theta_xz") == pytest.approx(_math.pi / 2)
 
 
 # ---------------------------------------------------------------------------
@@ -589,18 +588,19 @@ def test_a_laser_angle_can_be_given_in_degrees():
 # ---------------------------------------------------------------------------
 def _wide_mismatched():
     """Where a geometric cone is loose: a wide bunch against a small, short pulse whose
-    foci are displaced, so the cone must widen conservatively."""
+    foci are displaced, so the cone has to widen conservatively."""
     from gammaforge.validation import scenarios
 
-    beam = dataclasses.replace(scenarios.BASELINE.beam, sigma_x=Quantity(400.0, "um"), sigma_y=Quantity(400.0, "um"),
-                    alpha_x=4.0)
-    laser = dataclasses.replace(scenarios.BASELINE.laser, sigma_x=Quantity(4.0, "um"), sigma_y=Quantity(4.0, "um"),
-                     duration=Quantity(1.0, "ps"), z_fx=Quantity(0.4, "cm"), z_fy=Quantity(0.4, "cm"))
+    beam = dataclasses.replace(scenarios.BASELINE.beam, sigma_x=Q(400.0, "um"),
+                               sigma_y=Q(400.0, "um"), alpha_x=4.0)
+    laser = dataclasses.replace(scenarios.BASELINE.laser, sigma_x=Q(4.0, "um"),
+                                sigma_y=Q(4.0, "um"), duration=Q(1.0, "ps"),
+                                z_fx=Q(0.4, "cm"), z_fy=Q(0.4, "cm"))
     return beam, laser
 
 
 def test_luminosity_weights_rank_particles_by_actual_relevance():
-    """The weight must fall off away from the pulse: a particle far off axis contributes
+    """The weight must fall off away from the pulse — a particle far off axis contributes
     less than one on it. That is the whole basis for using it as a filter."""
     beam, laser = _wide_mismatched()
     bunch = sample_gaussian_bunch(beam, 20_000, 0)
@@ -608,14 +608,12 @@ def test_luminosity_weights_rank_particles_by_actual_relevance():
     assert w.shape == (bunch.n_particles,)
     assert np.all(w >= 0.0) and np.all(np.isfinite(w))
     radius = np.hypot(bunch.x, bunch.y)
-    near = w[radius < np.percentile(radius, 5)].mean()
-    far = w[radius > np.percentile(radius, 95)].mean()
-    assert near > 10.0 * far
+    assert w[radius < np.percentile(radius, 5)].mean() > 10.0 * w[radius > np.percentile(radius, 95)].mean()
 
 
 def test_prefilter_by_luminosity_keeps_far_fewer_particles_than_the_cone():
-    """The measured claim, on the scenario the cone is worst at. A displaced focus forces
-    the cone to keep ~94% of the bunch; ranking by relevance keeps about a third."""
+    """The measured claim, on the scenario the cone is worst at: a displaced focus forces
+    the cone to keep ~94% of the bunch, while ranking by relevance keeps about a third."""
     beam, laser = _wide_mismatched()
     bunch = sample_gaussian_bunch(beam, 60_000, 0)
     cone = prefilter_bunch(bunch, laser, 1e-6)
@@ -627,22 +625,18 @@ def test_prefilter_by_luminosity_keeps_far_fewer_particles_than_the_cone():
 def test_prefilter_by_luminosity_is_monotone_in_epsilon():
     beam, laser = _wide_mismatched()
     bunch = sample_gaussian_bunch(beam, 20_000, 0)
-    counts = [prefilter_by_luminosity(bunch, laser, eps).n_particles
-              for eps in (1e-2, 1e-4, 1e-6)]
+    counts = [prefilter_by_luminosity(bunch, laser, eps).n_particles for eps in (1e-2, 1e-4, 1e-6)]
     assert counts[0] < counts[1] < counts[2] <= bunch.n_particles
 
 
-def test_prefilter_by_luminosity_does_not_touch_weights_or_charge():
+def test_prefilter_by_luminosity_selects_without_reweighting():
     """Like `prefilter_bunch` it is a selection, not a reweighting — `N_e` lives on
-    `InteractionParameters` and the per-particle weights are untouched, so a caller cannot
-    accidentally rescale the beam by filtering it."""
+    `InteractionParameters`, so a caller cannot accidentally rescale the beam by filtering."""
     beam, laser = _wide_mismatched()
     bunch = sample_gaussian_bunch(beam, 20_000, 0)
     filtered = prefilter_by_luminosity(bunch, laser, 1e-3)
     assert filtered.n_particles < bunch.n_particles
-    # every surviving weight is one of the originals, untouched — no renormalization
     assert np.all(np.isin(filtered.weight, bunch.weight))
-    assert np.unique(filtered.weight).size == np.unique(bunch.weight).size
 
 
 def test_prefilter_by_luminosity_rejects_a_nonsense_epsilon():

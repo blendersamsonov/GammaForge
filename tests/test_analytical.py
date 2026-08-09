@@ -609,7 +609,15 @@ def test_flying_focus_yield_is_invariant_under_beta_ff_to_its_reciprocal():
     `(1 + beta_ff)` stretch. The spot therefore depends on
     `(beta_ff - 1)/(beta_ff + 1)`, which is odd under `beta_ff -> 1/beta_ff` — and the
     width depends on its square. So the yield is unchanged, with `beta_ff = 1` the fixed
-    point that maximizes it. Nothing in the implementation knows this."""
+    point that maximizes it. Nothing in the implementation knows this.
+
+    **This is a consistency check between two conventions, not pure physics.** The
+    numerator is physical; the denominator is `rayleigh_x()`'s `(1 + beta_ff)` stretch,
+    which `io.laser` attributes to the predecessor's xigma convention — a modelling choice,
+    not a derived result. If that scaling is wrong the symmetry disappears and `beta_ff = 1`
+    need not be the optimum, so this test would change with it rather than contradict it.
+    An independent derivation is the only thing that can settle it: the Monte Carlo shares
+    the convention and is blind to it (`docs/DERIVATIONS.md` §B.6)."""
     beam = replace(scenarios.BASELINE.beam, sigma_z=Quantity(30.0, "um"))
     N_e = beam.n_electrons()
 
