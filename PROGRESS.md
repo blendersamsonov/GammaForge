@@ -1249,6 +1249,50 @@ Full suite: 393 passed, up from 382. `DECISIONS.md` gained D047.
 
 ---
 
+## 2026-08-09 — Phase 4: the illumination *window*, not just the filter
+
+Same worktree/branch. The filter was only half of what the algebra gives.
+
+**One quadratic, two results.** With frozen widths the photon density along a straight
+trajectory is `exp(-(a t^2 + 2 b t + c)/2)` times a brightness factor, so `density >=
+threshold` is one inequality in `t`:
+
+    t in t_star +- sqrt(2 ln(peak / threshold) / a)
+
+The filter asks whether that interval exists; the window *is* the interval.
+`prefilter_by_illumination` is now defined as "window non-empty", mirroring how
+`prefilter_bunch` is defined through `overlap_time_window` (D048).
+
+**The window is the more useful half.** An engine samples each trajectory with a fixed
+number of steps between `t0` and `t1`, so the window width sets the step size, and steps
+spent where nothing happens are steps not spent resolving the interaction.
+`overlap_time_window` brackets time inside the *geometric* active region — a conservative
+bound, so far wider than the illuminated stretch. Same particles, same 33 steps, baseline
+scenario: **7x more accurate** (2.0e-4 -> 2.8e-5), from a window only 1.5x narrower.
+
+**How much margin to leave, quantified.** Width grows as `sqrt(ln(1/threshold))` while the
+truncation floor tracks the threshold roughly decade for decade:
+
+| threshold | median width | accuracy floor |
+|---|---|---|
+| 1e-3 | 101 ps | 9.2e-5 |
+| 1e-6 | 151 ps | 1.9e-8 |
+| 1e-9 | 187 ps | 8.9e-12 |
+| 1e-12 | 218 ps | 4.1e-15 |
+
+Nine decades of threshold cost about a doubling of the window. Being generous is cheap.
+
+**Two things that are easy to get backwards, both now pinned.** The window errs *wide*: away
+from closest approach the true spot is larger than the frozen value, so the real intensity
+falls faster than the model and the edges come out ~100x below threshold. For a window that
+is the right way to be wrong — a too-narrow one truncates the interaction and no step budget
+recovers it. And it is an *estimate*, not a bound, so `prefilter_bunch`'s exact invariance
+still rests on the geometric window.
+
+Full suite: 399 passed, up from 393. `DECISIONS.md` gained D048.
+
+---
+
 ## How to update this file
 
 - One dated section per work session (or per meaningful chunk of a session).

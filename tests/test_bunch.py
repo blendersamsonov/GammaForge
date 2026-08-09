@@ -19,6 +19,7 @@ from gammaforge.io.bunch import (
     chirp_to_correlation,
     dispersion_to_correlation,
     luminosity_weights,
+    illumination_window,
     peak_illumination,
     prefilter_by_illumination,
     prefilter_by_luminosity,
@@ -759,3 +760,110 @@ def test_illumination_default_threshold_is_the_measured_safe_one():
     import inspect
 
     assert inspect.signature(prefilter_by_illumination).parameters["threshold"].default == 1e-6
+
+
+def test_illumination_window_is_empty_exactly_when_the_filter_drops():
+    """The window and the filter are one computation: a particle is worth keeping precisely
+    when there is an interval during which it is above threshold."""
+    beam, laser = _wide_mismatched()
+    bunch = sample_gaussian_bunch(beam, 20_000, 0)
+    t0, t1 = illumination_window(bunch, laser, 1e-6)
+    assert np.array_equal(t0 <= t1, peak_illumination(bunch, laser) >= 1e-6)
+
+
+def test_illumination_window_edges_are_dark_and_conservatively_so():
+    """Checks the boundary rather than the interior, which is what catches a wrong root of
+    the quadratic. At `t0`/`t1` the *actual* density — from the laser itself, not the
+    frozen-width algebra — must already be at or below `threshold` times the pulse peak.
+
+    It comes out about 100x below, and in the safe direction by construction: away from the
+    closest approach the true spot is *larger* than the frozen value, so the real intensity
+    falls faster than the model and the window errs towards being too wide. For a window
+    that is exactly the right way to be wrong — a too-narrow one would truncate the
+    interaction, which no step budget could then recover."""
+    from gammaforge.validation import scenarios
+
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    bunch = sample_gaussian_bunch(beam, 4_000, 0)
+    threshold = 1e-6
+    t0, t1 = illumination_window(bunch, laser, threshold)
+    live = t0 <= t1
+    bunch, t0, t1 = bunch.select(live), t0[live], t1[live]
+
+    peak_density = 1.0 / ((2.0 * math.pi) ** 1.5 * laser.m("sigma_x") * laser.m("sigma_y")
+                          * laser.sigma_ct())
+    px, py, pz = momenta(bunch)
+    bx, by, bz = px / bunch.gamma, py / bunch.gamma, pz / bunch.gamma
+    for edge in (t0, t1):
+        density = laser.photon_density(bunch.x + C_CGS * bx * edge,
+                                       bunch.y + C_CGS * by * edge,
+                                       bunch.z + C_CGS * bz * edge, edge)
+        # frozen widths, so allow a factor rather than demanding equality
+        ratio = density / (threshold * peak_density)
+        assert float(np.median(ratio)) < 1.0        # already dark at the edge
+        assert float(np.median(ratio)) > 1e-4       # but not absurdly over-wide
+
+
+def test_illumination_window_is_narrower_than_the_geometric_one():
+    from gammaforge.validation import scenarios
+
+    for beam, laser in (_wide_mismatched(), (scenarios.BASELINE.beam, scenarios.BASELINE.laser)):
+        bunch = sample_gaussian_bunch(beam, 20_000, 0)
+        c0, c1 = overlap_time_window(bunch, laser, 1e-6)
+        i0, i1 = illumination_window(bunch, laser, 1e-6)
+        live = (i0 <= i1) & (c0 <= c1)
+        assert np.median((i1 - i0)[live]) < np.median((c1 - c0)[live])
+
+
+def test_illumination_window_width_grows_only_logarithmically():
+    """Why a generous margin is affordable: the half-width is
+    `sqrt(2 ln(peak/threshold) / a)`, so nine decades of threshold buy roughly a doubling
+    of the window — the cost of being safe is logarithmic, not linear."""
+    from gammaforge.validation import scenarios
+
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    bunch = sample_gaussian_bunch(beam, 20_000, 0)
+    widths = []
+    for thr in (1e-3, 1e-6, 1e-9, 1e-12):
+        t0, t1 = illumination_window(bunch, laser, thr)
+        widths.append(float(np.median((t1 - t0)[t0 <= t1])))
+    assert widths[0] < widths[1] < widths[2] < widths[3]
+    assert widths[3] < 3.0 * widths[0]
+
+
+def test_illumination_window_rejects_a_nonsense_threshold():
+    beam, laser = _wide_mismatched()
+    bunch = sample_gaussian_bunch(beam, 100, 0)
+    for bad in (0.0, 1.0, -1.0):
+        with pytest.raises(ValueError, match="threshold"):
+            illumination_window(bunch, laser, bad)
+
+
+def test_illumination_window_spends_a_fixed_step_budget_better():
+    """The payoff. With the same particles and the same number of steps per trajectory, the
+    tighter window resolves the interaction better because no steps are spent where nothing
+    happens."""
+    from gammaforge.validation import scenarios
+
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    bunch = sample_gaussian_bunch(beam, 8_000, 0)
+    c0, c1 = overlap_time_window(bunch, laser, 1e-6)
+    i0, i1 = illumination_window(bunch, laser, 1e-6)
+
+    def integrate(t0, t1, n_steps):
+        px, py, pz = momenta(bunch)
+        bx, by, bz = px / bunch.gamma, py / bunch.gamma, pz / bunch.gamma
+        k_hat, _, _ = laser.focusing_axes()
+        flux = C_CGS * (1.0 - (bx * k_hat[0] + by * k_hat[1] + bz * k_hat[2]))
+        total = np.zeros(bunch.n_particles)
+        for i in range(n_steps):
+            ti = t0 + (t1 - t0) * i / (n_steps - 1)
+            weight = (1.0 if 0 < i < n_steps - 1 else 0.5) * (t1 - t0) / (n_steps - 1)
+            total += laser.photon_density(bunch.x + C_CGS * bx * ti, bunch.y + C_CGS * by * ti,
+                                          bunch.z + C_CGS * bz * ti, ti) * flux * weight
+        return float(np.sum(total))
+
+    reference = integrate(c0, c1, 2001)
+    coarse_cone = abs(integrate(c0, c1, 33) / reference - 1)
+    coarse_illum = abs(integrate(i0, i1, 33) / reference - 1)
+    assert coarse_illum < 0.5 * coarse_cone

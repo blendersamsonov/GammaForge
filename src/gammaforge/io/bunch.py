@@ -63,6 +63,7 @@ __all__ = [
     "prefilter_bunch",
     "luminosity_weights",
     "peak_illumination",
+    "illumination_window",
     "prefilter_by_illumination",
     "prefilter_by_luminosity",
     "drift",
@@ -620,25 +621,18 @@ def luminosity_weights(bunch: Bunch, laser, iterations: int = 2) -> np.ndarray:
     return (C_CGS - du) / (s1 * s2 * np.sqrt(a)) * np.exp(0.5 * (b**2 / a - c))
 
 
-def peak_illumination(bunch: Bunch, laser, iterations: int = 2) -> np.ndarray:
-    """The highest photon density each macroparticle ever meets, as a fraction of the
-    pulse's own peak — i.e. "how far into the production region does this particle get".
+def _illumination_quadratic(bunch: Bunch, laser, iterations: int = 2):
+    """``(peak_fraction, t_star, curvature)`` for each macroparticle, in closed form.
 
-    The region where Compton photons are actually produced is where the pulse is *bright*,
-    and that is **not** the region the pulse geometrically occupies. Away from focus the
-    spot grows but dims as ``1 / (s1 s2)``, so a particle can sit well inside the diverged
-    beam and still see almost nothing. `GaussianParaxialLaser.active_region` deliberately
-    ignores that decay (its docstring says so) because a bound may only ever err towards
-    keeping particles — which is correct, but leaves the cone keeping a lot of particles
-    that contribute nothing.
+    Along a straight trajectory with the spot sizes frozen, the photon density is
+    ``exp(-(a t^2 + 2 b t + c) / 2)`` times a brightness factor, so everything about a
+    particle's encounter with the pulse follows from one quadratic:
 
-    This measures the real thing instead: maximise the photon density along each particle's
-    straight-line trajectory. Frozen widths make the exponent quadratic in ``t``, so the
-    maximum is closed-form at ``t* = -b/a`` — the same machinery as
-    :func:`luminosity_weights`, read at its peak rather than integrated.
+    * its peak illumination is at ``t_star = -b / a``,
+    * the curvature ``a`` sets how fast it enters and leaves.
 
-    Returns a dimensionless ratio in ``(0, 1]``: 1 for a particle that passes exactly
-    through the focus at the peak of the pulse.
+    The frozen widths are evaluated at each particle's own closest approach, iterated
+    twice. One vectorized pass, no time stepping — `O(n_particles)`.
     """
     from .laser import fit_gaussian_paraxial
 
@@ -666,10 +660,66 @@ def peak_illumination(bunch: Bunch, laser, iterations: int = 2) -> np.ndarray:
         c = xi1**2 / s1**2 + xi2**2 / s2**2 + (u0 + ct_off) ** 2 / s_ct**2
         t_star = -b / a
         u_eval = u0 + (du + metrics.beta_ff * C_CGS) * t_star
-    # density relative to the pulse's own maximum: the exponential, times the 1/(s1 s2)
+    # Density relative to the pulse's own maximum: the exponential, times the 1/(s1 s2)
     # amplitude decay that makes the bright region so much smaller than the geometric one.
     brightness = (metrics.m("sigma_x") * metrics.m("sigma_y")) / (s1 * s2)
-    return brightness * np.exp(0.5 * (b**2 / a - c))
+    return brightness * np.exp(0.5 * (b**2 / a - c)), t_star, a
+
+
+def peak_illumination(bunch: Bunch, laser, iterations: int = 2) -> np.ndarray:
+    """The highest photon density each macroparticle ever meets, as a fraction of the
+    pulse's own peak — "how far into the production region does this particle get".
+
+    The region where Compton photons are actually produced is where the pulse is *bright*,
+    and that is **not** the region the pulse geometrically occupies. Away from focus the
+    spot grows but dims as ``1 / (s1 s2)``, so a particle can sit well inside the diverged
+    beam and see almost nothing. `GaussianParaxialLaser.active_region` deliberately ignores
+    that decay (its docstring says so) because a bound may only ever err towards keeping
+    particles — correct, but it leaves the cone keeping many particles that contribute
+    nothing.
+
+    Returns a dimensionless ratio in ``[0, 1]``: 1 for a particle passing exactly through
+    the focus at the peak of the pulse, and underflowing to 0 for one that never
+    meaningfully meets the pulse at all.
+    """
+    return _illumination_quadratic(bunch, laser, iterations)[0]
+
+
+def illumination_window(bunch: Bunch, laser, threshold: float = 1e-6, iterations: int = 2):
+    """Per-particle ``(t0, t1)``: when each macroparticle is actually being illuminated.
+
+    The same quadratic that gives :func:`peak_illumination` also says *when* a particle is
+    above the threshold, because ``density >= threshold`` is one inequality in ``t``:
+
+        a t^2 + 2 b t + c <= 2 ln(brightness / threshold)
+
+    whose solution is ``t_star +- sqrt(2 ln(peak / threshold) / a)``. So the window and the
+    filter are the same computation — a particle is worth keeping exactly when its window
+    is non-empty — and both cost one vectorized pass.
+
+    **Why this matters more than the filter.** An engine samples each trajectory with a
+    *fixed* number of steps between ``t0`` and ``t1``, so the window's width sets the step
+    size. `overlap_time_window` returns the interval during which a particle is inside the
+    laser's geometric `~gammaforge.io.laser.ActiveRegion`, which is a conservative bound and
+    therefore far wider than the interval where anything actually happens — every step spent
+    outside is a step not spent resolving the interaction. This window brackets the
+    illuminated stretch itself, so the same step budget lands where the physics is.
+
+    ``t0 > t1`` marks a particle that never reaches the threshold, exactly as
+    `overlap_time_window` does, so it drops into the same filtering idiom.
+
+    Times are seconds in the lab frame. Note this is an *estimate*, not a bound: the widths
+    are frozen, so a particle's true illuminated stretch can extend slightly past the
+    window. That is the same tolerance contract as :func:`prefilter_by_illumination`, and
+    the reason `overlap_time_window` remains what `prefilter_bunch`'s exact invariance uses.
+    """
+    if not 0.0 < threshold < 1.0:
+        raise ValueError(f"illumination_window: threshold must be in (0, 1), got {threshold}")
+    peak, t_star, curvature = _illumination_quadratic(bunch, laser, iterations)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        half = np.sqrt(2.0 * np.log(peak / threshold) / curvature)
+    half = np.where(np.isfinite(half), half, -1.0)  # NaN <=> never above threshold
+    return t_star - half, t_star + half
 
 
 def prefilter_by_illumination(bunch: Bunch, laser, threshold: float = 1e-6) -> Bunch:
@@ -701,9 +751,8 @@ def prefilter_by_illumination(bunch: Bunch, laser, threshold: float = 1e-6) -> B
     than *integrated contribution*, which is what makes it a region test — cheaper to reason
     about, and independent of how long a particle dwells in the beam.
     """
-    if not 0.0 < threshold < 1.0:
-        raise ValueError(f"prefilter_by_illumination: threshold must be in (0, 1), got {threshold}")
-    return bunch.select(peak_illumination(bunch, laser) >= threshold)
+    t0, t1 = illumination_window(bunch, laser, threshold)
+    return bunch.select(t0 <= t1)
 
 
 def prefilter_by_luminosity(bunch: Bunch, laser, epsilon: float = 1e-4) -> Bunch:
