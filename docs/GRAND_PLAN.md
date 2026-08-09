@@ -1,9 +1,22 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.22 — 2026-08-09
+**Status:** draft v0.23 — 2026-08-09
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 **Changelog**
+- **v0.23**: **flying focus covered for the analytical yield** (`docs/DERIVATIONS.md` §B,
+  `DECISIONS.md` D044) — `overlap_yield` no longer refuses `beta_ff`. The useful structural
+  result: a flying focus makes the widths depend on *two* linear functionals of
+  `(x, y, z, ct)` instead of one, so two of four dimensions stay Gaussian and **an exact
+  treatment of a crossing angle plus an arbitrary flying-focus velocity together is still
+  only a 2D quadrature** — the two effects do not compound. A 1D shortcut exists and is
+  deliberately not shipped: its error is *first* order (34% at `beta_ff = 1` on the
+  baseline) because a flying focus exists to correlate the width with time. Validated
+  against the brute-force Monte Carlo to 1e-3 across `beta_ff` ∈ {−0.5, 0.5, 1, 2}, with
+  and without a crossing angle; **not** cross-checked against the author's own head-on
+  synchronized derivation, which was not available. Two physics results fall out and are
+  pinned: `beta_ff = 1` maximizes the yield (2.8× on a 30 µm bunch), and for a short bunch
+  the yield is invariant under `beta_ff → 1/beta_ff`. `PROGRESS.md` 2026-08-09.
 - **v0.22**: analytical becomes explicitly **tiered** (`DECISIONS.md` D043) — closed form
   (~0.01 ms) / 1D quadrature (~1–2 ms, default) / exact 2D quadrature (~40–800 ms, opt-in
   via `n_quad_u`). The first two keep §4.3's "only real-time engine" claim true of
@@ -775,7 +788,8 @@ Closed-form estimates, no per-particle Monte Carlo:
   (`InteractionParameters.N_e`) rather than derived from `beam`, so the io-level cheap
   charge-only rescale path (§5) stays correct. Handles a **crossing angle** too (§A.6) —
   for the yield; the spectrum's shape stays head-on pending §9.3, and the engine says so.
-  Refuses a flying focus rather than returning a number its derivation does not cover.
+  Handles a **flying focus** too (§B) — on a 2D `(z, ct)` grid, since a time-dependent spot
+  size is exactly what forbids doing the time integral first.
 - `estimate_yield(beam, laser, N_e)`: the predecessor's round-beam closed form. Retained
   as the analytic limit `overlap_yield` reduces to (a regression anchor) and as the
   port-fidelity pin — **not** for use: it carries a laser-divergence convention error

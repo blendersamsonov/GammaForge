@@ -1062,6 +1062,60 @@ bumped to v0.22.
 
 ---
 
+## 2026-08-09 — Phase 4: flying focus
+
+Same worktree/branch. Asked to explore whether the flying focus can be derived the same way,
+with the expectation that crossing angle plus arbitrary flying-focus velocity would need
+more than a 2D quadrature. **It does not** — that is the main result.
+
+**The counting.** A flying focus makes the spot-size coordinate `u_spot = u + beta_ff * ct`
+time-dependent, so the widths depend on two independent linear functionals of
+`(x, y, z, ct)`: `z` and `u_spot`. Fixing both leaves a 2D affine subspace on which the
+integrand is an ordinary Gaussian. So two dimensions stay analytic and two are quadratured,
+*with or without* a crossing angle — the two effects each add one width argument and having
+both does not add a third. `docs/DERIVATIONS.md` §B.2.
+
+**Implemented** (§B.3) as a `(z, ct)` quadrature with `(x, y)` analytic; with a crossing
+angle the residual transverse part of `u_spot` is sampled at the axis, the same
+approximation §A.7 already measures at 1.9e-4. `overlap_yield` no longer refuses `beta_ff`;
+`overlap_mean_a0_sq` inherits the path; `overlap_time_profile` handles it (time is an
+explicit axis there) and `overlap_transverse_profile` raises, because it integrates time
+out.
+
+**A 1D shortcut exists and is deliberately not shipped** (§B.4). Freezing the widths at the
+stationary point of the time integral reuses §A's machinery unchanged and is accurate to
+1e-5 on a short bunch — but its error is *first* order, unlike the crossing-angle
+approximation whose dropped term cancelled by evenness. Measured: **34% at `beta_ff = 1`**
+on the baseline. Controlling parameter `beta_ff * sigma_ez / z_R`, which is 2.5*beta_ff for
+the baseline and 0.025*beta_ff for a 30 um bunch. Excellent in the regime a flying focus is
+*for*, useless just outside it — too sharp a knife for a default (D044).
+
+**Two physics results fall out, neither encoded, both pinned as tests:**
+- `beta_ff = 1` maximizes the yield — the focal plane co-moves with the bunch at `c`, so the
+  electrons sit at the waist throughout. Worth 2.0x on the baseline and **2.8x on a 30 um
+  bunch** over no flying focus, and it beats both slower and faster slides.
+- For a short bunch the yield is **invariant under `beta_ff -> 1/beta_ff`** (0.5 and 2.0
+  agree to seven digits). Along the ridge `z ~ ct` so `u_spot ~ (beta_ff - 1) ct` while the
+  Rayleigh range carries `(1 + beta_ff)`; the spot depends on
+  `(beta_ff - 1)/(beta_ff + 1)`, odd under that map, and the width on its square.
+  `beta_ff = 1` is the fixed point, which is why it is the optimum.
+
+**One bug, found by the numbers not by inspection.** The `(z, ct)` Gaussian is nearly
+degenerate — the collision lives on a thin diagonal ridge — so a grid sized from the
+marginals under-resolved it and came out **3.8% low** on a short bunch. Nodes now go on the
+principal axes, with counts raised until each step advances `u_spot` by less than `z_R/8`.
+
+**Not cross-checked against the author's own derivation.** The head-on synchronized
+counter-propagating expressions were not available here, so §B rests on the Monte Carlo
+alone. The `(1 + beta_ff)` Rayleigh stretch in `rayleigh_x` is inherited from the code
+rather than re-derived, and the reciprocal symmetry depends on it directly — that is the
+first thing an independent check should target.
+
+Full suite: 364 passed, up from 355. `DECISIONS.md` gained D044; `docs/GRAND_PLAN.md`
+bumped to v0.23.
+
+---
+
 ## How to update this file
 
 - One dated section per work session (or per meaningful chunk of a session).

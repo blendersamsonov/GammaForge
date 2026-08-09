@@ -393,6 +393,93 @@ def _z_blocks(z: np.ndarray):
         yield z[start:stop], w[start:stop]
 
 
+#: Fraction of a Rayleigh range a flying-focus quadrature node may advance the spot-size
+#: coordinate. The `(z, w)` Gaussian is nearly degenerate — the collision lives on a thin
+#: diagonal ridge — so a grid sized from the marginals under-resolves it badly (measured:
+#: 3.8% low on a short bunch). Nodes are placed on the *principal axes* and their count is
+#: raised until each step moves ``u_spot`` by less than this.
+_FF_NODES_PER_RAYLEIGH = 8.0
+_FF_MAX_NODES = 24001
+
+
+def _flying_focus_grid(beam, laser, laser_power: float, n_quad: int, n_quad_u: int):
+    """Principal-axis nodes for the flying-focus ``(z, w = ct)`` quadrature.
+
+    Returns ``(z, w, weights)``, all 2D and already carrying the area element. The
+    quadratic form is evaluated once at the origin to find the principal axes; node counts
+    are then raised until the spot-size coordinate ``u_spot = k_z z + beta_ff w`` advances
+    by less than a fraction of a Rayleigh range per step, because that — not the Gaussian
+    envelope — is what the integrand's structure actually follows.
+    """
+    pieces = _form_pieces(beam, laser, 0.0, laser_power=laser_power)
+    m, g, h = pieces.m, pieces.g, pieces.h
+    det_a = m[0, 0] * m[1, 1] - m[0, 1] ** 2
+
+    def quad(p, q):  # p^T A^-1 q for 2-vectors
+        return (m[1, 1] * p[0] * q[0] - m[0, 1] * (p[0] * q[1] + p[1] * q[0]) + m[0, 0] * p[1] * q[1]) / det_a
+
+    b = (m[0, 2], m[1, 2])
+    g_perp = (g[0], g[1])
+    hess = np.array([
+        [float(m[2, 2] - quad(b, b)), float(-g[2] + quad(b, g_perp))],
+        [float(-g[2] + quad(b, g_perp)), float(h - quad(g_perp, g_perp))],
+    ])
+    evals, evecs = np.linalg.eigh(hess)
+    if np.any(evals <= 0.0):
+        raise ValueError("flying-focus overlap: the (z, ct) quadratic form is not positive definite")
+
+    k_hat, _, _ = laser.focusing_axes()
+    z_r = min(abs(laser.rayleigh_x()), abs(laser.rayleigh_y()))
+    axes = []
+    for i, requested in enumerate((n_quad, n_quad_u)):
+        extent = 8.0 / math.sqrt(float(evals[i]))
+        # how fast this axis moves the spot-size coordinate
+        slope = abs(k_hat[2] * evecs[0, i] + laser.beta_ff * evecs[1, i])
+        needed = int(2.0 * extent * slope * _FF_NODES_PER_RAYLEIGH / z_r) + 1
+        n = min(max(requested, needed, 201), _FF_MAX_NODES)
+        axes.append(np.linspace(-extent, extent, n))
+
+    aa, bb = axes[0][:, None], axes[1][None, :]
+    z = evecs[0, 0] * aa + evecs[0, 1] * bb
+    w = evecs[1, 0] * aa + evecs[1, 1] * bb
+    weights = _trapezoid_weights(axes[0])[:, None] * _trapezoid_weights(axes[1])[None, :]
+    return z, w, weights
+
+
+def _reduced_integral_flying_focus(beam, laser, n_quad: int, laser_power: float, n_quad_u: int):
+    """``(R, h)`` when ``beta_ff != 0``, where the time integration cannot be done first.
+
+    A flying focus makes the spot-size coordinate ``u_spot = u + beta_ff * ct`` depend on
+    time, so the widths depend on **two** independent linear functionals of
+    ``(x, y, z, ct)`` — ``z`` and ``u_spot`` — rather than one. Two of the four dimensions
+    therefore stay Gaussian and two must be quadratured: here ``(x, y)`` are integrated
+    analytically at fixed ``(z, ct)`` and the remaining plane is gridded
+    (`docs/DERIVATIONS.md` §B).
+
+    The result is normalized to the same convention as :func:`_reduced_integral` — the
+    caller's prefactor already carries ``sqrt(2 pi / h)``, so that factor is divided out
+    here rather than the prefactor being special-cased.
+    """
+    z, w, weights = _flying_focus_grid(beam, laser, laser_power, n_quad, n_quad_u)
+    k_hat, _, _ = laser.focusing_axes()
+    total = 0.0
+    for start in range(0, z.shape[0], _Z_BLOCK):
+        sl = slice(start, start + _Z_BLOCK)
+        zb, wb = z[sl], w[sl]
+        pieces = _form_pieces(beam, laser, zb, u_shift=laser.beta_ff * wb, laser_power=laser_power)
+        m, g, h = pieces.m, pieces.g, pieces.h
+        det_a = m[0, 0] * m[1, 1] - m[0, 1] ** 2
+        v0 = wb * g[0] - m[0, 2] * zb
+        v1 = wb * g[1] - m[1, 2] * zb
+        quad_v = (m[1, 1] * v0**2 - 2.0 * m[0, 1] * v0 * v1 + m[0, 0] * v1**2) / det_a
+        exponent = 0.5 * quad_v - 0.5 * m[2, 2] * zb**2 + wb * g[2] * zb - 0.5 * h * wb**2
+        integrand = np.exp(exponent) / (pieces.transverse_norm(laser_power) * np.sqrt(det_a))
+        total += float(np.sum(integrand * weights[sl]))
+
+    h = _form_pieces(beam, laser, 0.0, laser_power=laser_power).h
+    return 2.0 * math.pi * total / math.sqrt(2.0 * math.pi / h), h
+
+
 def _z_grid(beam, laser, n_quad: int, laser_power: float = 1.0) -> np.ndarray:
     beta_0 = beam.beta0()
     D = math.hypot(beam.m("sigma_z"), beta_0 * laser.sigma_ct())
@@ -420,6 +507,8 @@ def _reduced_integral(
     depending on ``q1`` and this degenerates *gracefully* into the 1D result — wasted nodes,
     not a singularity, which is why the crossing direction is the right coordinate to keep.
     """
+    if laser.beta_ff != 0.0:
+        return _reduced_integral_flying_focus(beam, laser, n_quad, laser_power, n_quad_u)
     z = _z_grid(beam, laser, n_quad, laser_power)
     if n_quad_u <= 1:
         pieces = _form_pieces(beam, laser, z, laser_power=laser_power)
@@ -529,12 +618,6 @@ def overlap_yield(
        of the emission kernel, a different question from this overlap geometry.
        `AnalyticalEngine` says so on the `Results` when both are in play.
     """
-    if laser.beta_ff != 0.0:
-        raise ValueError(
-            f"overlap_yield: a flying focus (beta_ff={laser.beta_ff!r}) makes the spot size "
-            "depend on time as well as position, which breaks the analytic time integration "
-            "this result is derived from"
-        )
     if n_quad < 11:
         raise ValueError(f"overlap_yield: n_quad must be >= 11 (got {n_quad!r})")
 
@@ -609,7 +692,9 @@ def overlap_time_profile(
 
     line = np.zeros(t.shape)
     for z_block, weights in _z_blocks(z):
-        pieces = _form_pieces(beam, laser, z_block)
+        # A flying focus slides the spot-size evaluation point with time, and here `t` is
+        # an explicit axis, so it costs nothing to carry exactly.
+        pieces = _form_pieces(beam, laser, z_block, u_shift=laser.beta_ff * w)
         m, g, h = pieces.m, pieces.g, pieces.h
         det_a = m[0, 0] * m[1, 1] - m[0, 1] ** 2
         # Integrating (x, y) at fixed (z, t): the linear term is v = w g_perp - b z.
@@ -644,6 +729,13 @@ def overlap_transverse_profile(
     both distributions are centered there, so "relative to the bunch" and "lab" coincide by
     construction rather than by a shift this function applies.
     """
+    if laser.beta_ff != 0.0:
+        raise ValueError(
+            f"overlap_transverse_profile: a flying focus (beta_ff={laser.beta_ff!r}) makes the "
+            "spot size time-dependent, and this profile integrates time out — so the widths "
+            "would have to be frozen at a time that no longer exists. Use "
+            "overlap_time_profile, which keeps time as an explicit axis, or overlap_yield"
+        )
     z = _z_grid(beam, laser, n_quad)
     xb, yb = np.broadcast_arrays(np.asarray(x, dtype=float), np.asarray(y, dtype=float))
     xs, ys = xb[..., None], yb[..., None]

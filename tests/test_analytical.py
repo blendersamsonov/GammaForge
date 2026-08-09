@@ -236,13 +236,13 @@ def test_overlap_det_is_sigma0_squared_for_a_round_aligned_collision_at_the_orig
     assert float(overlap_det(beam, laser, 0.0)) == pytest.approx(expected, rel=1e-13)
 
 
-def test_overlap_yield_refuses_geometries_its_derivation_does_not_cover():
-    """A flying focus makes the spot-size evaluation point time-dependent, which breaks the
-    analytic time integration. Refusing beats returning a plausible wrong number (P14c).
-    A crossing angle is *not* on this list any more — see the crossing-angle tests below."""
+def test_transverse_profile_refuses_a_flying_focus():
+    """`overlap_yield` handles a flying focus (§B), but this profile integrates time *out*,
+    so the widths would have to be frozen at a time that no longer exists. The time profile
+    keeps time explicit and does handle it."""
     beam, laser = _round_scenario()
     with pytest.raises(ValueError, match="flying focus"):
-        overlap_yield(beam, replace(laser, beta_ff=0.2), beam.n_electrons())
+        overlap_transverse_profile(beam, replace(laser, beta_ff=0.2), beam.n_electrons(), 0.0, 0.0)
 
 
 # ---------------------------------------------------------------------------
@@ -557,6 +557,99 @@ def test_estimate_spectrum_width_default_still_uses_peak_a0():
     with_default = estimate_spectrum_width(_EXAMPLE_BEAM, _EXAMPLE_LASER, theta_col=1e-3)
     explicit = estimate_spectrum_width(_EXAMPLE_BEAM, _EXAMPLE_LASER, 1e-3, _EXAMPLE_LASER.a0_peak() ** 2)
     assert with_default.nonlinearity == explicit.nonlinearity
+
+
+# ---------------------------------------------------------------------------
+# Flying focus (docs/DERIVATIONS.md §B)
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("beta_ff", [0.5, 1.0, 2.0, -0.5])
+def test_flying_focus_yield_matches_a_brute_force_monte_carlo(beta_ff):
+    """A flying focus makes the spot-size coordinate depend on time, so the widths depend
+    on two independent functionals of `(x, y, z, ct)` and the time integration cannot be
+    done first. The `(z, ct)` quadrature that replaces it is checked against the same
+    independent reference as everything else — `photon_density` implements `u_spot`, so the
+    Monte Carlo needs no changes to cover this."""
+    beam = replace(scenarios.BASELINE.beam, sigma_z=Quantity(30.0, "um"))
+    laser = replace(scenarios.BASELINE.laser, beta_ff=beta_ff)
+    assert _monte_carlo_yield(beam, laser) == pytest.approx(
+        overlap_yield(beam, laser, beam.n_electrons()), rel=5e-3
+    )
+
+
+def test_flying_focus_leaves_the_stationary_case_bit_identical():
+    """`beta_ff == 0` must not route through the new path at all — the regression net for
+    everything §A established."""
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    N_e = beam.n_electrons()
+    assert overlap_yield(beam, replace(laser, beta_ff=0.0), N_e) == overlap_yield(beam, laser, N_e)
+
+
+def test_synchronized_flying_focus_maximizes_the_yield():
+    """The physics claim, asserted: `beta_ff = 1` makes the focal plane travel at `c` in
+    `+z`, co-moving with the bunch, so the electrons sit at the waist throughout instead of
+    sweeping through the hourglass. It must beat both slower and faster slides, and beat no
+    flying focus by a wide margin — 2.8x for this short bunch."""
+    beam = replace(scenarios.BASELINE.beam, sigma_z=Quantity(30.0, "um"))
+    N_e = beam.n_electrons()
+
+    def yield_at(beta_ff):
+        return overlap_yield(beam, replace(scenarios.BASELINE.laser, beta_ff=beta_ff), N_e)
+
+    synchronized = yield_at(1.0)
+    assert synchronized > yield_at(0.5)
+    assert synchronized > yield_at(1.6)
+    assert synchronized > 2.5 * yield_at(0.0)
+
+
+def test_flying_focus_yield_is_invariant_under_beta_ff_to_its_reciprocal():
+    """A non-obvious exact symmetry, and a sharp check on the whole `(z, ct)` construction.
+
+    Along the collision ridge a short bunch has `z ~ ct`, so the spot-size coordinate goes
+    as `u_spot ~ (beta_ff - 1) ct` while `rayleigh_x()` carries the repo's
+    `(1 + beta_ff)` stretch. The spot therefore depends on
+    `(beta_ff - 1)/(beta_ff + 1)`, which is odd under `beta_ff -> 1/beta_ff` — and the
+    width depends on its square. So the yield is unchanged, with `beta_ff = 1` the fixed
+    point that maximizes it. Nothing in the implementation knows this."""
+    beam = replace(scenarios.BASELINE.beam, sigma_z=Quantity(30.0, "um"))
+    N_e = beam.n_electrons()
+
+    def yield_at(beta_ff):
+        return overlap_yield(beam, replace(scenarios.BASELINE.laser, beta_ff=beta_ff), N_e)
+
+    for beta_ff in (0.25, 0.5, 0.8):
+        assert yield_at(beta_ff) == pytest.approx(yield_at(1.0 / beta_ff), rel=2e-4)
+
+
+def test_flying_focus_composes_with_a_crossing_angle():
+    """Both at once — the case the two-functional argument says is still only 2D."""
+    beam = scenarios.BASELINE.beam
+    laser = replace(scenarios.BASELINE.laser, beta_ff=0.5, theta_xz=Quantity(0.02, "rad"))
+    assert _monte_carlo_yield(beam, laser) == pytest.approx(
+        overlap_yield(beam, laser, beam.n_electrons()), rel=5e-3
+    )
+
+
+def test_mean_a0_sq_handles_a_flying_focus():
+    """`<a0^2>` runs through the same reduced integral, so it inherits the flying-focus
+    path — checked against the a0-weighted Monte Carlo rather than assumed."""
+    beam = replace(scenarios.BASELINE.beam, sigma_z=Quantity(30.0, "um"))
+    laser = replace(scenarios.BASELINE.laser, beta_ff=1.0)
+    bunch = sample_gaussian_bunch(beam, 120_000, 0)
+    px, py, pz = momenta(bunch)
+    bx, by, bz = px / bunch.gamma, py / bunch.gamma, pz / bunch.gamma
+    k_hat, _, _ = laser.focusing_axes()
+    flux = C_CGS * (1.0 - (bx * k_hat[0] + by * k_hat[1] + bz * k_hat[2]))
+    beta_0 = beam.beta0()
+    t_max = 10.0 * math.hypot(beam.m("sigma_z"), beta_0 * laser.sigma_ct()) / ((1.0 + beta_0) * C_CGS)
+    t_grid = np.linspace(-t_max, t_max, 201)
+    num, den = [], []
+    for t in t_grid:
+        x, y, z = bunch.x + C_CGS * bx * t, bunch.y + C_CGS * by * t, bunch.z + C_CGS * bz * t
+        w = laser.photon_density(x, y, z, t) * flux
+        num.append(float(np.sum(w * laser.a0_profile(x, y, z, t) ** 2)))
+        den.append(float(np.sum(w)))
+    reference = float(np.trapezoid(num, t_grid) / np.trapezoid(den, t_grid))
+    assert overlap_mean_a0_sq(beam, laser) == pytest.approx(reference, rel=5e-3)
 
 
 def _monte_carlo_yield(beam, laser, n_particles=50_000, n_t=151, seed=0):
