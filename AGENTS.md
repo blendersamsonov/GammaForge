@@ -13,12 +13,17 @@ as code to extend in place.
 1. **`docs/GRAND_PLAN.md`** — the architecture and phase plan. Versioned (`vX.Y`), with
    its own changelog of *design* decisions. If something here conflicts with the plan,
    the plan wins; update the plan first, then code.
-2. **`PROGRESS.md`** — the execution log. What's actually been built, session by
-   session, and current phase status. Check this before assuming what exists.
+2. **`PROGRESS.md`** — **current state and open threads only**, deliberately short. It is
+   not a session log: `git log` is, and it does not go stale. Read it for what works right
+   now and what is unfinished or waiting on the author.
 3. **`DECISIONS.md`** — implementation-level decisions with rejected alternatives, in
-   the plan's own documentation-discipline spirit (goal #8). Read its header once: it
+   the plan's own documentation-discipline spirit (goal #8). Start at its **index table**,
+   which covers both this file and `docs/DECISIONS_ARCHIVE.md` (settled history: Phase
+   0–2.5 scaffolding and superseded entries, moved verbatim). Read its header once: it
    has a load-bearing convention (backticks = resolves right now; *italics* = a
    hypothetical/rejected/future name) that a doc-staleness test enforces.
+   **Ids are an addressing scheme** — ~90 code comments cite `DNNN`, so entries are never
+   renumbered and never deleted, only archived.
 
 The physics authority is the paper draft at `~/Work/Papers/2026/Compton-Numerics`. It
 is in flux. **If code and paper disagree, that is BLOCKING — stop and flag it, don't
@@ -75,11 +80,14 @@ constraints (`GRAND_PLAN.md` §1 has the full table with provenance — P1–P15
   Keep `pytest` green — Phase exit criteria in `GRAND_PLAN.md` §11 are the actual
   definition of "done" for a phase, not just "tests pass."
 - **`DECISIONS.md` entries:** add one when you make a real implementation choice with a
-  rejected alternative, *after* it's built (not as a promise). Follow its
-  backticks-vs-italics convention — `tests/test_doc_staleness.py` checks it.
-- **`PROGRESS.md`:** append a dated section per session/chunk of work; don't rewrite
-  history. Link back to `GRAND_PLAN.md`'s changelog for plan changes instead of
-  duplicating rationale.
+  rejected alternative, *after* it's built (not as a promise). Append; never renumber.
+  Add the row to its index table. Follow its backticks-vs-italics convention —
+  `tests/test_doc_staleness.py` checks it. When an entry is superseded, put a pointer at
+  the top of both, then move the old one to `docs/DECISIONS_ARCHIVE.md` **verbatim** —
+  editing its reasoning would falsify what was decided at the time.
+- **`PROGRESS.md`:** **do not append a session log.** Edit the phase table and the open
+  threads in place, and delete what stopped being true — git holds the narrative. Anything
+  merely *done* belongs in the code and the commit message, not here.
 - **Old repo (`ComptonSuite`):** reference only, and only through
   `src/gammaforge/validation/make_references.py` for golden snapshots. It runs the old
   code in a **subprocess** — both repos install a package called `gammaforge`, so they
@@ -104,20 +112,15 @@ constraints (`GRAND_PLAN.md` §1 has the full table with provenance — P1–P15
 
 ## Current status
 
-See `PROGRESS.md` for what phase is active and what's actually landed — it is the
-authority, and this paragraph is a summary that will go stale between updates. As of
-Phase 3a plus §9.1 of 3b: `gammaforge.io` is complete, the validation harness and its
-golden references exist, and `engines/xigma` holds Stage 0, Stage 1, Stage 2, the
-`Collision` facade, and `XigmaEngine`. The numpy kernel is what's built; `cupy`/`numba`
-backends are gated (not implemented) the same way Stage 0's are. The `ENGINES` registry,
-the other two engines, and the GUI are **not built** — most module files named in
-`GRAND_PLAN.md` are deliberately absent (`DECISIONS.md` D003), so check before assuming one
-exists. `XigmaEngine` is not wired into `validation.run.main()`'s default suite run (D031);
-`python -m gammaforge.validation.run` exercises Stage 1/2 through the identity harness
-instead.
+**`PROGRESS.md` is the authority — read it rather than a summary here.** This section
+deliberately carries only what does not change between phases:
 
-**§9.1 is closed** (D033): the kernel normalization constant is set and the identity
-harness expects 1, not 2π. §9.2 (ellipticity→a0) and §9.3 (crossing angle) are still open
-*derivations the paper does not contain* — both are wired as documented no-ops with
-`validate()` warnings (D034), and neither blocks Phases 4–6. Don't "fix" either by inventing
-a formula; that's the specific failure P14c names.
+- Most module files named in `GRAND_PLAN.md` are **deliberately absent** until their phase
+  lands (`DECISIONS.md` D003). Check before assuming one exists; the knowledge graph
+  (`graphify query`) answers this faster than grep.
+- Only the **numpy** backend is real. `cupy`/`numba` are gated everywhere they appear.
+- **§9.2 and §9.3 are open derivations the paper does not contain**, wired as documented
+  no-ops with `validate()` warnings and one-line markers (`ELLIPTICITY_IS_NOOP`,
+  `EMISSION_IS_HEAD_ON`). Don't "fix" either by inventing a formula — that is the specific
+  failure P14c names. `docs/DERIVATIONS.md` holds what has been derived and what each
+  result is blocked on; `PROGRESS.md`'s open threads say which parts are already closed.
