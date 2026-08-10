@@ -14,6 +14,80 @@
   `ellipticity` interpolates. *(v0.19–v0.24 are on the parallel Phase 4 branch
   `worktree-phase4-analytical-engine`; this entry deliberately numbers past them so the
   changelogs interleave rather than collide on merge.)*
+- **v0.24**: **arbitrary transverse and timing misalignment** between pulse and bunch
+  (`DECISIONS.md` D046, `docs/DERIVATIONS.md` §A.11). `GaussianParaxialLaser` gains
+  `x_off`/`y_off`/`t_off`, applied once in `_local_coordinates` so every field consumer —
+  xigma included — inherits them, with `active_region` shifted to match so the cone
+  prefilter cannot discard particles that do interact. Deliberately no `z_off`: for a pulse
+  at `c` it is degenerate with `t_off`. Analytically this is one linear term in the
+  quadratic form, verified by an exact `exp(-dᵀ(C_e+C_l)⁻¹d/2)` falloff to 1e-13 and by the
+  Monte Carlo across every combination with crossing angle and flying focus. Closes the last
+  gap in "arbitrary foci displacement": longitudinal was already general per axis, the
+  transverse and temporal directions had no representation at all. `PROGRESS.md` 2026-08-09.
+- **v0.23**: **flying focus covered for the analytical yield** (`docs/DERIVATIONS.md` §B,
+  `DECISIONS.md` D044) — `overlap_yield` no longer refuses `beta_ff`. The useful structural
+  result: a flying focus makes the widths depend on *two* linear functionals of
+  `(x, y, z, ct)` instead of one, so two of four dimensions stay Gaussian and **an exact
+  treatment of a crossing angle plus an arbitrary flying-focus velocity together is still
+  only a 2D quadrature** — the two effects do not compound. A 1D shortcut exists and is
+  deliberately not shipped: its error is *first* order (34% at `beta_ff = 1` on the
+  baseline) because a flying focus exists to correlate the width with time. Validated
+  against the brute-force Monte Carlo to 1e-3 across `beta_ff` ∈ {−0.5, 0.5, 1, 2}, with
+  and without a crossing angle; **not** cross-checked against the author's own head-on
+  synchronized derivation, which was not available. Two physics results fall out and are
+  pinned: `beta_ff = 1` maximizes the yield (2.8× on a 30 µm bunch), and for a short bunch
+  the yield is invariant under `beta_ff → 1/beta_ff`. `PROGRESS.md` 2026-08-09.
+- **v0.22**: analytical becomes explicitly **tiered** (`DECISIONS.md` D043) — closed form
+  (~0.01 ms) / 1D quadrature (~1–2 ms, default) / exact 2D quadrature (~40–800 ms, opt-in
+  via `n_quad_u`). The first two keep §4.3's "only real-time engine" claim true of
+  something; the third makes the 1D path's error *measured* (1.9e-4 at 20 mrad, 1.6e-3 at
+  0.4 rad on the worst corner) instead of argued. `recompute_costs` now declares the
+  quadrature knobs, before Phase 6 can wire a live panel to the slow tier.
+  **The last growth item for the width closes**: `overlap_mean_a0_sq` computes the
+  luminosity-weighted `<a0²>` — the same integral with the laser density squared — and the
+  nonlinearity term uses it instead of peak a0, a ~3x correction at the baseline (D042).
+  New cheap previews `overlap_time_profile`/`overlap_transverse_profile` resolve the same
+  integral in time and across the transverse plane, both satisfying exact
+  integrate-back-to-the-yield identities (§7). `docs/DERIVATIONS.md` §A rewritten in
+  MathJax for the paper. `PROGRESS.md` 2026-08-09.
+- **v0.21**: **The crossing angle is covered for the analytical total yield** (§4.3,
+  `docs/DERIVATIONS.md` §A.6). v0.20 deferred it to §9.3, which conflated two separate
+  things: §9.3's open item is the polarization structure of the *emission kernel*, while
+  the *overlap geometry* is an independently solvable Gaussian problem — and §9.3's own
+  notes already record that the relative-velocity factor and resonance frequency are
+  general in the paper. Rewriting the overlap as a quadratic form and eliminating time via
+  a Schur complement covers every geometry in one expression, with head-on falling out as
+  an identity (no head-on test changed). Validated three ways: a constant-width closed form
+  to ~1e-14 out to 0.4 rad in both crossing planes, the Piwinski suppression at small
+  angle, and a brute-force Monte Carlo over `GaussianParaxialLaser.photon_density` with
+  real macroparticles to a few 1e-4. The effect is large — 20 mrad costs a factor 2.18 in
+  baseline yield. **`SPECTRUM`'s shape remains head-on** while its integral is now correct,
+  so `AnalyticalEngine` reports that on `Results`. `DECISIONS.md` D041; `PROGRESS.md`
+  2026-08-09.
+- **v0.20**: Two of §4.3's three "growth items" **closed** — non-round-beam yield and
+  foci displacement — by deriving the Gaussian luminosity overlap integral in general
+  (`docs/DERIVATIONS.md` §A) rather than approximating it. All integrations are analytic
+  except one longitudinal quadrature over a strictly positive, smooth integrand, so the
+  cost stays milliseconds. `overlap_yield` handles per-axis sizes and focusing, Twiss
+  `alpha` (the electron waist offset — already in the data model, no new schema), the
+  astigmatic `z_fx`/`z_fy` offsets and the `psi_focus` rotation between the two transverse
+  ellipses; it reduces analytically to the old closed form in the round/aligned limit,
+  which is now a pinned regression anchor. `AnalyticalEngine` ships it. Only
+  collimated-spectrum construction remains open of the three. **The derivation also
+  exposed a factor-4 laser-divergence convention error in `estimate_yield`, inherited
+  from the predecessor and worth 3.3x in the baseline yield** — flagged, pinned by test,
+  deliberately not "fixed" (`DECISIONS.md` D039–D040). `PROGRESS.md` 2026-08-09.
+- **v0.19**: Phase 4 (`engines/analytical`, §4.3) **landed**, built concurrently with
+  Phase 3b in an isolated worktree/branch (§11's "Phases 4–6 must not wait on physics
+  derivations"). `estimate_yield`, `estimate_spectrum_width` (now returning its four
+  components separately, per §4.3's own text, rather than pre-summed), and
+  `angle_integrated_spectrum` are ported from the predecessor onto this repo's CGS
+  beam/laser types; `AnalyticalEngine` fills `TOTAL_YIELD` and 1D `SPECTRUM` with
+  `∫ SPECTRUM = TOTAL_YIELD` as an **exact** identity (§7), not a tolerance. §4.3's own
+  "growth items" — foci displacement, non-round-beam total yield, collimated-spectrum
+  construction — are **not** attempted in this landing and stay open (§11's Phase 4 row
+  below states this explicitly rather than being marked fully closed). `DECISIONS.md`
+  D035–D038; `PROGRESS.md` 2026-08-09.
 - **v0.18**: Stage 2's long-term production path is now stated explicitly (§4.2): once a
   ring/annulus-based importance-sampling kernel is built and validated against the
   existing brute-force grid quadrature, it becomes the **sole production path** for
@@ -750,8 +824,28 @@ The tabulated-overlap pipeline, restructured into composable stages:
 
 Closed-form estimates, no per-particle Monte Carlo:
 
-- `estimate_yield(beam, laser)`: total yield (closed form).
-- `estimate_spectrum_width(beam, laser, theta_col)`: collimated width with a
+- `overlap_yield(beam, laser, N_e, n_quad)`: total yield from the **general** Gaussian
+  luminosity overlap integral — non-round beams, per-axis focusing, displaced/astigmatic
+  foci, rotated laser ellipse. One longitudinal quadrature; everything else is analytic
+  (`docs/DERIVATIONS.md` §A). This is what the engine uses. `N_e` is explicit
+  (`InteractionParameters.N_e`) rather than derived from `beam`, so the io-level cheap
+  charge-only rescale path (§5) stays correct. Handles a **crossing angle** too (§A.6) —
+  for the yield; the spectrum's shape stays head-on pending §9.3, and the engine says so.
+  Handles a **flying focus** too (§B) — on a 2D `(z, ct)` grid, since a time-dependent spot
+  size is exactly what forbids doing the time integral first.
+- `estimate_yield(beam, laser, N_e)`: the predecessor's round-beam closed form. Retained
+  as the analytic limit `overlap_yield` reduces to (a regression anchor) and as the
+  port-fidelity pin — **not** for use: it carries a laser-divergence convention error
+  worth 3.3x on the baseline scenario (D040).
+- `overlap_mean_a0_sq(beam, laser, n_quad, n_quad_u)`: the luminosity-weighted `<a0²>` —
+  the a0 the bunch actually samples, not the pulse's peak. Same overlap integral with the
+  laser density squared (§A.8). Feeds the width breakdown's nonlinearity term.
+- `overlap_time_profile(...)` / `overlap_transverse_profile(...)`: the same integral
+  resolved in time and across the transverse plane — cheap preview plots (~8 ms / ~100 ms)
+  drawn *before* an expensive run is launched. Each integrates back to the total yield
+  exactly (§7). Angle-resolved output is deliberately deferred: it needs the emission
+  kernel, not the overlap geometry.
+- `estimate_spectrum_width(beam, laser, theta_col, a0_sq=None)`: collimated width with a
   **per-component breakdown** — collimation `(γθ_col)⁴`, emittance/divergence
   `(γσ_θ)⁴`, energy spread `(σ_γ/γ)²`, nonlinearity `(a0²/2)²` — each reported
   separately (GUI shows a component table; total in quadrature).
@@ -1111,7 +1205,7 @@ annotated at both equations.
 | **2.5. Stage 0 + minimal delta** | **Stage 0** (`integrate_trajectories`) and the **shared auto-chunk + OOM-retry utility** (§4.2), pulled forward from 3a because delta needs both; delta itself scoped to Stage-2 normalization arbitration, built on top of Stage 0 (§4.5) | Stage 0 tests green; chunk-invariance holds; delta produces independent spectra on baseline scenarios; identity harness (`kernel` vs `reference` vs `direct binning` vs delta) executable |
 | **3a. xigma engineering** — **landed 2026-08-08** | Stage 1/2 pure functions; Collision facade + stage cache; Engine wrapper; numpy kernel for Stages 1/2, cupy/numba gated like Stage 0 until real kernels exist (**Stage 0 and the chunking utility already built in 2.5**; D029); geometry/a0/ellipticity parameters wired as explicit identity/no-op placeholders (P14c) | Stage architecture tests green; placeholders documented |
 | **3b. Physics closure** — **§9.1 landed 2026-08-08; §9.2/§9.3 open, non-blocking** | ~2π resolution (§9.1 — **closed**: traced in 2.5, applied in 3b, D033), crossing-angle derivation (§9.3), ellipticity→a0 (§9.2) — **runs concurrently with Phases 4 and 5, not serially** | §9.1's constant set in Stage 2 and the identity harness re-gated against 1.0 rather than 2π — **met**; §9.2/§9.3 derivations landed if author completes them in parallel (never blocking 4–6) — **outstanding, and the paper contains no formula for either**, so both stay wired as documented no-ops with `validate()` warnings (D034) |
-| **4. analytical engine** | estimates + component breakdown; quadrature spectrum; growth items (foci displacement, non-round beam, collimated spectrum) | Closed-form limits match; validation anchor ready |
+| **4. analytical engine** — **landed 2026-08-09; one growth item open** | estimates + component breakdown; quadrature spectrum; general overlap-integral yield (non-round + displaced foci); remaining growth item (collimated spectrum) | Closed-form limits match — **met** (Thomson-limit anchor *and* the analytic reduction of `overlap_yield` to the round-beam closed form, §7); validation anchor ready — **met** for `TOTAL_YIELD`/`SPECTRUM`; foci displacement + non-round beam — **met** via `docs/DERIVATIONS.md` §A (`DECISIONS.md` D039); crossing-angle geometry — **met** for the yield via §A.6 (D041), validated against a brute-force Monte Carlo; the width's nonlinearity term — **met** via the luminosity-weighted `<a0²>` (§A.8, D042); resolved time/transverse previews — **met** (§A.9). Outstanding: collimated-spectrum construction, angle-resolved previews (deferred), and `SPECTRUM`'s shape under a crossing angle, which is §9.3's emission kernel rather than overlap geometry |
 | **5. kascade port + delta full role** | minimal kascade behind interface **+ its Thomson-limit sanity check (B4)**; delta full cross-validation role | 4-method cross-validation runs; kascade sanity check passes |
 | **6. GUI** | schema-driven two-tab app; overlays + per-engine show/hide; save plots/HDF5; grey-out/release; sketch panel (headless module first); **import-boundary check enforced in CI (B3)** | GUI runs headless-smoke; all planned interactions work; boundary check green |
 | **7. Validation completion** | full scenario bank, convergence, chunk-invariance, closed-form identities, golden cross-checks | Full suite green; results reproducible; 3b closures integrated |

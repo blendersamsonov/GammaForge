@@ -30,7 +30,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ...io.bunch import Bunch, overlap_time_window
+from ...io.bunch import Bunch, illumination_window, overlap_time_window
 from ...io.laser import CYCLE_AVERAGE_FACTOR, LaserField, fit_gaussian_paraxial
 from ...io.units import C_CGS, E_ESU, HBAR_CGS, ME_CGS, SIGMA_T_CGS
 from .chunking import run_in_chunks
@@ -185,6 +185,7 @@ def integrate_trajectories(
     *,
     n_steps: int = 200,
     threshold: float = 1e-3,
+    window: str = "active_region",
     backend: str = "numpy",
     chunk: int | None = None,
 ) -> TrajectorySamples:
@@ -204,14 +205,35 @@ def integrate_trajectories(
     invariance of §7 requires that a particle excluded at this threshold contributes
     nothing at it.
 
+    ``window`` selects where those ``n_steps`` are spent, and it is the cheapest accuracy
+    knob here. ``"active_region"`` (the default) uses
+    `gammaforge.io.bunch.overlap_time_window`, a conservative *geometric* bound: correct,
+    but far wider than the stretch in which a particle is actually illuminated, because the
+    active region ignores the ``1 / (s1 s2)`` dimming away from focus. ``"illumination"``
+    uses `gammaforge.io.bunch.illumination_window`, which brackets the illuminated stretch
+    itself — same particles, same step count, measurably better resolution, because no step
+    is spent where the integrand is negligible.
+
+    The default is deliberately the wider one. The illuminated window is an *estimate*
+    rather than a bound, so switching changes results (slightly, and towards the converged
+    answer) — a deliberate act, not something to inherit silently, and the reason the golden
+    references still describe the geometric window.
+
     Chunking is over particles, whose trajectories are independent, so the partition
     cannot change the answer.
     """
     if n_steps < 1:
         raise ValueError(f"integrate_trajectories: n_steps must be >= 1, got {n_steps}")
+    if window not in ("active_region", "illumination"):
+        raise ValueError(
+            f"integrate_trajectories: window must be 'active_region' or 'illumination', got {window!r}"
+        )
     _check_backend(backend)
 
-    t0, t1 = overlap_time_window(bunch, laser, threshold)
+    if window == "illumination":
+        t0, t1 = illumination_window(bunch, laser, threshold)
+    else:
+        t0, t1 = overlap_time_window(bunch, laser, threshold)
     span = np.maximum(0.0, t1 - t0)
     # A particle that never enters the pulse gets an empty window, which
     # `overlap_time_window` reports as t0 = +inf, t1 = -inf. Its span is zero and it

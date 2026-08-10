@@ -61,6 +61,12 @@ __all__ = [
     "momenta",
     "overlap_time_window",
     "prefilter_bunch",
+    "luminosity_weights",
+    "peak_illumination",
+    "illumination_window",
+    "prefilter_by_illumination",
+    "illumination_report",
+    "prefilter_by_luminosity",
     "drift",
     "propagate",
     "stream",
@@ -572,6 +578,257 @@ def prefilter_bunch(bunch: Bunch, laser, threshold: float = 1e-3) -> Bunch:
     """
     t0, t1 = overlap_time_window(bunch, laser, threshold)
     return bunch.select(t0 <= t1)
+
+
+def luminosity_weights(bunch: Bunch, laser, iterations: int = 2) -> np.ndarray:
+    """Each macroparticle's expected contribution to the luminosity, in arbitrary units.
+
+    ``w_i = Int dt n_L(r_i + v_i t, t) (c - v_i . k_hat)`` — the rate at which particle
+    ``i`` actually produces photons, integrated over its whole trajectory. Freezing the
+    spot sizes makes the integrand Gaussian in ``t``, so this closes in **closed form**:
+    one pass over the arrays, no time stepping, `O(n_particles)` with a small constant.
+
+    The frozen widths are evaluated at each particle's own closest approach, found by
+    iterating the stationary point ``t* = -b/a`` a couple of times — enough for a
+    *ranking*, which is all this is for.
+
+    Intended as a relevance measure for :func:`prefilter_by_luminosity`. It is **not** a
+    photon count: the normalization is dropped where it is common to all particles, so only
+    ratios between weights are meaningful.
+    """
+    from .laser import fit_gaussian_paraxial
+
+    metrics = fit_gaussian_paraxial(laser)
+    k_hat, f1, f2 = metrics.focusing_axes()
+    px, py, pz = momenta(bunch)
+    vx, vy, vz = (C_CGS * p / bunch.gamma for p in (px, py, pz))
+
+    xi1 = f1[0] * bunch.x + f1[1] * bunch.y + f1[2] * bunch.z
+    xi2 = f2[0] * bunch.x + f2[1] * bunch.y + f2[2] * bunch.z
+    u0 = k_hat[0] * bunch.x + k_hat[1] * bunch.y + k_hat[2] * bunch.z
+    d1 = f1[0] * vx + f1[1] * vy + f1[2] * vz
+    d2 = f2[0] * vx + f2[1] * vy + f2[2] * vz
+    du = k_hat[0] * vx + k_hat[1] * vy + k_hat[2] * vz
+    s_ct = metrics.sigma_ct()
+
+    u_eval = np.zeros_like(bunch.x)
+    for _ in range(max(1, iterations)):
+        s1, s2 = metrics.spot_sizes(u_eval)
+        a = d1**2 / s1**2 + d2**2 / s2**2 + (du - C_CGS) ** 2 / s_ct**2
+        b = xi1 * d1 / s1**2 + xi2 * d2 / s2**2 + u0 * (du - C_CGS) / s_ct**2
+        c = xi1**2 / s1**2 + xi2**2 / s2**2 + u0**2 / s_ct**2
+        t_star = -b / a
+        u_eval = u0 + (du + metrics.beta_ff * C_CGS) * t_star
+    return (C_CGS - du) / (s1 * s2 * np.sqrt(a)) * np.exp(0.5 * (b**2 / a - c))
+
+
+def _illumination_quadratic(bunch: Bunch, laser, iterations: int = 2):
+    """``(peak_fraction, t_star, curvature)`` for each macroparticle, in closed form.
+
+    Along a straight trajectory with the spot sizes frozen, the photon density is
+    ``exp(-(a t^2 + 2 b t + c) / 2)`` times a brightness factor, so everything about a
+    particle's encounter with the pulse follows from one quadratic:
+
+    * its peak illumination is at ``t_star = -b / a``,
+    * the curvature ``a`` sets how fast it enters and leaves.
+
+    The frozen widths are evaluated at each particle's own closest approach, iterated
+    twice. One vectorized pass, no time stepping — `O(n_particles)`.
+    """
+    from .laser import fit_gaussian_paraxial
+
+    metrics = fit_gaussian_paraxial(laser)
+    k_hat, f1, f2 = metrics.focusing_axes()
+    px, py, pz = momenta(bunch)
+    vx, vy, vz = (C_CGS * p / bunch.gamma for p in (px, py, pz))
+
+    x = bunch.x - metrics.m("x_off")
+    y = bunch.y - metrics.m("y_off")
+    ct_off = C_CGS * metrics.m("t_off")
+    xi1 = f1[0] * x + f1[1] * y + f1[2] * bunch.z
+    xi2 = f2[0] * x + f2[1] * y + f2[2] * bunch.z
+    u0 = k_hat[0] * x + k_hat[1] * y + k_hat[2] * bunch.z
+    d1 = f1[0] * vx + f1[1] * vy + f1[2] * vz
+    d2 = f2[0] * vx + f2[1] * vy + f2[2] * vz
+    du = k_hat[0] * vx + k_hat[1] * vy + k_hat[2] * vz
+    s_ct = metrics.sigma_ct()
+
+    u_eval = np.zeros_like(bunch.x)
+    for _ in range(max(1, iterations)):
+        s1, s2 = metrics.spot_sizes(u_eval)
+        a = d1**2 / s1**2 + d2**2 / s2**2 + (du - C_CGS) ** 2 / s_ct**2
+        b = xi1 * d1 / s1**2 + xi2 * d2 / s2**2 + (u0 + ct_off) * (du - C_CGS) / s_ct**2
+        c = xi1**2 / s1**2 + xi2**2 / s2**2 + (u0 + ct_off) ** 2 / s_ct**2
+        t_star = -b / a
+        u_eval = u0 + (du + metrics.beta_ff * C_CGS) * t_star
+    # Density relative to the pulse's own maximum: the exponential, times the 1/(s1 s2)
+    # amplitude decay that makes the bright region so much smaller than the geometric one.
+    brightness = (metrics.m("sigma_x") * metrics.m("sigma_y")) / (s1 * s2)
+    return brightness * np.exp(0.5 * (b**2 / a - c)), t_star, a
+
+
+def peak_illumination(bunch: Bunch, laser, iterations: int = 2) -> np.ndarray:
+    """The highest photon density each macroparticle ever meets, as a fraction of the
+    pulse's own peak — "how far into the production region does this particle get".
+
+    The region where Compton photons are actually produced is where the pulse is *bright*,
+    and that is **not** the region the pulse geometrically occupies. Away from focus the
+    spot grows but dims as ``1 / (s1 s2)``, so a particle can sit well inside the diverged
+    beam and see almost nothing. `GaussianParaxialLaser.active_region` deliberately ignores
+    that decay (its docstring says so) because a bound may only ever err towards keeping
+    particles — correct, but it leaves the cone keeping many particles that contribute
+    nothing.
+
+    Returns a dimensionless ratio in ``[0, 1]``: 1 for a particle passing exactly through
+    the focus at the peak of the pulse, and underflowing to 0 for one that never
+    meaningfully meets the pulse at all.
+    """
+    return _illumination_quadratic(bunch, laser, iterations)[0]
+
+
+def illumination_window(bunch: Bunch, laser, threshold: float = 1e-6, iterations: int = 2):
+    """Per-particle ``(t0, t1)``: when each macroparticle is actually being illuminated.
+
+    The same quadratic that gives :func:`peak_illumination` also says *when* a particle is
+    above the threshold, because ``density >= threshold`` is one inequality in ``t``:
+
+        a t^2 + 2 b t + c <= 2 ln(brightness / threshold)
+
+    whose solution is ``t_star +- sqrt(2 ln(peak / threshold) / a)``. So the window and the
+    filter are the same computation — a particle is worth keeping exactly when its window
+    is non-empty — and both cost one vectorized pass.
+
+    **Why this matters more than the filter.** An engine samples each trajectory with a
+    *fixed* number of steps between ``t0`` and ``t1``, so the window's width sets the step
+    size. `overlap_time_window` returns the interval during which a particle is inside the
+    laser's geometric `~gammaforge.io.laser.ActiveRegion`, which is a conservative bound and
+    therefore far wider than the interval where anything actually happens — every step spent
+    outside is a step not spent resolving the interaction. This window brackets the
+    illuminated stretch itself, so the same step budget lands where the physics is.
+
+    ``t0 > t1`` marks a particle that never reaches the threshold, exactly as
+    `overlap_time_window` does, so it drops into the same filtering idiom.
+
+    Times are seconds in the lab frame. Note this is an *estimate*, not a bound: the widths
+    are frozen, so a particle's true illuminated stretch can extend slightly past the
+    window. That is the same tolerance contract as :func:`prefilter_by_illumination`, and
+    the reason `overlap_time_window` remains what `prefilter_bunch`'s exact invariance uses.
+    """
+    if not 0.0 < threshold < 1.0:
+        raise ValueError(f"illumination_window: threshold must be in (0, 1), got {threshold}")
+    peak, t_star, curvature = _illumination_quadratic(bunch, laser, iterations)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        half = np.sqrt(2.0 * np.log(peak / threshold) / curvature)
+    half = np.where(np.isfinite(half), half, -1.0)  # NaN <=> never above threshold
+    return t_star - half, t_star + half
+
+
+def prefilter_by_illumination(bunch: Bunch, laser, threshold: float = 1e-6) -> Bunch:
+    """Drop macroparticles that never reach the region where photons are actually produced.
+
+    Same *shape* of contract as `prefilter_bunch` — a threshold on intensity, a region test,
+    over-inclusive by construction — but the region is the pulse's **bright** volume rather
+    than a geometric cone around it, so it is far tighter wherever the pulse diverges. A
+    particle is kept if the photon density it meets ever exceeds ``threshold`` times the
+    pulse's own peak (:func:`peak_illumination`).
+
+    This is the natural filter now that the collision profiles are available analytically:
+    it asks the question the cone approximates, and answers it in closed form. Against the
+    cone at matched threshold, on a 400 um bunch meeting a 4 um / 1 ps pulse with displaced
+    foci, it keeps a small fraction of what the cone does at a comparable induced error.
+
+    .. warning::
+
+       **The threshold does not mean what the same number means for `prefilter_bunch`.**
+       That one takes a bound: `1e-3` there is safe by construction. Here `1e-3` induces a
+       **44% error** on the scenario this function exists for, because many particles that
+       are individually dim still sum to a large contribution. The default is therefore
+       `1e-6`, which measures at 3.5e-4. Reasoning by analogy with the cone's threshold is
+       the mistake to avoid.
+
+    Not a replacement for `prefilter_bunch`'s exact invariance: like
+    :func:`prefilter_by_luminosity` it drops small-but-nonzero contributions, so the answer
+    moves by roughly ``threshold``. Unlike that one it thresholds *peak illumination* rather
+    than *integrated contribution*, which is what makes it a region test — cheaper to reason
+    about, and independent of how long a particle dwells in the beam.
+    """
+    t0, t1 = illumination_window(bunch, laser, threshold)
+    return bunch.select(t0 <= t1)
+
+
+def illumination_report(bunch: Bunch, laser, threshold: float = 1e-6) -> dict:
+    """What `prefilter_by_illumination` would discard, and how much to trust that estimate.
+
+    A **pre-engine diagnostic**, meant to be shown to a user before anything expensive runs
+    so that dropping charge is their decision rather than a silent default. It answers two
+    questions that have to be read together:
+
+    * ``charge_below`` — the fraction of *charge* (not of particles: `Bunch.weight` is
+      relative, and an imported bunch need not be uniformly weighted) that never reaches
+      ``threshold`` of the pulse's peak illumination, and would therefore be dropped.
+    * ``ks_excess`` — how far the bunch is from the Gaussian description the estimate rests
+      on, above sampling noise, taken from `GaussianElectronBeam.fit_quality`. ``None`` when
+      the beam is analytic, which is a *stronger* statement than ignorance: such a bunch is
+      Gaussian by construction, so the estimate carries no model error at all.
+
+    The pairing is the point. Illumination is computed from a Gaussian picture of the pulse,
+    so a bunch that fits a Gaussian badly is exactly the case where the tails — the charge
+    this would discard — are least well described. "10% of the charge is below threshold" is
+    a different decision at ``ks_excess`` of 0.005 than at 0.2, and neither number alone
+    says which.
+
+    Unlike the analytical engine's own quantities this is `O(n_particles)`: it inspects real
+    macroparticles, which is the only way to answer "how much of *this* bunch". That cost
+    belongs to a diagnostic, not to any engine's estimate path.
+    """
+    fraction = peak_illumination(bunch, laser)
+    below = fraction < threshold
+    total_weight = float(np.sum(bunch.weight))
+    quality = getattr(bunch.gaussian_fit, "fit_quality", None) if bunch.gaussian_fit else None
+    return {
+        "threshold": threshold,
+        "charge_below": float(np.sum(bunch.weight[below]) / total_weight) if total_weight > 0 else 0.0,
+        "particles_below": int(np.count_nonzero(below)),
+        "n_particles": bunch.n_particles,
+        "median_illumination": float(np.median(fraction)),
+        "max_illumination": float(np.max(fraction)) if fraction.size else 0.0,
+        "ks_excess": None if quality is None else float(quality["ks_excess"]),
+        "gaussian_by_construction": quality is None,
+    }
+
+
+def prefilter_by_luminosity(bunch: Bunch, laser, epsilon: float = 1e-4) -> Bunch:
+    """Keep the macroparticles carrying all but ``epsilon`` of the total luminosity weight.
+
+    **A different contract from `prefilter_bunch`, deliberately.** That one drops only
+    particles a geometric bound proves contribute exactly zero, so results are bit-identical
+    with it on or off — a tested invariance. This one drops particles that contribute a
+    little, so it *does* move the answer, and is a tolerance rather than an optimization.
+    Both exist because they are good at different things; this is not a replacement.
+
+    The contract is deliberately stated in terms of the weights, not the answer: it drops
+    the particles whose **frozen-width weight** sums to less than ``epsilon`` of the total.
+    The induced error on a yield is of the same order but is not guaranteed to equal
+    ``epsilon`` — measured at 1.2e-3 for ``epsilon = 1e-4`` on a wide-bunch scenario.
+
+    Worth it exactly when the geometric cone is loose, which is when the collision is
+    mismatched or the foci are displaced — the cone must widen conservatively there, while
+    a relevance measure does not. Measured on a 400 um bunch against a 4 um / 1 ps pulse
+    with displaced foci: the cone keeps 94% of particles, this keeps **31%** at 1.3e-4
+    induced error. On a well-matched collision there is no headroom at all — the cone
+    already keeps everything, and so should this.
+    """
+    if not 0.0 < epsilon < 1.0:
+        raise ValueError(f"prefilter_by_luminosity: epsilon must be in (0, 1), got {epsilon}")
+    weights = luminosity_weights(bunch, laser)
+    total = float(np.sum(weights))
+    if total <= 0.0:
+        return bunch
+    order = np.argsort(weights)[::-1]
+    keep_count = int(np.searchsorted(np.cumsum(weights[order]) / total, 1.0 - epsilon)) + 1
+    mask = np.zeros(bunch.n_particles, dtype=bool)
+    mask[order[:keep_count]] = True
+    return bunch.select(mask)
 
 
 # ---------------------------------------------------------------------------

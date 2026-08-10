@@ -18,7 +18,7 @@ Phase numbers/names match `docs/GRAND_PLAN.md` §11.
 | 2.5. Stage 0 + minimal delta | 🟢 done — all four exit criteria met; §9.1 now a *derived* open question (see below) |
 | 3a. xigma engineering | 🟢 done — Stage 1/2, `Collision`, `XigmaEngine` landed 2026-08-08 (see below) |
 | 3b. Physics closure | 🟡 §9.1 done (2026-08-08) — §9.2/§9.3 blocked on the author; the paper has no formula for either, and both are non-blocking for 4–6 by design |
-| 4. analytical engine | ⚪ not started |
+| 4. analytical engine | 🟢 landed 2026-08-09 (branch `worktree-phase4-analytical-engine`) — estimates, width breakdown, quadrature spectrum, and the general overlap-integral yield (non-round + displaced foci). Open: collimated-spectrum construction, and the width's nonlinearity term still uses peak a0 |
 | 5. kascade port + delta full role | ⚪ not started |
 | 6. GUI | ⚪ not started |
 | 7. Validation completion | ⚪ not started |
@@ -861,6 +861,601 @@ gained D052.
 
 ---
 
+## 2026-08-09 — Phase 4: `engines/analytical` lands (estimates, width breakdown, quadrature spectrum)
+
+Built in an isolated worktree/branch, concurrently with Phase 3b (§11: "Phases 4–6 must
+not wait on physics derivations") — verified beforehand that the parallel session's
+uncommitted 3b edits don't touch §4.3 or the Phase 4 table row.
+
+`engines/analytical/formulas.py`: `estimate_yield` (closed-form Gaussian-overlap yield,
+ported from the predecessor's SI/`scipy.special.erfcx` version onto this repo's CGS
+`GaussianElectronBeam`/`GaussianParaxialLaser`, with a hand-rolled `_erfcx` rather than a
+new `scipy` dependency — D037), `SpectrumWidthBreakdown` + `estimate_spectrum_width`
+(§4.3's four components — collimation, emittance, energy spread, nonlinearity — reported
+separately rather than pre-summed, with `.total` as `math.hypot` of the four so the
+quadrature-sum relationship is structural rather than something a caller must get right),
+and `angle_integrated_spectrum` (quadrature over the beam's Gaussian energy distribution,
+cost independent of `n_particles` by construction — the predecessor's own fix for a
+real 76.3 GiB OOM is preserved by never touching a macroparticle array at all). This is a
+**third, deliberately independent** copy of the linear-Compton kinematic shape already
+implemented in `engines.xigma.stages.angle_integrated_spectrum` and
+`validation.references.delta.single_electron_spectrum` — importing either would make
+§7's analytical-vs-xigma-vs-delta cross-check circular.
+
+`engines/analytical/engine.py`: `AnalyticalEngine`, filling `TOTAL_YIELD` and 1D
+`SPECTRUM` only (§4.3 is explicit that analytical does not produce the 3D
+`COLLIMATED_SPECTRUM` slice) via `io.target.auto_ranges`/`slice_axis_values`, reused
+unmodified from xigma's own facade rather than reimplemented. `SPECTRUM` is defined as
+`total_yield * (angle_integrated_spectrum's normalized shape)`, not two independently
+estimated quantities — D036 has the full reasoning — which makes
+`PhasespaceSlice.integrate() == total_yield` an **exact** identity (§7), verified to
+~1e-16 relative on the baseline scenario, not a tolerance. `theta_col` for the width
+breakdown is the geometric mean of `Target.theta_x_col`/`theta_y_col` (D038) rather than
+a duplicate schema field — the engine's own `Parameters` schema (`schema.py`) carries only
+`n_quad`, the one genuine knob nothing else already owns.
+
+**Verification.** Spot-checked `estimate_yield`/`estimate_spectrum_width` against the
+predecessor's own worked-example numbers, computed by actually running
+`ComptonSuite/src/gammaforge/models/analytical.py` in a throwaway venv (not committed):
+width matches to ~1e-11 relative (float precision), yield matches to ~1.9e-6 (explained —
+yield is the only quantity using `SIGMA_T_CGS`, and the two repos are separately-installed
+`pint` environments with slightly different CODATA constant tables; not a unit-conversion
+defect). Both spot-checks are pinned as regression tests
+(`tests/test_analytical.py::test_estimate_yield_reproduces_the_predecessors_worked_example`
+and the width equivalent) so they don't need the predecessor repo present to run again.
+Added a self-contained Thomson-limit closed-form anchor test (§7) that needs no
+predecessor comparison at all. Full suite: 313 passed (was 294 before this session).
+
+**What's still open** (§4.3's own "growth items," not attempted this pass, per D035):
+foci displacement, non-round-beam total yield, collimated-spectrum construction. `GRAND_PLAN.md`'s
+Phase 4 row is marked landed-with-exceptions, not closed, naming these explicitly.
+`engines/__init__.py`'s `ENGINES` registry is still not created — analytical follows
+xigma's own precedent (D018) of landing without one.
+
+`DECISIONS.md` gained D035–D038 (round-beam approximations kept / growth items open,
+the `SPECTRUM`-is-defined-not-reconciled rescale, hand-rolled `erfcx`, geometric-mean
+`theta_col`). `docs/GRAND_PLAN.md` bumped to v0.19 (§11's Phase 4 row updated).
+
+---
+
+## 2026-08-09 — Phase 4 follow-up: the general overlap integral closes two growth items
+
+Same worktree/branch as the Phase 4 landing above. Prompted by the observation that the
+overlap integral can be done analytically except for one quadrature — which is exactly how
+it came out.
+
+**Derived and implemented** (`docs/DERIVATIONS.md` §A, new file): the Gaussian luminosity
+overlap integral in general form. Both transverse integrals collapse to a single
+determinant `det(C_e + C_l)` (which carries unequal x/y sizes, unequal focusing, astigmatic
+laser waists and the `psi_focus` rotation between the two ellipses), and the time integral
+collapses to a longitudinal Gaussian of width `D / (1 + beta_0)`. What is left is one
+quadrature over `z` with a strictly positive, smooth integrand — milliseconds, no Monte
+Carlo. Shipped as `engines.analytical.formulas.overlap_yield`; `AnalyticalEngine` now uses
+it instead of the round-beam closed form.
+
+**Two of D035's three growth items are therefore closed *for the total yield*** —
+non-round-beam yield and foci displacement. Neither needed new schema state: the electron
+waist offset is already `GaussianElectronBeam.alpha_x`/`alpha_y` and the laser side is
+already `z_fx`/`z_fy`/`psi_focus` (P9). **Not** closed for `estimate_spectrum_width`: its
+nonlinearity term still uses the pulse's peak a0 rather than the a0 the bunch samples,
+which needs an overlap-weighted `<a0^2>` — so moving the foci now changes the yield
+correctly while leaving that width component unmoved. Collimated-spectrum construction
+stays open. Crossing angle stays deferred to §9.3, and `overlap_yield` **raises** on one
+rather than approximating — which means `AnalyticalEngine` now raises where it previously
+returned a wrong number. No current caller passes a crossing-angle or flying-focus laser
+(`validation.scenarios` leaves both zero), but Phase 6 must decide what the GUI estimates
+panel does with one instead of propagating the exception.
+
+**How it was verified** (the derivation is only as good as its checks):
+- reduces to the round-beam closed form to 5e-10 at `n_quad=32001`, against an
+  independently-coded evaluation — the derivation's own strongest test, since the two paths
+  share no code. At the schema default (`n_quad_overlap=2001`) the quadrature error is
+  ~1e-7 round / ~1e-6 on a displaced astigmatic case, not the machine-precision figure;
+- `_electron_sigma2` agrees with `io.bunch._drift_fit` to machine zero across an
+  alpha × drift grid, which pins the `alpha` **sign** that no symmetric scenario can catch;
+- the yield peaks with the electron waist at +0.0995 cm against a laser focus at +0.1000 cm,
+  independently confirming the relative sign of `alpha` and `z_fx`;
+- convergence checked on a *displaced, non-round, astigmatic, rotated* scenario, not on the
+  aligned baseline where it would pass trivially.
+
+**Found, flagged, not fixed — worth the next session's attention.** The derivation pins the
+laser hourglass coefficient as `sigma_l / z_R` exactly. This repo's
+`GaussianParaxialLaser.rayleigh_x` *and the predecessor's own pulse class* both define
+`z_R = 4 pi sigma^2 / lambda`, but the predecessor's `analytical.py` uses a divergence 4x
+larger — so the predecessor is inconsistent with its own laser model, and the port carried
+that faithfully. On the baseline scenario, where the hourglass is almost entirely
+laser-driven, **it is worth a factor of 3.285 in the yield.** `overlap_yield` is free of it;
+`estimate_yield` keeps it, now with a docstring warning and a test pinning the 3.285 so it
+cannot drift silently (D040). Nothing in the suite before this was sensitive to that term —
+the predecessor pin tests port fidelity, and the Thomson-limit anchor removes the hourglass
+term entirely by construction. **This is a judgement call for the author:** if the correct
+convention is confirmed, the predecessor's published yields are low by that factor.
+
+Full suite: 324 passed, up from 315 (30 in `tests/test_analytical.py`). `DECISIONS.md` gained D039–D040;
+`docs/GRAND_PLAN.md` bumped to v0.20 (§4.3 and §11's Phase 4 row).
+
+**Merge note:** `docs/DERIVATIONS.md` is a new file here *and* an untracked file in the main
+checkout (the parallel Phase 3b session's §9.2/§9.3 material). The two hold independent
+sections — mine is lettered §A precisely so they concatenate; resolve the add/add conflict
+by keeping both.
+
+---
+
+## 2026-08-09 — Phase 4: the crossing angle, and a brute-force overlap check
+
+Same worktree/branch. The previous session deferred the crossing angle to §9.3; that was
+wrong, and this session says so. §9.3's open item is the polarization structure of the
+**emission kernel**. The **overlap geometry** is a separate, entirely solvable Gaussian
+problem — and `docs/DERIVATIONS.md`'s own §9.3 notes (from the parallel 3b session) already
+record that the relative-velocity factor and the resonance frequency are general in the
+paper. The yield was never blocked.
+
+**Implemented** (`docs/DERIVATIONS.md` §A.6): the overlap integral rewritten as a quadratic
+form. Eliminating time replaces `M` by `M - g g^T / h`, and the transverse integrals leave
+a 2x2 determinant and a Schur complement. That single expression covers **every** geometry,
+with head-on falling out as an identity — the strongest evidence being that no head-on test
+changed when this landed, including the exact reduction to the round-beam closed form.
+
+**One approximation, stated and measured.** With a crossing angle the two hourglasses vary
+along different directions (`z` for the bunch, `u = k_hat . r` for the pulse), so an exact
+reduction leaves a **2D** quadrature — "everything analytic but one integral" is a head-on
+statement. The spot sizes are sampled at `u = (k_hat . zhat) z`; the exponent stays exact,
+so the whole crossing-angle suppression is exact. The bound is `delta / z_R`, not
+`delta / sigma_z`, and it is *not* always small — a 0.4 rad crossing with a 2 um waist and a
+200 um bunch puts it at 1.6. Measured rather than argued: the yield still moves by < 1.3e-4
+there, because the dropped term enters an even, slowly varying prefactor.
+
+**Validated three ways, in increasing generality:**
+- a constant-width closed form (3x3 determinant, no quadrature) — isolates the crossing
+  geometry: agreement ~1e-14 out to 0.4 rad, in both crossing planes and combined;
+- the Piwinski suppression `1/sqrt(1 + (sigma_s tan(theta)/sigma_perp)^2)` — confirms it is
+  the known physics, to 1e-6 at 2 mrad (that formula is itself small-angle);
+- **a brute-force Monte Carlo** over `GaussianParaxialLaser.photon_density` with real
+  sampled macroparticles, sharing no algebra with `formulas.py` — a few 1e-4, converged
+  separately in particle count and in time grid so a passing result cannot be a t-grid
+  artifact. This is now a committed test, parametrized over head-on, a crossing angle, and
+  a crossing angle combined with non-round/astigmatic/displaced/rotated foci.
+
+**The effect is large.** At the baseline scenario the yield falls by 1.07x at 5 mrad,
+**2.18x at 20 mrad**, 5.77x at 50 mrad. Any scenario quoting a crossing angle needs this.
+
+**Scope, explicitly.** The crossing angle is covered for the **total yield**. `SPECTRUM`'s
+*shape* is still head-on while its integral is now correct — the engine normalizes the
+slice to the yield, so that combination looks more right than it is, and
+`AnalyticalEngine` now reports it on `Results.model_specific["warnings"]` rather than
+leaving it to `io.laser.validate()`. This also resolves the inconsistency the previous
+session introduced, where analytical raised on a crossing angle while xigma warned and
+proceeded.
+
+**Grid resolution was checked, not assumed.** Crossing narrows the longitudinal support
+while `_overlap_grid`'s outer span still comes from the head-on scale, so `span/core`
+reaches ~60 at 50 mrad. The refined `1/sqrt(max S)` and `sigma_i/sin(theta)` windows absorb
+it: worst spacing inside the core stays under 0.008 of the core width, and the **schema
+default** `n_quad_overlap=2001` matches n=20001 to 1.2e-7 head-on and 2.3e-6 at the 0.4 rad
+adversarial fixture. Pinned by `test_schema_default_n_quad_resolves_a_crossed_collision`,
+since every other crossing test uses a generous n_quad and would not have noticed.
+
+Full suite: 342 passed, up from 324. `DECISIONS.md` gained D041 (superseding D039's
+crossing-angle refusal; the `beta_ff` refusal stands); `docs/GRAND_PLAN.md` bumped to v0.21.
+
+---
+
+## 2026-08-09 — Phase 4: cost tiers, `<a0^2>`, and resolved previews
+
+Same worktree/branch. Four things, all reusing the §A.6 quadratic form rather than adding
+machinery.
+
+**The exact 2D quadrature is now available** (`n_quad_u > 1`, `docs/DERIVATIONS.md` §A.7).
+With a crossing angle the two hourglasses vary along different directions, so the 1D form
+samples the spot sizes along `z` only; rotating the transverse plane so `q1` lies along the
+crossing direction makes `u` depend on exactly one transverse coordinate, leaving `q2`
+analytic and `(z, q1)` quadratured. Nothing approximated. This makes the 1D path's error a
+**measured** number: 1.9e-4 at 20 mrad, 1.6e-3 at 0.4 rad, on the worst corner this model
+has (2 um waist against a 200 um bunch). Counterintuitive and worth recording — the 2D mode
+converges *more slowly* than the approximation it checks at **small** angles, because the
+widths barely vary along `q1` there; it earns its cost at large angles.
+
+**Three cost tiers are now declared** (D043): closed form ~0.01 ms / 1D ~1-2 ms / 2D
+~40-800 ms, with `recompute_costs` covering the quadrature knobs. §4.3 calls analytical the
+only real-time engine; that claim now stays true of a named tier rather than of whatever
+the default happens to be, and Phase 6 has the cost data before it wires a live panel.
+
+**The last width growth item closes** (D042). `<a0^2>` weighted by the luminosity is the
+same integral with the laser density squared — `a0^2` is exactly proportional to the
+normalized photon density, so it is one parameter, not a new derivation. It is a large
+correction: the bunch samples ~0.35 of the peak `a0^2` at the baseline, so the nonlinearity
+term was overstated ~3x. There is a clean exact limit that makes it checkable — for a
+transversally pointlike bunch with no hourglass the ratio is exactly `1/sqrt(2)`,
+*independent of bunch length*, because integrating over both `z` and `t` spans every
+relative shift and the bunch convolution factors out. A counter-propagating collision can
+never reach peak a0: it always scans the pulse's full longitudinal profile.
+
+**Resolved previews** (§A.9): `overlap_time_profile` (dN/dt) and
+`overlap_transverse_profile` (dN/dx dy in the bunch frame), ~8 ms for 400 time points and
+~100 ms for a 64x64 image, for drawing the collision before an expensive run starts. Both
+satisfy exact integrate-back-to-the-yield identities (~1e-7), asserted not assumed — the
+same §7 pattern as `∫SPECTRUM = TOTAL_YIELD`. Angle-resolved is deferred by request; it
+needs the emission kernel, not the overlap geometry.
+
+**Two bugs the checks caught, neither visible by inspection:**
+1. the 2D path's `q1` span used the bare curvature `m11` instead of the Schur-reduced
+   `m11 - m12^2/m22`, silently truncating the integral exactly when the two transverse
+   directions are correlated — an 11% error at 20 mrad before the fix;
+2. profile evaluation was unchunked, so a 128x128 image allocated `(3,3,128,128,n_quad)`
+   and took 3.7 s. Everything that meshes `z` against something else now accumulates in
+   blocks (`_Z_BLOCK`), and the profile defaults dropped to preview-grade `n_quad=401`.
+
+Also: `docs/DERIVATIONS.md` §A **rewritten in MathJax** so it pastes into
+`~/Work/Papers/2026/Compton-Numerics/xigma.tex` with only environment changes.
+
+Full suite: 355 passed, up from 342. `DECISIONS.md` gained D042-D043; `docs/GRAND_PLAN.md`
+bumped to v0.22.
+
+---
+
+## 2026-08-09 — Phase 4: flying focus
+
+Same worktree/branch. Asked to explore whether the flying focus can be derived the same way,
+with the expectation that crossing angle plus arbitrary flying-focus velocity would need
+more than a 2D quadrature. **It does not** — that is the main result.
+
+**The counting.** A flying focus makes the spot-size coordinate `u_spot = u + beta_ff * ct`
+time-dependent, so the widths depend on two independent linear functionals of
+`(x, y, z, ct)`: `z` and `u_spot`. Fixing both leaves a 2D affine subspace on which the
+integrand is an ordinary Gaussian. So two dimensions stay analytic and two are quadratured,
+*with or without* a crossing angle — the two effects each add one width argument and having
+both does not add a third. `docs/DERIVATIONS.md` §B.2.
+
+**Implemented** (§B.3) as a `(z, ct)` quadrature with `(x, y)` analytic; with a crossing
+angle the residual transverse part of `u_spot` is sampled at the axis, the same
+approximation §A.7 already measures at 1.9e-4. `overlap_yield` no longer refuses `beta_ff`;
+`overlap_mean_a0_sq` inherits the path; `overlap_time_profile` handles it (time is an
+explicit axis there) and `overlap_transverse_profile` raises, because it integrates time
+out.
+
+**A 1D shortcut exists and is deliberately not shipped** (§B.4). Freezing the widths at the
+stationary point of the time integral reuses §A's machinery unchanged and is accurate to
+1e-5 on a short bunch — but its error is *first* order, unlike the crossing-angle
+approximation whose dropped term cancelled by evenness. Measured: **34% at `beta_ff = 1`**
+on the baseline. Controlling parameter `beta_ff * sigma_ez / z_R`, which is 2.5*beta_ff for
+the baseline and 0.025*beta_ff for a 30 um bunch. Excellent in the regime a flying focus is
+*for*, useless just outside it — too sharp a knife for a default (D044).
+
+**Two physics results fall out, neither encoded, both pinned as tests:**
+- `beta_ff = 1` maximizes the yield — the focal plane co-moves with the bunch at `c`, so the
+  electrons sit at the waist throughout. Worth 2.0x on the baseline and **2.8x on a 30 um
+  bunch** over no flying focus, and it beats both slower and faster slides.
+- For a short bunch the yield is **invariant under `beta_ff -> 1/beta_ff`** (0.5 and 2.0
+  agree to seven digits). Along the ridge `z ~ ct` so `u_spot ~ (beta_ff - 1) ct` while the
+  Rayleigh range carries `(1 + beta_ff)`; the spot depends on
+  `(beta_ff - 1)/(beta_ff + 1)`, odd under that map, and the width on its square.
+  `beta_ff = 1` is the fixed point, which is why it is the optimum.
+
+**One bug, found by the numbers not by inspection.** The `(z, ct)` Gaussian is nearly
+degenerate — the collision lives on a thin diagonal ridge — so a grid sized from the
+marginals under-resolved it and came out **3.8% low** on a short bunch. Nodes now go on the
+principal axes, with counts raised until each step advances `u_spot` by less than `z_R/8`.
+
+**Not cross-checked against the author's own derivation.** The head-on synchronized
+counter-propagating expressions were not available here, so §B rests on the Monte Carlo
+alone. The `(1 + beta_ff)` Rayleigh stretch in `rayleigh_x` is inherited from the code
+rather than re-derived, and the reciprocal symmetry depends on it directly — that is the
+first thing an independent check should target.
+
+Full suite: 364 passed, up from 355. `DECISIONS.md` gained D044; `docs/GRAND_PLAN.md`
+bumped to v0.23.
+
+---
+
+## 2026-08-09 — Phase 4: luminosity-weight particle filter (measured, then landed)
+
+Same worktree/branch. Idea: rank macroparticles by their actual contribution instead of
+bounding them with a geometric cone.
+
+**Closed form, so it is cheap.** Each particle's expected luminosity contribution is
+`w_i = Int dt n_L(r_i + v_i t, t) (c - v_i . k)`, and freezing the spot sizes makes that
+integrand Gaussian in `t` — one vectorized pass, no time stepping, `O(n_particles)`. The
+frozen widths are taken at each particle's own closest approach (stationary point, iterated
+twice). `io.bunch.luminosity_weights`.
+
+**It is a different contract from `prefilter_bunch`, and that is the load-bearing point.**
+The cone drops only particles proven to contribute exactly zero, so results are
+bit-identical with it on or off — a tested invariance. A relevance ranking drops particles
+that contribute a little. Both now exist side by side; the cone is untouched and remains
+the default (D045).
+
+**Measured, and the answer is "it depends", quantitatively:**
+
+| scenario | cone keeps | weight keeps (<=1.3e-4 induced error) |
+|---|---|---|
+| well-matched baseline | 100% | no headroom — nothing to discard |
+| 400 um bunch vs 4 um / 1 ps pulse | 36% | **4.7%** |
+| same, with displaced foci | 94% | **31%** |
+
+The third row is the real case: a displaced focus forces the cone to widen conservatively
+to 94%, while ranking by relevance keeps 31% at 1.3e-4 error (42% at 7.5e-6). So this is
+worth reaching for exactly when the geometry is mismatched, and worth nothing when it is
+not — which is the honest recommendation rather than "more precise than the cone".
+
+Full suite: 369 passed, up from 364. `DECISIONS.md` gained D045.
+
+---
+
+## 2026-08-09 — Phase 4: transverse and timing misalignment
+
+Same worktree/branch. Answering "do the derivations allow arbitrary foci displacement in
+all 3 dimensions": longitudinal yes (independently per axis — `z_fx`/`z_fy` for the pulse,
+`alpha_x`/`alpha_y` for the bunch), **transverse and temporal no** — and the blocker was the
+data model, not the derivation. Both distributions were centred on the origin by
+construction. Now fixed.
+
+**Added** `x_off`, `y_off`, `t_off` to `GaussianParaxialLaser`, applied once in
+`_local_coordinates`, so every consumer of the field inherits them — `photon_density`,
+`a0_profile`, `field`, and therefore xigma as well as analytical. `active_region` shifts its
+origin to match, in the same change rather than after: it is a bound the cone prefilter
+relies on never being too small, and leaving it at the origin while the pulse moved would
+discard particles that do interact.
+
+**No `z_off`, deliberately.** For a pulse travelling at `c` a longitudinal spatial offset is
+indistinguishable from a timing offset, so `(x_off, y_off, t_off)` is the complete
+*independent* set (D046).
+
+**Analytically it is one linear term.** Writing the laser's exponent as a quadratic form in
+`(v - D)` with `D = (x_off, y_off, 0, c t_off)` gives `E = v'Mv/2 - v'L + const` with
+`L = M_l D`. No new structure — but it has to be carried through *both* completions of the
+square, and a dropped piece **shifts** the answer instead of making it diverge, so it would
+look plausible. Two guards: `D = 0` must be bit-identical to the previous result, and in the
+no-hourglass limit the falloff is exactly `exp(-d^T (C_e + C_l)^-1 d / 2)`, checked to 1e-13
+with an off-diagonal displacement (an on-axis test passes with a wrong inverse).
+
+**Verified** against the brute-force Monte Carlo to ~1e-3 for transverse-only, timing-only,
+and every combination with a crossing angle and with a flying focus.
+
+**A coupling worth knowing:** a timing offset and a crossing angle are *not* separable. A
+timing slip means the beams meet away from the nominal point, and with a crossing angle that
+displaces the collision transversely too — so the same 10 ps slip costs 3.7% head-on and
+4.9% at 50 mrad. Asserted as a test, since an implementation treating them as two
+independent reductions would miss it.
+
+Full suite: 382 passed, up from 369. `DECISIONS.md` gained D046; `docs/GRAND_PLAN.md`
+bumped to v0.24.
+
+---
+
+## 2026-08-09 — Phase 4: z_off reconsidered, and the illumination prefilter
+
+Same worktree/branch. Two follow-ups from review.
+
+**The `z_off` justification was wrong even though the conclusion held.** I had written that
+a longitudinal offset "is degenerate with `t_off` for a pulse travelling at c". That is not
+the reason. The focal plane is fixed in space while the envelope sweeps through it at `c`,
+so **focus position and arrival time are independent** — two pulses whose foci coincide
+exactly still miss if they arrive at different times, and that configuration is real and
+representable (`z_fx = z_fy = 0`, `t_off != 0`). Measured with coincident foci: the yield
+falls to 0.99 at 5 ps, 0.86 at 20 ps, 0.41 at 50 ps and 0.01 at 200 ps, because the beams
+meet a distance `c t_off / 2` from the focus.
+
+What actually makes `z_off` redundant is that a *rigid* shift moves the focus **and** the
+envelope, so it is already `(z_fx += D, z_fy += D, t_off += D/c)`. Three longitudinal
+degrees of freedom, not four. Corrected in `laser.py`, `fields.py`, §A.11 and D046, and
+pinned by two tests — one that coincident foci can still miss in time, one that focus and
+timing shifts are distinguishable.
+
+**Built the illumination prefilter** (D047), which is the idea as actually described: use
+the production profile to define the region, then test whether each particle ever enters it.
+`peak_illumination` returns the highest photon density a particle ever meets as a fraction
+of the pulse peak — closed-form, since frozen widths make the density quadratic in `t` along
+a straight trajectory, so its maximum sits at the stationary point. Same machinery as
+`luminosity_weights`, read at its peak instead of integrated.
+
+**Why it beats the cone, precisely:** the bright region is not the geometric one. Away from
+focus the spot grows but dims as `1/(s1 s2)`, and `active_region` deliberately ignores that
+decay. Measured: on a wide bunch meeting a small displaced pulse the cone keeps 94% of the
+bunch, and the *median* particle it keeps is illuminated below `1e-6` of the peak.
+
+| filter | keeps | induced error |
+|---|---|---|
+| cone, 1e-6 | 94.1% | 0 (exact) |
+| illumination, 1e-6 | 28.4% | 3.5e-4 |
+| weight, 1e-4 | 31.3% | 1.3e-4 |
+
+On a well-matched collision all three keep 100% — correctly, since every electron passes
+through the pulse. Both tolerance filters are kept: illumination is a region test (the
+cone's own contract shape, drop-in, dwell-time independent), weight thresholds integrated
+contribution (directly meaningful when the question is "how much luminosity am I
+discarding"). Neither replaces `prefilter_bunch`, whose exact invariance is a stronger
+guarantee than either.
+
+One caveat found by measuring: the illumination threshold must be set far lower than
+intuition suggests (1e-6, not 1e-3), because many weakly illuminated particles sum to a
+non-negligible contribution though none matters alone.
+
+**Default threshold set from measurement, not analogy.** `prefilter_by_illumination`
+defaults to `1e-6`, *not* the `1e-3` that looks parallel to `prefilter_bunch`'s — the cone's
+threshold is a bound and safe by construction, while `1e-3` here induces **44% error** on
+the very scenario the filter exists for. That asymmetry is a genuine hazard for anyone
+reasoning by analogy, so it is a `.. warning::` on the function and pinned by a test.
+
+Full suite: 393 passed, up from 382. `DECISIONS.md` gained D047.
+
+---
+
+## 2026-08-09 — Phase 4: the illumination *window*, not just the filter
+
+Same worktree/branch. The filter was only half of what the algebra gives.
+
+**One quadratic, two results.** With frozen widths the photon density along a straight
+trajectory is `exp(-(a t^2 + 2 b t + c)/2)` times a brightness factor, so `density >=
+threshold` is one inequality in `t`:
+
+    t in t_star +- sqrt(2 ln(peak / threshold) / a)
+
+The filter asks whether that interval exists; the window *is* the interval.
+`prefilter_by_illumination` is now defined as "window non-empty", mirroring how
+`prefilter_bunch` is defined through `overlap_time_window` (D048).
+
+**The window is the more useful half.** An engine samples each trajectory with a fixed
+number of steps between `t0` and `t1`, so the window width sets the step size, and steps
+spent where nothing happens are steps not spent resolving the interaction.
+`overlap_time_window` brackets time inside the *geometric* active region — a conservative
+bound, so far wider than the illuminated stretch. Same particles, same 33 steps, baseline
+scenario: **7x more accurate** (2.0e-4 -> 2.8e-5), from a window only 1.5x narrower.
+
+**How much margin to leave, quantified.** Width grows as `sqrt(ln(1/threshold))` while the
+truncation floor tracks the threshold roughly decade for decade:
+
+| threshold | median width | accuracy floor |
+|---|---|---|
+| 1e-3 | 101 ps | 9.2e-5 |
+| 1e-6 | 151 ps | 1.9e-8 |
+| 1e-9 | 187 ps | 8.9e-12 |
+| 1e-12 | 218 ps | 4.1e-15 |
+
+Nine decades of threshold cost about a doubling of the window. Being generous is cheap.
+
+**Two things that are easy to get backwards, both now pinned.** The window errs *wide*: away
+from closest approach the true spot is larger than the frozen value, so the real intensity
+falls faster than the model and the edges come out ~100x below threshold. For a window that
+is the right way to be wrong — a too-narrow one truncates the interaction and no step budget
+recovers it. And it is an *estimate*, not a bound, so `prefilter_bunch`'s exact invariance
+still rests on the geometric window.
+
+Full suite: 399 passed, up from 393. `DECISIONS.md` gained D048.
+
+---
+
+## 2026-08-09 — Phase 4: illumination window wired into xigma; a0^2 moments
+
+Same worktree/branch.
+
+**xigma can now sample trajectories over the illuminated window** (D050).
+`integrate_trajectories` gains `window="active_region" | "illumination"`, defaulting to the
+existing behavior. Stage 0 spends a fixed `n_steps` between `t0` and `t1`, so window width
+sets step size and any step outside the illuminated stretch is wasted resolution.
+
+Measured, and the honest picture is mixed rather than a clean win:
+
+| steps | baseline: cone | baseline: illum | tight focus: cone | tight focus: illum |
+|---|---|---|---|---|
+| 20 | 4.7e-3 | 1.3e-3 | 2.1e-2 | 3.6e-2 |
+| 50 | 3.3e-5 | 1.9e-6 | 4.7e-3 | 1.7e-3 |
+| 200 | 5.3e-14 | 1.9e-8 | 2.1e-5 | 1.7e-3 |
+
+So: **17x faster at 50 steps on the baseline**, but it has a truncation floor the geometric
+window does not, and on a tight focus it is already *behind* by 20 steps — the spot varies
+so much across the window that the frozen-width estimate mis-sizes it. That is why the
+default is unchanged. Worth reaching for at coarse step budgets on well-behaved geometry,
+measured per scenario rather than assumed.
+
+**`a0^2` moments** (D049). The spread is as easy as the mean, which is the useful part of
+the answer: `a0^2 = K p_L` exactly, so `a0^4 = K^2 p_L^2` and the second moment is the same
+overlap integral with the laser density **cubed** — `laser_power = 3`, one more call.
+Generally `<a0^(2n)>` needs `laser_power = n + 1`. Validated against the a0-weighted Monte
+Carlo to 4e-4.
+
+It is **not a small correction**: `std/mean` is 0.70 baseline, 1.22 tight focus, 0.64 with a
+synchronized flying focus. The intensity an electron samples varies by of order its own mean
+across the bunch — so the edge is smeared about as much as it is shifted.
+
+**The Compton-edge shift is deliberately NOT wired.** The mean sets where the edge sits
+(`1/(1 + ahat)`) and the spread smears it; both are now computable. What is not settled is
+the coefficient — `docs/DERIVATIONS.md` §0 records a **BLOCKING** finding that the code's
+`ahat` is twice the paper's, and a factor of two there is a factor of two in the shift.
+`AGENTS.md` is explicit that a paper-code disagreement stops rather than being guessed, so
+the moments are exposed and the edge is left alone. Wiring it is a small, well-defined change
+once §0 resolves.
+
+Full suite: 401 passed, up from 399. `DECISIONS.md` gained D049-D050.
+
+---
+
+## 2026-08-09 — Phase 4: nonlinear broadening as a bracket; illumination report
+
+Same worktree/branch. Author correction on the physics, acted on.
+
+**The formation length is the whole trajectory**, so `ahat_i` is one scalar per electron and
+the trajectory may not be chopped into locally-constant pieces. The correct order is:
+average along each trajectory, *then* take the spread across the beam.
+
+**The mean survives that exactly** — luminosity weighting cancels `ahat_i`'s denominator, so
+`<ahat>_L = Int n_e a0^4 / Int n_e a0^2`, which is what the overlap integral already
+evaluates, splitting nothing. Now pinned against xigma's per-particle `ahat()`.
+
+**The spread does not, and my earlier `std` was wrong.** Taking moments of the instantaneous
+`a0^2` over all (particle, time) pairs folds in the *within-trajectory* variation, which is
+already averaged away inside `ahat_i`. Tell: with every electron sharing one `ahat` the true
+beam spread is zero and the joint formula returns a positive number. Measured against xigma
+it over-stated by ~1.5x (0.70 against a true 0.39). `overlap_a0_sq_moments` is **removed**;
+`overlap_mean_a0_sq` stands alone. (Its tests never actually landed — the insertion targeted
+a name that did not exist and `str.replace` on a miss is silent — so nothing incorrect was
+committed, but I had reported them as added.)
+
+**No closed form for the right quantity.** `ahat_i` is a *ratio* of trajectory integrals, so
+`<ahat^2>` needs `(Int a0^4)^2 / (Int a0^2)` per particle — a reciprocal of a Gaussian
+integral inside a bunch integral. The shortcut that would have saved it (peak/sqrt(2), exact
+for a Gaussian temporal profile) fails: median 0.92 at baseline but 0.33 at tight focus.
+
+**So it is reported as a bracket** (D049), and per the author's constraint the
+semi-analytical path takes **no** `O(n_particles)` step — a per-particle trajectory
+quadrature was considered and rejected on exactly that ground.
+
+**The proposed 0.4-0.9 bracket does not hold.** Measured across thirteen geometries via
+xigma: **0.06 to 1.12**. Five fall below 0.4, one above 0.9. It tracks
+`sigma_beam / sigma_laser` almost monotonically — 0.06 loose focus, 0.39 baseline, 0.86
+tight focus, 1.12 for a bunch ten times wider than the spot. Shipped as
+`NONLINEAR_BROADENING_RANGE = (0.06, 1.12)`, flagged as empirical rather than derived. The
+width breakdown gains `nonlinearity_lo`/`_hi` and `total_range`; the legacy scalar sits at a
+factor of 1, i.e. near the *top* of the bracket, so the predecessor's formula over-estimates
+nonlinear broadening for most geometries. When beam quality dominates the bracket nearly
+collapses — asserted, since that is the whole argument for reporting a range.
+
+**Discarding charge is now reported, never decided** (D051). `illumination_report` returns
+the fraction of *charge* (not particles — `Bunch.weight` is relative) below a threshold,
+paired with the bunch's Gaussian `ks_excess`. The pairing is the point: the estimate rests
+on a Gaussian picture, so a poorly-fitting bunch is exactly where the tails it would drop
+are least trustworthy. `ks_excess` is `None` for an analytic beam, reported as
+`gaussian_by_construction` — no model error, which is stronger than ignorance. `O(n_particles)`
+and correctly so: it inspects a real bunch, and that cost belongs to a diagnostic rather than
+to any engine.
+
+Still blocked: applying the edge shift, pending §0's factor of two (author rethinking).
+
+Full suite: 407 passed. `DECISIONS.md` D049 rewritten, D051 added.
+
+---
+
+## 2026-08-10 — Phase 4: nonlinear red-shift applied; §0 resolved and handed over
+
+**§0's factor of two is resolved** (author): it is the polarization cycle average, not a
+convention. `a0` is the normalized *peak* field magnitude, so `<a^2> = C a0^2` with
+`C = 1/2` for linear polarization (the average of `cos^2`) and `C = 1` for circular, whose
+magnitude is constant — the same factor by which circular carries twice the cycle-averaged
+energy density at fixed `a0`. `io.laser._a0_from_density` implements the linear chain
+explicitly, so `C = 1/2` here. Written up as `docs/DERIVATIONS.md` §C.
+
+**Applied in analytical.** `angle_integrated_spectrum` takes `ahat` and puts the resonance
+at `gamma^2 / (1 + ahat)`; `AnalyticalEngine` passes `0.5 * <a0^2>` and reports both `ahat`
+and the shifted `compton_edge_energy` on `Results`. `ahat = 0` reproduces the linear result
+bit for bit, which is what every other spectrum test assumes.
+
+**Two findings for the 3b session, handed over.** The code's `ahat` feeds the resonance
+denominator in `validation/references/delta.py` (`s_res = gamma^2/(1 + ahat + ...)`) and in
+xigma Stage 2, so both over-state the nonlinear red-shift by two. More importantly: xigma
+and delta **share** `TrajectorySamples.ahat()`, so the error is common-mode and §7's
+four-way cross-check cannot see it — a gap in the cross-validation design, not only a bug.
+Analytical is the leg that exposes it, since it takes `ahat` from the overlap integral
+instead; the two should now differ by exactly two until the fix lands.
+
+**§9.2 gains a concrete hook.** `C = 1/2 -> 1` is what `ellipticity` should interpolate, and
+it enters twice — the resonance shift *and* the energy-to-`a0` conversion, since
+`_a0_from_density`'s `sqrt(8 pi u)` is the linear relation. `ELLIPTICITY_IS_NOOP` is the
+placeholder for both.
+
+One process note: a rejected tool call had in fact already written the file, so re-running it
+duplicated a test block and produced a syntax error. Caught and removed; worth remembering
+that a rejection is not always a no-op.
+
+Full suite: 410 passed. `DECISIONS.md` D049 updated; `docs/DERIVATIONS.md` §C added.
 ## 2026-08-10 — `ahat` was twice the paper's; the polarization cycle average is now applied
 
 Closed the §0 BLOCKING item `docs/DERIVATIONS.md` raised last session. The author settled
@@ -925,6 +1520,48 @@ that branch had already taken.
 
 **Verification:** full `pytest` green (298); `python -m gammaforge.validation.run` all checks
 pass.
+
+---
+
+## 2026-08-10 — Phase 4 merged into main; the two engines now agree on `ahat`
+
+Merged `worktree-phase4-analytical-engine` (19 commits, `engines/analytical` plus the
+shared `io` growth) into `main`. Six conflicts, all resolved by keeping both sides:
+`DECISIONS.md` (D035-D051 then D052/D053), `PROGRESS.md` (chronological), `GRAND_PLAN.md`
+(changelog interleaved, v0.25 on top), `docs/DERIVATIONS.md` (concatenated - lettered
+implemented sections, then numbered pending ones, with a table at the top explaining why
+the numbering is mixed), `engines/xigma/stages.py` (one import line, union of both) and
+`tests/test_xigma_engine.py` (the deleted `SPECTRAL_ANGULAR_DISTRIBUTION` test dropped,
+the branch's two window tests kept).
+
+**The merge's proof, and it is not the green suite.** Before touching anything, the
+branch's `test_mean_a0_sq_is_the_beam_averaged_ahat_that_xigma_computes_per_particle` was
+run unchanged against the merged tree: it failed at **exactly 2.00**
+(0.011425 vs 0.005724). That is the independent confirmation of D053 — `overlap_mean_a0_sq`
+reaches `ahat` through the analytical engine's own overlap integral and never through
+`TrajectorySamples`, so unlike every xigma-vs-`delta` comparison the error is not
+common-mode there. The test then had its assertion (and its comment, which documented the
+bug as a convention) rewritten around `CYCLE_AVERAGE_FACTOR`.
+
+Measured after the merge, xigma vs analytical on all three scenarios, luminosity-weighted
+mean `ahat`: **ratio 1.0031** on each. Total yield: **1.0032**. The two engines share no
+code on either path.
+
+**Convention pinned to one constant.** The branch applied `C = 1/2` correctly in all three
+of its sites, verified rather than inherited (`engine.py`'s `ahat`, `formulas.py`'s
+`mean_shift`, and the `angle_integrated_spectrum` red-shift) — but as a literal `0.5`,
+since `CYCLE_AVERAGE_FACTOR` did not exist when they were written. Both now import it, so
+§9.2 cannot move one engine's convention without moving the other's.
+
+**Two things checked and deliberately left alone.** `estimate_yield`'s laser-divergence
+convention error (D040, worth 3.285x in the baseline yield) is **not** on any engine path
+- `AnalyticalEngine` uses `overlap_yield`, the general quadrature (D039), and
+`estimate_yield`'s only remaining job is reproducing the predecessor. And `validation.run`
+still passes no engines to `run_suite()` (D031), so the suite's green does not exercise the
+cross-engine comparison at all; the numbers above were measured directly.
+
+**Verification:** full `pytest` green (414); `python -m gammaforge.validation.run` all
+checks pass; golden scalars unmoved.
 
 ---
 

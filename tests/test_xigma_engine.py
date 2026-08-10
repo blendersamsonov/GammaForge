@@ -16,6 +16,8 @@ import pytest
 from gammaforge.engines.base import Engine
 from gammaforge.engines.xigma.collision import Collision
 from gammaforge.engines.xigma.engine import XigmaEngine
+from gammaforge.engines.xigma.stages import integrate_trajectories
+from gammaforge.io.bunch import sample_gaussian_bunch
 from gammaforge.io.results import Axis
 from gammaforge.io.target import OutputKind, OutputRequest
 from gammaforge.io.units import Quantity as Q
@@ -171,3 +173,33 @@ def test_angular_and_collimated_slices_are_nonnegative():
     results = XigmaEngine().run(interaction, _engine_params())
     for kind in (OutputKind.ANGULAR_DISTRIBUTION, OutputKind.COLLIMATED_SPECTRUM):
         assert np.all(results.photon_slices[kind].distr >= 0.0)
+
+
+# ---------------------------------------------------------------------------
+# Trajectory-sampling window (io.bunch.illumination_window)
+# ---------------------------------------------------------------------------
+def test_integrate_trajectories_rejects_an_unknown_window():
+    bunch = sample_gaussian_bunch(scenarios.BASELINE.beam, 64, 0)
+    with pytest.raises(ValueError, match="window must be"):
+        integrate_trajectories(bunch, scenarios.BASELINE.laser,
+                               scenarios.BASELINE.beam.n_electrons(), window="cone")
+
+
+def test_illumination_window_resolves_stage_0_better_at_a_coarse_step_budget():
+    """The payoff, and its limits. Spending the same steps over the illuminated stretch
+    rather than the wider geometric bound converges faster while steps are scarce — 17x at
+    50 steps on the baseline. It is *not* a uniform win: the illuminated window truncates at
+    its threshold, so past the point where that floor dominates the geometric window keeps
+    improving and this one does not. Hence the default stays `active_region`."""
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    bunch = sample_gaussian_bunch(beam, 4_000, 0)
+    n_e = beam.n_electrons()
+    reference = integrate_trajectories(bunch, laser, n_e, n_steps=4000, threshold=1e-9).total_yield()
+
+    def error(window, n_steps):
+        got = integrate_trajectories(bunch, laser, n_e, n_steps=n_steps,
+                                     threshold=1e-6, window=window).total_yield()
+        return abs(got / reference - 1.0)
+
+    assert error("illumination", 50) < 0.2 * error("active_region", 50)
+    assert error("illumination", 20) < error("active_region", 20)

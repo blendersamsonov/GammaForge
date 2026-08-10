@@ -259,6 +259,15 @@ class GaussianParaxialLaser:
     duration: Quantity  # time, RMS intensity duration
     z_fx: Quantity = Quantity(0.0, "cm")  # focal offset of axis 1 along k_hat
     z_fy: Quantity = Quantity(0.0, "cm")  # focal offset of axis 2 along k_hat
+    # Misalignment of the pulse against the bunch, which defines the origin. There is no
+    # `z_off` because a longitudinal spatial offset is degenerate with `t_off` **given** `z_fx`/`z_fy`: a rigid shift of the pulse by `Delta`
+    # along `k_hat` moves the focus *and* the envelope, so it is exactly
+    # `(z_fx += Delta, z_fy += Delta, t_off += Delta/c)`. Focus position and arrival time
+    # are genuinely independent — coincident foci still miss if the arrival times differ —
+    # and both are present; only the redundant fourth combination is omitted.
+    x_off: Quantity = Quantity(0.0, "cm")
+    y_off: Quantity = Quantity(0.0, "cm")
+    t_off: Quantity = Quantity(0.0, "s")  # pulse centre reaches the origin at t = t_off
     theta_xz: Quantity = Quantity(0.0, "rad")
     theta_yz: Quantity = Quantity(0.0, "rad")
     psi_focus: Quantity = Quantity(0.0, "rad")
@@ -280,6 +289,9 @@ class GaussianParaxialLaser:
         "duration": "s",
         "z_fx": "cm",
         "z_fy": "cm",
+        "x_off": "cm",
+        "y_off": "cm",
+        "t_off": "s",
         "theta_xz": "rad",
         "theta_yz": "rad",
         "psi_focus": "rad",
@@ -289,7 +301,7 @@ class GaussianParaxialLaser:
     #: Longitudinal extents, which §2.1 allows to be quoted as either a length or a
     #: duration. Only these opt into the `light_time` equivalence — a transverse size
     #: given in femtoseconds is a mistake, not a unit choice.
-    LIGHT_TIME_FIELDS = frozenset({"duration"})
+    LIGHT_TIME_FIELDS = frozenset({"duration", "t_off"})
 
     def __post_init__(self) -> None:
         for name, unit in self.UNITS.items():
@@ -386,13 +398,16 @@ class GaussianParaxialLaser:
     def _local_coordinates(self, x, y, z, t):
         """Lab ``(x, y, z, t)`` → ``(xi1, xi2, u, u_spot, ct)`` in the pulse's own frame."""
         k_hat, f1, f2 = self.focusing_axes()
-        rx = np.asarray(x, dtype=float)
-        ry = np.asarray(y, dtype=float)
+        # Everything is measured from the pulse's own centre, which the misalignment
+        # offsets displace from the bunch's. One subtraction here is the whole
+        # implementation: every consumer of the field inherits it.
+        rx = np.asarray(x, dtype=float) - self.m("x_off")
+        ry = np.asarray(y, dtype=float) - self.m("y_off")
         rz = np.asarray(z, dtype=float)
         u = rx * k_hat[0] + ry * k_hat[1] + rz * k_hat[2]
         xi1 = rx * f1[0] + ry * f1[1] + rz * f1[2]
         xi2 = rx * f2[0] + ry * f2[1] + rz * f2[2]
-        ct = C_CGS * np.asarray(t, dtype=float)
+        ct = C_CGS * (np.asarray(t, dtype=float) - self.m("t_off"))
         # Flying focus: the spot-size evaluation point slides with time, while the
         # longitudinal envelope below stays beta_ff-independent (xigma's construction).
         return xi1, xi2, u, u + self.beta_ff * ct, ct
@@ -491,9 +506,14 @@ class GaussianParaxialLaser:
             intercept = max(intercept, sigma * (1.0 + (drift + focus_offset) / z_r))
             slope = max(slope, sigma * slide / z_r)
         k_hat, _, _ = self.focusing_axes()
+        # A transverse misalignment moves the region bodily; a timing offset slides the
+        # pulse along its own axis, which `overlap_time_window` sees as the region's
+        # centre being reached later. Both must be carried or the prefilter silently
+        # discards particles that do interact — the one direction §3.2 forbids.
+        origin = np.array([self.m("x_off"), self.m("y_off"), 0.0]) + k_hat * (C_CGS * self.m("t_off"))
         return ActiveRegion(
             axis=k_hat,
-            origin=np.zeros(3),
+            origin=origin,
             radius=reach * intercept,
             radius_slope=reach * slope,
             half_length=half_length,
