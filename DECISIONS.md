@@ -1233,8 +1233,11 @@ worth naming:
    computes `ahat` from its own overlap integral rather than from `TrajectorySamples`.
 2. **Integrated observables.** Even with independent inputs, `validation.run`'s fourth
    identity leg compares a **sum over `s`**, and the red-shift moves photons along `s`
-   while conserving that sum: the leg reads `0.9996` whether `ahat` is right, doubled or
-   halved (measured). `tests/test_stage1_stage2.py::test_the_kernel_and_delta_agree_on_where_the_redshift_puts_the_photons`
+   while conserving that sum. Measured directly, by scaling `ahat` over an 8x range
+   (`x0.5` to `x4`) on all three scenarios at the production grid: the leg stays inside
+   `0.9987`–`0.9998`, a 0.11% spread, while the same range moves the spectrum's centroid
+   by many percent. The leg is not merely insensitive to a factor of two — it is
+   structurally blind to the whole quantity. `tests/test_stage1_stage2.py::test_the_kernel_and_delta_agree_on_where_the_redshift_puts_the_photons`
    is the new check that watches the spectrum's **centroid** instead; a 1.2x kernel-side
    `ahat` bias moves it 0.53% against a 0.009% clean residual.
 

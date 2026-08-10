@@ -953,8 +953,11 @@ assumption was broken" test zoo.
        it shares.
     2. **Integrated observables hide redistribution.** The nonlinear red-shift moves photons
        along `s` while conserving their number, so any check that compares *counts* is blind
-       to it by construction: `run.py`'s fourth identity leg reads 0.9996 whether `ahat` is
-       right, doubled, or halved. Each physical effect needs a check on an observable that
+       to it by construction: scaling `ahat` over an 8× range (×0.5 to ×4) moves `run.py`'s
+       fourth identity leg by 0.11% in total (0.9987–0.9998, measured on all three
+       scenarios) while moving the spectrum's centroid by many percent — the leg is not
+       merely insensitive to a factor of two, it is blind to the whole quantity.
+       Each physical effect needs a check on an observable that
        effect actually moves — for the red-shift, the spectrum's centroid or edge position,
        not its integral.
 - **~2π arbitration**: delta (built in Phase 2.5) is the independent arbiter; the paper

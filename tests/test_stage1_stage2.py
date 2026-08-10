@@ -329,6 +329,52 @@ def test_the_kernel_and_delta_agree_on_where_the_redshift_puts_the_photons():
     assert centroid(kernel_bright) < 0.97 * centroid(kernel)
 
 
+@pytest.mark.parametrize(
+    "scenario, expected_bias, expected_bins",
+    [(scenarios.BASELINE, -1.131, 1), (scenarios.LOW_A0, -1.627, 1), (scenarios.NEAR_A0_MAX, -0.036, 2)],
+)
+def test_the_production_ahat_grid_under_resolves_the_bank_by_a_known_amount(
+    scenario, expected_bias, expected_bins
+):
+    """What the *shipping* configuration actually does, pinned rather than described.
+
+    The test above resolves the ``ahat`` axis deliberately (``ahat_max=0.1``) — but
+    `Collision._table` builds the grid from the schema defaults, and nothing else here
+    exercises those on the quantity ``ahat`` controls. At `DECISIONS.md` D032's defaults
+    (``ahat_max=0.5``, ``n_bins=32``, ``decades=1.0``) the first non-floor edge sits at
+    0.035, so the whole scenario bank lands at or near the floor bin and the kernel uses
+    that bin's own centre — 0.0174 — in place of population means of 0.0057, 0.00057 and
+    0.028. The centroid it reports is biased low by the amounts below.
+
+    This is **not a regression from D053** and not something to fix by widening a tolerance:
+    the bias is dominated by floor-bin coarseness and predates the cycle-average correction
+    (``low_a0`` moved -1.59% -> -1.65% across it). It is pinned so that a future change to
+    `_ahat_target_edges` or to the defaults has to move these numbers deliberately.
+    D053's last section records the measured alternative (``decades=0.3`` at the same
+    ``n_bins``/``ahat_max``), which is the author's call rather than this test's.
+    """
+    samples = _samples(scenario)
+    shape_table = deposit_shape_table(samples, n_bins=(32, 48, 48, 64), scheme="cic")
+    table = retarget_ahat(shape_table, samples.a0_peak)  # production defaults, as Collision does
+    assert table.H.shape[3] == expected_bins
+
+    # The floor bin's centre is a fixed property of the grid, the same for every scenario,
+    # and it is what the kernel uses for the whole population below 0.035.
+    assert table.ahat_centers[0] == pytest.approx(0.5 * _ahat_target_edges(0.0, 0.5, 32, 1.0)[1])
+
+    edge = float(np.max(samples.gamma)) ** 2
+    s_edges = np.linspace(0.0, 1.05 * edge, 150)
+    s_centers = 0.5 * (s_edges[:-1] + s_edges[1:])
+    kernel = angular_spectrum_from_table(table, [0.0], [0.0], s_centers)[0, 0, :]
+    reference = resonance_spectrum(samples, s_edges, 0.0, 0.0)
+
+    def centroid(spectrum):
+        return float(np.sum(s_centers * spectrum) / np.sum(spectrum))
+
+    bias = 100.0 * (centroid(kernel) / centroid(reference) - 1.0)
+    assert bias == pytest.approx(expected_bias, abs=0.15)
+
+
 def test_spectrum_shifts_with_ahat_not_merely_rescales():
     """Regression for the predecessor's fixed bug: g/prefac must be recomputed inside the
     ahat loop. An ahat-independent shortcut would rescale the spectrum's amplitude but

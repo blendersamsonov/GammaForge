@@ -906,7 +906,10 @@ everything below 0.035 — **pre-existing, not created here** (`low_a0` moved `-
 -1.65%`). `decades = 1.0 -> 0.3` at the same `n_bins`/`ahat_max` removes most of it
 (kernel/`delta` at the spectral peak, `near_a0_max`: `0.60 -> 0.99`), but that is a
 production default the author tuned with stated reasoning, so it is recorded with numbers
-rather than changed. `DECISIONS.md` D053's last section has the sweep.
+rather than changed. `DECISIONS.md` D053's last section has the sweep, and
+`test_the_production_ahat_grid_under_resolves_the_bank_by_a_known_amount` pins the
+shipping configuration's bias per scenario (`-1.13%`, `-1.63%`, `-0.04%`) so a future
+change to `_ahat_target_edges` has to move it deliberately.
 
 `docs/DERIVATIONS.md` §0 marked resolved, and §1.1 extended: under the author's peak
 convention `C` enters both the energy->a0 chain and `ahat`, and the two **cancel**, so at
@@ -920,7 +923,7 @@ so the changelogs interleave on merge); `DECISIONS.md` gained D053, and the loca
 `SPECTRAL_ANGULAR_DISTRIBUTION` entry was renumbered D035 -> D052 to clear D035-D051, which
 that branch had already taken.
 
-**Verification:** full `pytest` green (295); `python -m gammaforge.validation.run` all checks
+**Verification:** full `pytest` green (298); `python -m gammaforge.validation.run` all checks
 pass.
 
 ---
