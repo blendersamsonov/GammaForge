@@ -923,7 +923,9 @@ def estimate_spectrum_width(
     )
 
 
-def angle_integrated_spectrum(gamma0: float, sigma_gamma: float, N_e: float, s, n_quad: int = 401):
+def angle_integrated_spectrum(
+    gamma0: float, sigma_gamma: float, N_e: float, s, n_quad: int = 401, ahat: float = 0.0
+):
     """``dN/ds``, integrated over all emission solid angle and over the beam's own
     (assumed Gaussian) energy distribution — a fixed-size quadrature over ``gamma``, no
     macroparticles (§4.3): cost is ``O(n_quad * len(s))``, independent of ``n_particles``
@@ -949,6 +951,22 @@ def angle_integrated_spectrum(gamma0: float, sigma_gamma: float, N_e: float, s, 
     ``n_quad``: quadrature points spanning +-6 ``sigma_gamma`` around ``gamma0`` —
     independent of ``n_particles``, so a generous default costs nothing.
 
+    ``ahat`` is the cycle-averaged normalized intensity, which red-shifts the Compton edge:
+    the resonance sits at ``s_res = gamma^2 / (1 + ahat)`` rather than ``gamma^2``, so the
+    kinematic variable becomes ``y = s (1 + ahat) / gamma^2`` and the whole spectrum
+    compresses towards lower energy. ``ahat = 0`` recovers the linear edge exactly.
+
+    Note ``ahat`` is the **cycle-averaged** intensity, `` <a^2> = C a0^2 `` with ``C = 1/2``
+    for linear polarization — *not* ``a0^2`` itself. `a0` is the normalized peak field
+    magnitude, so the factor is the cycle average of ``cos^2``; for circular polarization
+    the magnitude is constant and ``C = 1``, which is the same factor by which circular
+    carries twice the energy density at fixed ``a0``. Passing ``a0^2`` here instead of
+    ``<a^2>`` doubles the red-shift.
+
+    Only the *mean* ``ahat`` is applied. Electrons sample different intensities, so the edge
+    is also smeared; that spread is not analytically available and is bracketed instead
+    (:data:`NONLINEAR_BROADENING_RANGE`, `DECISIONS.md` D049).
+
     Raises ``ValueError`` for ``sigma_gamma <= 0``: `gammaforge.io.bunch.validate` permits
     a beam with exactly zero energy spread (only rejects negative), but the quadrature
     grid this function builds is degenerate there (a zero-width Gaussian divided by its
@@ -969,8 +987,10 @@ def angle_integrated_spectrum(gamma0: float, sigma_gamma: float, N_e: float, s, 
     pdf = np.exp(-0.5 * ((gamma_grid - gamma0) / sigma_gamma) ** 2) / (sigma_gamma * math.sqrt(2.0 * math.pi))
     quad_weight = pdf * np.gradient(gamma_grid) * N_e
 
+    if ahat < 0.0:
+        raise ValueError(f"angle_integrated_spectrum: ahat must be >= 0 (got {ahat!r})")
     gamma2 = (gamma_grid**2)[:, None]
-    y = s_arr[None, :] / gamma2
+    y = s_arr[None, :] * (1.0 + ahat) / gamma2
     shape = np.where((y < 0.0) | (y > 1.0), 0.0, 1.5 * (1.0 - 2.0 * y * (1.0 - y)))
     out = np.sum(quad_weight[:, None] * shape / gamma2, axis=0)
 

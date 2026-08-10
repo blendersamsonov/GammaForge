@@ -1735,11 +1735,17 @@ bound, which is why `prefilter_bunch`'s exact invariance still rests on the geom
 ### D049 — the mean red-shift is exact; its spread is reported as a measured bracket
 
 **Decision:** `engines.analytical.formulas.overlap_mean_a0_sq` gives the beam-averaged
-`ahat` exactly. The broadening it causes is **not** computed — it is bracketed by
+`ahat` exactly, and `AnalyticalEngine` now **applies** the resulting red-shift:
+`angle_integrated_spectrum` takes `ahat` and puts the resonance at `gamma^2 / (1 + ahat)`. The broadening it causes is **not** computed — it is bracketed by
 `engines.analytical.formulas.NONLINEAR_BROADENING_RANGE`, an empirical `(0.06, 1.12)` on
 `std(ahat) / <ahat>`, surfaced through `SpectrumWidthBreakdown`'s `nonlinearity_lo`/`_hi`
-and `total_range`. The Compton-edge shift itself is still not applied, pending
-`docs/DERIVATIONS.md` §0.
+and `total_range`. §0's factor of two is **resolved** (author, 2026-08-10): not a convention but the
+polarization cycle average. `a0` is the normalized *peak* field magnitude, so the
+cycle-averaged normalized intensity is `<a^2> = C a0^2` with `C = 1/2` for linear
+polarization (the average of `cos^2`) and `C = 1` for circular, where the magnitude is
+constant — the same factor by which circular carries twice the cycle-averaged energy density
+at fixed `a0`. `io.laser` builds `a0` through the linear chain explicitly, so `C = 1/2` here
+and the engine passes `0.5 * <a0^2>`. See `docs/DERIVATIONS.md` §C.
 
 **Rationale.** A photon's formation length spans the whole trajectory, so the physical
 per-electron quantity is one scalar, `ahat_i = Int a0^4 dt / Int a0^2 dt` — the trajectory

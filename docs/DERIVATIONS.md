@@ -607,3 +607,66 @@ derivation would be worth more than another numerical run — particularly on th
 $(1+\beta_{\rm ff})$ Rayleigh convention, which §B inherits from the code rather than
 deriving, and which the $\beta_{\rm ff}\to1/\beta_{\rm ff}$ symmetry above depends on
 directly.
+
+---
+
+## C. The polarization factor in $\hat a$ (resolves §0)
+
+**Status: resolved by the author (2026-08-10); applied in `engines/analytical`, NOT yet in
+xigma or the delta reference.**
+
+The parallel session's §0 records that the code's `ahat` is twice the paper's $\hat a$ and
+marks it BLOCKING. It is not a convention mismatch — it is the polarization cycle average,
+and the paper is right.
+
+$a_0$ is by definition the **normalized magnitude of the electric field**, a peak amplitude.
+The cycle-averaged normalized intensity is therefore
+
+$$
+\langle a^2\rangle = C\,a_0^2,\qquad
+C=\tfrac12\ \text{(linear)},\qquad C=1\ \text{(circular)}
+$$
+
+because a linearly polarized field oscillates as $\cos\varphi$ (so
+$\langle\cos^2\rangle=\tfrac12$) while a circularly polarized one has constant magnitude. The
+same statement read the other way: **at fixed $a_0$ circular polarization carries twice the
+cycle-averaged energy density**; equivalently, at fixed pulse energy circular gives $a_0$
+smaller by $\sqrt2$.
+
+`io.laser.GaussianParaxialLaser._a0_from_density` implements the **linear** chain explicitly
+($\langle u\rangle=E_0^2/8\pi$, i.e. $E_0=\sqrt{8\pi\langle u\rangle}$), so its `a0_profile`
+is the linear-polarization peak amplitude and $C=\tfrac12$.
+
+### C.1 What is affected
+
+`TrajectorySamples.ahat()` returns $a_{0,\rm peak}^2\sum r^2/\sum r$ — the
+**amplitude-squared** trajectory average, with no cycle factor. So the code's value is twice
+the paper's, and `ahat` feeds the resonance denominator in two places:
+
+| site | expression |
+|---|---|
+| `validation/references/delta.py` | `s_res = gamma**2 / (1 + ahat + gamma**2 * r**2)` |
+| xigma Stage 2 | inverts the same resonance per `ahat` cell |
+
+Both therefore over-state the nonlinear red-shift by a factor of two.
+
+### C.2 Why §7's cross-validation cannot catch it
+
+xigma and the delta reference **share** `TrajectorySamples.ahat()`. A common-mode error
+cancels in any comparison between them, so the four-way cross-check — the machinery whose
+whole purpose is catching this class of mistake — is blind to it by construction. Worth
+recording independently of the fix: it is a gap in the cross-validation design, not only a
+bug.
+
+The analytical engine is the leg that exposes it, because it computes $\hat a$ from the
+overlap integral rather than from `TrajectorySamples`. As of this branch it applies
+$\hat a=\tfrac12\langle a_0^2\rangle$, so an analytical-vs-xigma comparison of the nonlinear
+red-shift should differ by exactly two until §C.1's sites are corrected.
+
+### C.3 Connection to §9.2 (ellipticity)
+
+$C=\tfrac12\to1$ from linear to circular is exactly what `ellipticity` should interpolate,
+and it enters in **two** places, not one: the resonance shift $\hat a$, and the
+energy-to-$a_0$ conversion itself, since `_a0_from_density`'s $\sqrt{8\pi u}$ is the linear
+relation. `ELLIPTICITY_IS_NOOP` is the placeholder for both. This gives §9.2 a concrete,
+checkable hook rather than an open question.

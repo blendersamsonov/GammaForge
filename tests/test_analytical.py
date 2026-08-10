@@ -35,7 +35,7 @@ from gammaforge.engines.analytical.formulas import (
 from gammaforge.engines.analytical.schema import default_parameters
 from gammaforge.engines.base import Engine
 from gammaforge.io.bunch import GaussianElectronBeam, _drift_fit, momenta, sample_gaussian_bunch
-from gammaforge.io.laser import GaussianParaxialLaser, lab_frame_axes
+from gammaforge.io.laser import GaussianParaxialLaser, fit_gaussian_paraxial, lab_frame_axes
 from gammaforge.io.target import OutputKind, OutputRequest
 from gammaforge.io.units import C_CGS, SIGMA_T_CGS, Quantity
 from gammaforge.validation import scenarios
@@ -1045,6 +1045,50 @@ def test_unsupported_temporal_envelope_request_does_not_crash():
     )
     results = AnalyticalEngine().run(interaction, AnalyticalEngine.schema)
     assert set(results.photon_slices) == {OutputKind.TOTAL_YIELD}
+
+
+def test_nonlinear_redshift_moves_the_compton_edge():
+    """The mean red-shift is now applied: the resonance sits at `gamma^2 / (1 + ahat)`, so
+    the spectrum's support ends below the linear edge. `ahat = 0` must recover the linear
+    result exactly, since that is what every other spectrum test assumes.
+
+    Comparing where the support *ends* rather than against an absolute cut, because the
+    energy-spread quadrature smears the edge — electrons above `gamma0` radiate past
+    `gamma0^2` — and that smearing is identical either way, so it cancels in the ratio."""
+    gamma0, sigma_gamma, ahat = 400.0, 4.0, 0.2
+    s = np.linspace(0.5 * gamma0**2, 1.4 * gamma0**2, 6000)
+
+    unshifted = angle_integrated_spectrum(gamma0, sigma_gamma, 1.0, s)
+    shifted = angle_integrated_spectrum(gamma0, sigma_gamma, 1.0, s, ahat=ahat)
+
+    end_unshifted = s[np.nonzero(unshifted)[0][-1]]
+    end_shifted = s[np.nonzero(shifted)[0][-1]]
+    assert end_unshifted / end_shifted == pytest.approx(1.0 + ahat, rel=5e-3)
+
+    assert np.array_equal(angle_integrated_spectrum(gamma0, sigma_gamma, 1.0, s, ahat=0.0), unshifted)
+
+
+def test_angle_integrated_spectrum_rejects_a_negative_ahat():
+    with pytest.raises(ValueError, match="ahat"):
+        angle_integrated_spectrum(400.0, 4.0, 1.0, np.array([1.0]), ahat=-0.1)
+
+
+def test_engine_reports_the_shifted_edge_and_uses_the_cycle_average():
+    """`ahat` must be the *cycle-averaged* intensity `0.5 * <a0^2>` for linear polarization,
+    not `<a0^2>`: `a0` is the peak field magnitude, so the factor is the cycle average of
+    cos^2. Passing `<a0^2>` would double the red-shift. The reported edge follows."""
+    interaction = _interaction(outputs=(OutputRequest(OutputKind.TOTAL_YIELD),))
+    engine = AnalyticalEngine()
+    results = engine.run(interaction, engine.schema)
+
+    ahat = results.model_specific["ahat"]
+    assert ahat == pytest.approx(0.5 * results.model_specific["mean_a0_sq"])
+
+    beam = interaction.beam
+    photon_energy = fit_gaussian_paraxial(interaction.laser).photon_energy()
+    linear_edge = 4.0 * beam.gamma0() ** 2 * photon_energy
+    assert results.model_specific["compton_edge_energy"] == pytest.approx(linear_edge / (1.0 + ahat))
+    assert results.model_specific["compton_edge_energy"] < linear_edge
 
 
 def test_spectrum_integral_equals_total_yield_exactly():

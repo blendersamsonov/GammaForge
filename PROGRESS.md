@@ -1393,6 +1393,41 @@ Full suite: 407 passed. `DECISIONS.md` D049 rewritten, D051 added.
 
 ---
 
+## 2026-08-10 — Phase 4: nonlinear red-shift applied; §0 resolved and handed over
+
+**§0's factor of two is resolved** (author): it is the polarization cycle average, not a
+convention. `a0` is the normalized *peak* field magnitude, so `<a^2> = C a0^2` with
+`C = 1/2` for linear polarization (the average of `cos^2`) and `C = 1` for circular, whose
+magnitude is constant — the same factor by which circular carries twice the cycle-averaged
+energy density at fixed `a0`. `io.laser._a0_from_density` implements the linear chain
+explicitly, so `C = 1/2` here. Written up as `docs/DERIVATIONS.md` §C.
+
+**Applied in analytical.** `angle_integrated_spectrum` takes `ahat` and puts the resonance
+at `gamma^2 / (1 + ahat)`; `AnalyticalEngine` passes `0.5 * <a0^2>` and reports both `ahat`
+and the shifted `compton_edge_energy` on `Results`. `ahat = 0` reproduces the linear result
+bit for bit, which is what every other spectrum test assumes.
+
+**Two findings for the 3b session, handed over.** The code's `ahat` feeds the resonance
+denominator in `validation/references/delta.py` (`s_res = gamma^2/(1 + ahat + ...)`) and in
+xigma Stage 2, so both over-state the nonlinear red-shift by two. More importantly: xigma
+and delta **share** `TrajectorySamples.ahat()`, so the error is common-mode and §7's
+four-way cross-check cannot see it — a gap in the cross-validation design, not only a bug.
+Analytical is the leg that exposes it, since it takes `ahat` from the overlap integral
+instead; the two should now differ by exactly two until the fix lands.
+
+**§9.2 gains a concrete hook.** `C = 1/2 -> 1` is what `ellipticity` should interpolate, and
+it enters twice — the resonance shift *and* the energy-to-`a0` conversion, since
+`_a0_from_density`'s `sqrt(8 pi u)` is the linear relation. `ELLIPTICITY_IS_NOOP` is the
+placeholder for both.
+
+One process note: a rejected tool call had in fact already written the file, so re-running it
+duplicated a test block and produced a syntax error. Caught and removed; worth remembering
+that a rejection is not always a no-op.
+
+Full suite: 410 passed. `DECISIONS.md` D049 updated; `docs/DERIVATIONS.md` §C added.
+
+---
+
 ## How to update this file
 
 - One dated section per work session (or per meaningful chunk of a session).

@@ -80,6 +80,12 @@ class AnalyticalEngine:
         # rate at which it does so. Closes the last part of the foci-displacement growth
         # item for the width, which `estimate_spectrum_width` alone could not (D042).
         mean_a0_sq = overlap_mean_a0_sq(beam, metrics, n_quad_overlap, n_quad_u)
+        # The cycle-averaged normalized intensity. `a0` is the peak field magnitude, and
+        # `io.laser._a0_from_density` builds it through the *linear*-polarization chain, so
+        # the cycle average carries C = 1/2. (Circular would be C = 1 — the same factor by
+        # which it holds twice the energy density at fixed a0; that is where `ellipticity`
+        # enters, §9.2.) Passing `mean_a0_sq` here instead would double the red-shift.
+        ahat = 0.5 * mean_a0_sq
         width = estimate_spectrum_width(beam, metrics, theta_col, mean_a0_sq)
 
         # auto_ranges builds a range for every request up front, including kinds this
@@ -93,7 +99,7 @@ class AnalyticalEngine:
         slices: dict[OutputKind, PhasespaceSlice] = {}
         for request in supported_requests:
             slices[request.kind] = self._fill(
-                request, ranges[request.kind], beam, total_yield, photon_energy, n_quad
+                request, ranges[request.kind], beam, total_yield, photon_energy, n_quad, ahat
             )
 
         return Results(
@@ -102,6 +108,8 @@ class AnalyticalEngine:
                 "spectrum_width_fwhm": width,
                 "a0_peak": metrics.a0_peak(),
                 "mean_a0_sq": mean_a0_sq,
+                "ahat": ahat,
+                "compton_edge_energy": 4.0 * beam.gamma0() ** 2 * photon_energy / (1.0 + ahat),
                 "n_photons": metrics.n_photons(),
                 "warnings": self._geometry_warnings(metrics, slices),
             },
@@ -144,6 +152,7 @@ class AnalyticalEngine:
         total_yield: float,
         photon_energy: float,
         n_quad: int,
+        ahat: float,
     ) -> PhasespaceSlice:
         kind = request.kind
         if kind is OutputKind.TOTAL_YIELD:
@@ -159,7 +168,7 @@ class AnalyticalEngine:
             # PhasespaceSlice.integrate() reproduces total_yield exactly (§7), matching
             # against the grid's own discrete integral rather than the analytic value of
             # 1 (DECISIONS.md D036).
-            raw = angle_integrated_spectrum(beam.gamma0(), beam.sigma_gamma(), 1.0, s, n_quad)
+            raw = angle_integrated_spectrum(beam.gamma0(), beam.sigma_gamma(), 1.0, s, n_quad, ahat)
             raw_dN_dE = raw / (4.0 * photon_energy)
             raw_integral = float(np.trapezoid(raw_dN_dE, values[Axis.ENERGY]))
             dN_dE = raw_dN_dE * (total_yield / raw_integral) if raw_integral > 0 else raw_dN_dE
