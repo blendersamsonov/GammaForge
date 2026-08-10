@@ -1149,11 +1149,11 @@ the paper's.
 
 ## 3. Summary of what would change in code
 
-Nothing in this table is done. Ordered by how much the author needs to weigh in.
+Row 0 is **done**; rows 1.1–2.3 are not. Ordered by how much the author needs to weigh in.
 
 | # | Change | Where | Blocked on |
 |---|---|---|---|
-| 0 | `a0_shape` gains a factor $1/2$; `ahat_decades` retuned | `stages.py`, `schema.py` | **author's confirmation that no compensating $2$ exists elsewhere** |
+| 0 | ~~`ahat` gains a factor $1/2$~~ — **landed 2026-08-10** as `stages.ahat_from_shape` + `io.laser.CYCLE_AVERAGE_FACTOR` (D053). The compensating-$2$ worry was ruled out; `ahat_decades` was measured but deliberately **not** retuned (D053's last section) | `stages.py`, `laser.py` | — |
 | 1.1 | Docstrings only — the ellipticity-independence of energy→$a_0$ is derived, not missing | `laser.py` | author agrees with §1.1 |
 | 1.2 | $\cos^2\psi \to (\cos^2\psi + \varepsilon^2\sin^2\psi)/(1+\varepsilon^2)$; thread `ellipticity` to the kernels | `stages.py`, `delta.py`, `collision.py` | author agrees with §1.2 |
 | 2.1 | `RELATIVE_VELOCITY` becomes $1 + \beta\cos\theta_{xz}\cos\theta_{yz}$ | `stages.py` | author agrees with §2.1 |
