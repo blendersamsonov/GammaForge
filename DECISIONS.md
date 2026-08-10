@@ -1313,6 +1313,22 @@ returning a plausible number whose derivation does not apply.
 
 ### D040 — `estimate_yield`'s laser-divergence convention error is flagged and pinned, not fixed
 
+> **Author resolution, 2026-08-10 — the convention question is settled, and this entry's
+> reading of it was right.** The Rayleigh range is conventionally written
+> `z_R = pi sigma_e2^2 / lambda` in the **1/e^2** convention, where `sigma_e2` is the
+> radius at which intensity falls to `e^-2`. This repo stores widths as the **RMS of the
+> photon-density profile**, where the density at `r = sigma` is down only by `e^-1/2` — a
+> different number. The correct chain is therefore *convert first, then apply the standard
+> formula*: `sigma_e2 = 2 sigma_RMS`, giving `z_R = 4 pi sigma_RMS^2 / lambda`, which is
+> what `io.laser.GaussianParaxialLaser.rayleigh_x` computes (verified numerically:
+> matching `exp(-r^2 / 2 sigma^2)` against `exp(-2 r^2 / w0^2)` gives `w0 = 2 sigma`
+> exactly). The predecessor's *analytical.py* used `lambda / (pi sigma_RMS)` for the
+> divergence — the 1/e^2 formula applied to an RMS width, i.e. the conversion skipped —
+> which is 4x in the angle and the discrepancy below. **The consequence for the
+> predecessor's published yields stands as stated: they are low by that factor wherever
+> the hourglass term mattered.** `rayleigh_x`'s docstring now carries the conversion so
+> the next reader meets it before the formula.
+
 **Decision:** `engines.analytical.formulas.estimate_yield` keeps the predecessor's
 `lambda^2 / (pi^2 sigma_lr0^2)` hourglass term unchanged, with a `.. warning::` in its
 docstring and a test — `test_overlap_yield_differs_from_the_legacy_closed_form_by_the_rayleigh_convention`
@@ -1321,7 +1337,7 @@ docstring and a test — `test_overlap_yield_differs_from_the_legacy_closed_form
 **Rationale.** The general derivation (`docs/DERIVATIONS.md` §A.5) identifies that term's
 coefficient as `sigma_l / z_R` exactly. Both `io.laser.GaussianParaxialLaser.rayleigh_x`
 and the predecessor's *own* pulse class define `z_R = 4 pi sigma^2 / lambda` (`w0 = 2
-sigma`), giving `lambda / (4 pi sigma)` — so the predecessor's `analytical.py` is
+sigma`), giving `lambda / (4 pi sigma)` — so the predecessor's *analytical.py* is
 internally inconsistent with the predecessor's own laser model, by a factor of 4 in the
 angle. The port carried that faithfully; it was not introduced here.
 

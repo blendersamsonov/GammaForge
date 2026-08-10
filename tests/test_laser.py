@@ -147,6 +147,37 @@ def test_spot_expands_by_sqrt_two_at_one_rayleigh_range():
     assert float(s1[0]) == pytest.approx(laser.m("sigma_x") * math.sqrt(2.0))
 
 
+def test_the_rayleigh_range_converts_rms_to_the_1_over_e_squared_convention():
+    """The conversion `rayleigh_x` exists to perform, pinned against the profile itself
+    rather than against its own formula (author-confirmed 2026-08-10, `DECISIONS.md` D040).
+
+    ``z_R = pi w0^2 / lambda`` is stated in the **1/e² convention**, but this class stores
+    intensity **RMS** widths — at ``r = sigma`` the density is down by ``e^-1/2``, not
+    ``e^-2``. Skipping the conversion is a factor of 4 in ``z_R`` and in the far-field
+    angle, which is exactly the predecessor error D040 pins at 3.285x in the baseline
+    yield. So this measures ``w0`` off `photon_density` directly, and only then checks the
+    textbook formula against it — a test written as ``4 pi sigma^2 / lambda`` would restate
+    the implementation and pass however wrong the convention was.
+    """
+    laser = make_laser()
+    sigma, lam = laser.m("sigma_x"), laser.m("wavelength")
+
+    on_axis = float(laser.photon_density(0.0, 0.0, 0.0, 0.0))
+    # The stored width is the density RMS: one sigma out, the density is down by e^-1/2.
+    assert float(laser.photon_density(sigma, 0.0, 0.0, 0.0)) / on_axis == pytest.approx(
+        math.exp(-0.5), rel=1e-9
+    )
+    # The 1/e^2 radius is therefore at 2 sigma, not at sigma.
+    w0 = 2.0 * sigma
+    assert float(laser.photon_density(w0, 0.0, 0.0, 0.0)) / on_axis == pytest.approx(
+        math.exp(-2.0), rel=1e-9
+    )
+    # Textbook formula, in the convention it is actually stated in.
+    assert laser.rayleigh_x() == pytest.approx(math.pi * w0**2 / lam, rel=1e-12)
+    # And the far-field divergence that follows from it — the quantity D040 is about.
+    assert sigma / laser.rayleigh_x() == pytest.approx(lam / (4.0 * math.pi * sigma), rel=1e-12)
+
+
 def test_astigmatism_puts_the_two_waists_at_different_places():
     laser = make_laser(z_fx=Q(-0.05, "cm"), z_fy=Q(0.05, "cm"))
     s1, s2 = laser.spot_sizes(np.array([-0.05]))

@@ -346,9 +346,23 @@ class GaussianParaxialLaser:
     def rayleigh_x(self) -> float:
         """Rayleigh range of focusing axis 1, cm.
 
-        ``z_R = pi w0^2 / lambda`` with ``w0 = 2 sigma`` (the 1/e² intensity radius is
-        twice the intensity-profile RMS), i.e. ``4 pi sigma^2 / lambda``. The flying-focus
-        factor stretches it by ``(1 + beta_ff)``, the predecessor's xigma convention.
+        **The conversion is the whole content of this method** (author-confirmed
+        2026-08-10; `DECISIONS.md` D040). The textbook formula ``z_R = pi w0^2 / lambda``
+        is stated in the **1/e² convention**: ``w0`` is the radius at which intensity
+        falls to ``e^-2`` of its on-axis value. This class stores widths as **RMS of the
+        photon-density (= intensity) profile** (`WidthConvention.SIGMA_INTENSITY_RMS`),
+        which is a different number — at ``r = sigma`` the density is down only by
+        ``e^-1/2``, not ``e^-2``.
+
+        Converting first, then applying the standard formula: matching
+        ``exp(-r^2 / (2 sigma^2))`` against ``exp(-2 r^2 / w0^2)`` gives ``w0 = 2 sigma``,
+        hence ``z_R = 4 pi sigma^2 / lambda``. Anything that reads a Rayleigh range or a
+        divergence off a stored ``sigma`` **must** go through that factor of two in the
+        radius — skipping it is a factor of 4 in ``z_R`` and in the far-field angle
+        ``sigma / z_R``, which is exactly the predecessor error D040 pins.
+
+        The flying-focus factor stretches it by ``(1 + beta_ff)``, the predecessor's xigma
+        convention.
         """
         return 4.0 * math.pi * self.m("sigma_x") ** 2 / self.m("wavelength") * (1.0 + self.beta_ff)
 

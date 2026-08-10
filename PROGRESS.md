@@ -1565,6 +1565,44 @@ checks pass; golden scalars unmoved.
 
 ---
 
+## 2026-08-10 — the Rayleigh-range convention, settled by the author
+
+Recorded the author's resolution of the `z_R` question that produced D040. It is a
+**width-convention** issue, not a formula error: `z_R = pi sigma_e2^2 / lambda` is stated
+in the **1/e^2** convention, where `sigma_e2` is the radius at which intensity falls to
+`e^-2`, while this repo stores intensity **RMS** widths, where the density at `r = sigma`
+is down only by `e^-1/2`. The correct chain is convert first, then apply the standard
+formula: `sigma_e2 = 2 sigma_RMS`, so `z_R = 4 pi sigma_RMS^2 / lambda`.
+
+That is what `io.laser.GaussianParaxialLaser.rayleigh_x` already computed, so **no
+behaviour changed** — verified numerically before writing anything (matching
+`exp(-r^2 / 2 sigma^2)` against `exp(-2 r^2 / w0^2)` gives `w0 = 2 sigma` exactly). What
+changed is that the reasoning is now written down at the point of use instead of living in
+one reader's head.
+
+The resolution also upgrades D040 from "code disagrees with other code" to a settled
+question: the predecessor's *analytical.py* used `lambda / (pi sigma_RMS)` for the laser
+divergence — the 1/e^2 formula applied to an RMS width, conversion skipped — which is 4x
+in the angle. **The consequence stands: the predecessor's published yields are low by that
+factor wherever the hourglass term mattered** (3.285x at `BASELINE`). `estimate_yield` is
+still deliberately not fixed (D040's own reasoning: its only remaining job is reproducing
+the predecessor, and no engine path uses it).
+
+New regression guard, `test_the_rayleigh_range_converts_rms_to_the_1_over_e_squared_convention`,
+written so it cannot restate the implementation: it measures `w0` off `photon_density`
+directly — checking the `e^-1/2` at one sigma and the `e^-2` at two — and only then
+applies the textbook formula to it. A test asserting `4 pi sigma^2 / lambda` would have
+passed no matter how wrong the convention was.
+
+One doc-guard note: fixing the backtick convention on my new line exposed a pre-existing
+`` `analytical.py` `` on the merged Phase 4 branch (the predecessor's file, so it takes
+italics). The guard had not caught it because my line became the first occurrence scanned.
+Both are now italicised.
+
+**Verification:** full `pytest` green (415).
+
+---
+
 ## How to update this file
 
 - One dated section per work session (or per meaningful chunk of a session).
