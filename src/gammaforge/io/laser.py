@@ -21,17 +21,24 @@ configuration is then carried into the real 3D geometry by
 lab y-axis. The roll about k-hat is *determined by that composition order*, not a free
 parameter, which is exactly why the order is pinned rather than left to the caller.
 
-**Physics deliberately not implemented here (P14c).** Two parameters are carried in full
-and consumed only in part, and both say so out loud rather than passing unremarked:
+**Two quantities, and which one is physics** (`DECISIONS.md` D054). :meth:`intensity_profile`
+returns the cycle-averaged ``<a^2>``; :meth:`a0_profile` returns the peak amplitude ``a0``.
+Engines want the first. ``<a^2>`` at fixed pulse energy is **the same for every polarization
+state** — an elliptical pulse's ``a0`` is smaller by ``sqrt(2C)`` and its cycle average
+larger by ``C`` — so nothing that depends on it needs to know how the pulse is polarized.
+``a0`` is a *reported* number carrying a convention (the linear-equivalent peak amplitude),
+and re-deriving physics from it means round-tripping through that convention.
 
-* ``ellipticity`` is an **explicit no-op**. The energy→a0 chain below is the standard
-  **linear-polarization** relation; §9.2 records that the paper has no formula for the
-  elliptical case (its polarization object is a normalized coherence matrix with no
-  scalar ellipticity), so inventing one here would be exactly the silent approximation
-  P14 forbids. Since Phase 3b/D053 the polarization state has a *named* home —
-  :data:`CYCLE_AVERAGE_FACTOR`, the ``<a**2> = C a0**2`` factor, ``1/2`` linear and ``1``
-  circular — so §9.2 is no longer "does ellipticity matter" but "interpolate a known
-  constant in the two places that hold it", this one and `_a0_from_density`.
+**Physics deliberately not implemented here (P14c).** One parameter is now fully applied and
+one is still partial; both say so out loud rather than passing unremarked:
+
+* ``ellipticity`` is **applied exactly to the photon yield and the mean nonlinear red-shift**
+  — by being irrelevant to them, per the invariance above. It is **not** applied to xigma's
+  *angle-resolved* kernel, whose polarization factor is still the linear ``cos^2 psi``
+  rather than ``(cos^2 psi + eps^2 sin^2 psi)/(1 + eps^2)`` (§9.2,
+  `docs/DERIVATIONS.md` §1.2). That is the only place a contraction against an observation
+  direction can distinguish an ellipse from a line, so the split falls where the physics
+  puts it. :data:`ELLIPTICITY_IS_NOOP` marks that one remaining consumer.
 * ``theta_xz``/``theta_yz`` are **geometry-only**. The rotation above is applied
   everywhere the pulse is sampled, so *where* and *when* a crossing beam overlaps the
   bunch is right; the *emission* physics downstream of that sampling is still head-on
