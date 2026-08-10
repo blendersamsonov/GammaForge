@@ -50,7 +50,10 @@ def baseline():
     return _samples(scenarios.BASELINE)
 
 
-def _synthetic_samples(n=20_000, gamma0=2000.0, seed=0, a0_shape=1.0, a0_peak=0.3):
+def _synthetic_samples(n=20_000, gamma0=2000.0, seed=0, a0_shape=1.0, intensity_peak=0.045):
+    """``intensity_peak`` is the peak cycle-averaged ``<a^2>`` (D054), so ``ahat`` is just
+    ``intensity_peak * a0_shape``. The default reproduces the ``a0_peak=0.3`` linear pulse
+    these fixtures used before the rename: ``0.5 * 0.3**2 = 0.045``."""
     rng = np.random.default_rng(seed)
     gamma = gamma0 + rng.normal(0.0, gamma0 * 5e-3, n)
     theta_x = rng.normal(0.0, 3.0 / gamma0, n)
@@ -61,7 +64,7 @@ def _synthetic_samples(n=20_000, gamma0=2000.0, seed=0, a0_shape=1.0, a0_peak=0.
         theta_y=theta_y,
         a0_shape=np.full(n, a0_shape),
         luminosity=np.full(n, 1e4),
-        a0_peak=a0_peak,
+        intensity_peak=intensity_peak,
         n_steps=10,
     )
 
@@ -69,7 +72,7 @@ def _synthetic_samples(n=20_000, gamma0=2000.0, seed=0, a0_shape=1.0, a0_peak=0.
 def _table(samples, *, shape_bins=(16, 16, 16, 16), scheme="nearest", **retarget_kwargs):
     """Shorthand: the two-call chain most tests need, at a modest, fast scale."""
     shape_table = deposit_shape_table(samples, n_bins=shape_bins, scheme=scheme)
-    return retarget_ahat(shape_table, samples.a0_peak, **retarget_kwargs)
+    return retarget_ahat(shape_table, samples.intensity_peak, **retarget_kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +104,7 @@ def test_deposit_handles_a_monoenergetic_zero_divergence_beam():
         theta_y=np.zeros(n),
         a0_shape=np.full(n, 1.0),
         luminosity=np.full(n, 1.0),
-        a0_peak=0.3,
+        intensity_peak=0.045,
         n_steps=10,
     )
     table = deposit_shape_table(samples, n_bins=(8, 8, 8, 4))
@@ -113,7 +116,7 @@ def test_deposit_handles_a_monoenergetic_zero_divergence_beam():
 def test_deposit_handles_an_empty_bunch():
     empty = TrajectorySamples(
         gamma=np.zeros(0), theta_x=np.zeros(0), theta_y=np.zeros(0),
-        a0_shape=np.zeros(0), luminosity=np.zeros(0), a0_peak=0.3, n_steps=10,
+        a0_shape=np.zeros(0), luminosity=np.zeros(0), intensity_peak=0.045, n_steps=10,
     )
     with pytest.raises(ValueError):
         deposit_shape_table(empty, n_bins=(8, 8, 8, 4))
@@ -131,7 +134,7 @@ def test_shape_table_rejects_a_shape_mismatched_H():
             H=np.zeros((3, 4, 4, 2)),
             total_weight=0.0,
             scheme="nearest",
-            source_a0_peak=samples.a0_peak,
+            source_intensity_peak=samples.intensity_peak,
         )
 
 
@@ -191,23 +194,26 @@ def test_retarget_ahat_conserves_total_weight_exactly():
     extended to +-inf for overlap purposes, every source bin's mass lands somewhere in the
     target, regardless of how much folds into the floor/ceiling bins.
     """
-    samples = _synthetic_samples(a0_shape=1.0, a0_peak=0.3)
+    samples = _synthetic_samples(a0_shape=1.0)
     shape_table = deposit_shape_table(samples, n_bins=(16, 16, 16, 16))
-    for a0_peak in (0.1, 0.3, 0.6, 1.5):
-        table = retarget_ahat(shape_table, a0_peak, ahat_min=0.0, ahat_max=0.5, n_bins=32, decades=1.0)
-        expected = shape_table.total_weight * (a0_peak / samples.a0_peak) ** 2
+    for intensity_peak in (0.01, 0.045, 0.18, 0.4):
+        table = retarget_ahat(shape_table, intensity_peak, ahat_min=0.0, ahat_max=0.5, n_bins=32, decades=1.0)
+        # Linear, not quadratic: the retarget parameter is now an intensity, which is the
+        # already-squared quantity (D054).
+        expected = shape_table.total_weight * (intensity_peak / samples.intensity_peak)
         assert table.total_weight == pytest.approx(expected, rel=1e-9)
 
 
-def test_retarget_ahat_redistributes_mass_toward_higher_ahat_as_a0_peak_grows():
-    samples = _synthetic_samples(a0_shape=1.0, a0_peak=0.3)
+def test_retarget_ahat_redistributes_mass_toward_higher_ahat_as_the_pulse_strengthens():
+    samples = _synthetic_samples(a0_shape=1.0)
     shape_table = deposit_shape_table(samples, n_bins=(16, 16, 16, 16))
-    table_own = retarget_ahat(shape_table, samples.a0_peak)
-    table_other = retarget_ahat(shape_table, 2.0 * samples.a0_peak)
-    # Both total_weight (exact identity above) and where that mass sits move: a pulse of
-    # twice the peak a0 redshifts 4x further, so the populated range's own top edge (after
-    # truncation, §Truncation) reaches a higher ahat.
-    assert table_other.total_weight == pytest.approx(4.0 * table_own.total_weight, rel=1e-9)
+    table_own = retarget_ahat(shape_table, samples.intensity_peak)
+    table_other = retarget_ahat(shape_table, 2.0 * samples.intensity_peak)
+    # Both total_weight (exact identity above) and where that mass sits move: twice the
+    # peak intensity is twice the yield *and* twice the ahat, so the populated range's own
+    # top edge (after truncation, §Truncation) reaches a higher ahat. (The factor was 4
+    # while this took a peak *amplitude*, which is the squared relation — D054.)
+    assert table_other.total_weight == pytest.approx(2.0 * table_own.total_weight, rel=1e-9)
     assert table_other.ahat_edges[-1] > table_own.ahat_edges[-1]
 
 
@@ -215,11 +221,11 @@ def test_retarget_ahat_folds_mass_below_ahat_min_into_the_floor_bin():
     """The floor-fold path — otherwise never exercised, since nothing in the default
     ahat_min=0.0 configuration has any ahat to fold (`DECISIONS.md` D032).
     """
-    samples = _synthetic_samples(a0_shape=1.0, a0_peak=0.3)  # ahat = 0.045 (D053: C = 1/2)
+    samples = _synthetic_samples(a0_shape=1.0)  # ahat = 0.045 (D053: C = 1/2)
     shape_table = deposit_shape_table(samples, n_bins=(8, 8, 8, 16))
     # ahat_min well above the population's actual ahat (0.045): everything must fold into
     # bin 0, and total weight must still be exactly conserved.
-    table = retarget_ahat(shape_table, samples.a0_peak, ahat_min=0.2, ahat_max=0.5, n_bins=16, decades=1.0)
+    table = retarget_ahat(shape_table, samples.intensity_peak, ahat_min=0.2, ahat_max=0.5, n_bins=16, decades=1.0)
     assert table.ahat_edges[0] == pytest.approx(0.2)
     assert table.H[..., 0].sum() * np.diff(table.ahat_edges)[0] * table.gamma_theta_cell_area * (
         table.gamma_edges[-1] - table.gamma_edges[0]
@@ -232,9 +238,9 @@ def test_retarget_ahat_truncates_unpopulated_bins():
     (`DECISIONS.md` D032) — `retarget_ahat` drops them rather than returning a table
     padded with zeros out to `ahat_max`.
     """
-    samples = _synthetic_samples(a0_shape=1.0, a0_peak=0.05)  # ahat = 0.00125, tiny
+    samples = _synthetic_samples(a0_shape=1.0, intensity_peak=0.00125)  # ahat = 0.00125, tiny
     shape_table = deposit_shape_table(samples, n_bins=(8, 8, 8, 16))
-    table = retarget_ahat(shape_table, samples.a0_peak, ahat_min=0.0, ahat_max=0.5, n_bins=32, decades=1.0)
+    table = retarget_ahat(shape_table, samples.intensity_peak, ahat_min=0.0, ahat_max=0.5, n_bins=32, decades=1.0)
     assert table.ahat_edges[-1] < 0.5
     assert table.H.shape[3] < 32
 
@@ -244,9 +250,9 @@ def test_retarget_ahat_truncation_does_not_change_the_kernel_output():
     `spectrum_from_table` output against a table padded back out with explicit zero bins
     must agree exactly.
     """
-    samples = _synthetic_samples(n=5_000, a0_shape=1.0, a0_peak=0.05)
+    samples = _synthetic_samples(n=5_000, a0_shape=1.0, intensity_peak=0.00125)
     shape_table = deposit_shape_table(samples, n_bins=(8, 8, 8, 16))
-    truncated = retarget_ahat(shape_table, samples.a0_peak, ahat_min=0.0, ahat_max=0.5, n_bins=32, decades=1.0)
+    truncated = retarget_ahat(shape_table, samples.intensity_peak, ahat_min=0.0, ahat_max=0.5, n_bins=32, decades=1.0)
 
     from gammaforge.engines.xigma.stages import Table
 
@@ -314,17 +320,20 @@ def test_the_kernel_and_delta_agree_on_where_the_redshift_puts_the_photons():
 
     # `ahat_max` narrowed to the bank's own scale: the production 0.5 is headroom for
     # pulses far brighter than any scenario here, and spends 30 of its 32 bins above them.
-    fine = retarget_ahat(shape_table, samples.a0_peak, ahat_max=0.1, n_bins=32)
+    fine = retarget_ahat(shape_table, samples.intensity_peak, ahat_max=0.1, n_bins=32)
     assert fine.H.shape[3] >= 8, "the point of this test is a resolved ahat axis"
     kernel = angular_spectrum_from_table(fine, [0.0], [0.0], s_centers)[0, 0, :]
     reference = resonance_spectrum(samples, s_edges, 0.0, 0.0)
     assert centroid(kernel) == pytest.approx(centroid(reference), rel=2e-3)
 
-    # And the redshift is present, not merely consistent: four times the ahat (twice the
-    # peak a0) pulls the centroid down by several percent, on both paths independently.
-    bright = retarget_ahat(shape_table, 2.0 * samples.a0_peak, ahat_max=0.4, n_bins=32)
+    # And the redshift is present, not merely consistent: four times the ahat pulls the
+    # centroid down by several percent, on both paths independently. Four times the
+    # *intensity* now, where this used to double an amplitude for the same effect (D054).
+    bright = retarget_ahat(shape_table, 4.0 * samples.intensity_peak, ahat_max=0.4, n_bins=32)
     kernel_bright = angular_spectrum_from_table(bright, [0.0], [0.0], s_centers)[0, 0, :]
-    reference_bright = resonance_spectrum(replace(samples, a0_peak=2.0 * samples.a0_peak), s_edges, 0.0, 0.0)
+    reference_bright = resonance_spectrum(
+        replace(samples, intensity_peak=4.0 * samples.intensity_peak), s_edges, 0.0, 0.0
+    )
     assert centroid(kernel_bright) == pytest.approx(centroid(reference_bright), rel=2e-3)
     assert centroid(kernel_bright) < 0.97 * centroid(kernel)
 
@@ -355,7 +364,7 @@ def test_the_production_ahat_grid_under_resolves_the_bank_by_a_known_amount(
     """
     samples = _samples(scenario)
     shape_table = deposit_shape_table(samples, n_bins=(32, 48, 48, 64), scheme="cic")
-    table = retarget_ahat(shape_table, samples.a0_peak)  # production defaults, as Collision does
+    table = retarget_ahat(shape_table, samples.intensity_peak)  # production defaults, as Collision does
     assert table.H.shape[3] == expected_bins
 
     # The floor bin's centre is a fixed property of the grid, the same for every scenario,
@@ -380,7 +389,7 @@ def test_spectrum_shifts_with_ahat_not_merely_rescales():
     ahat loop. An ahat-independent shortcut would rescale the spectrum's amplitude but
     never move where its edge falls; the nonlinear redshift must move the edge.
 
-    a0_shape=0.05 and 4.0 at a0_peak=0.3 give ahat = 0.00225 and 0.18 — bins 0 and 6 of
+    a0_shape=0.05 and 4.0 at intensity_peak=0.045 give ahat = 0.00225 and 0.18 — bins 0 and 6 of
     the production target grid (re-checked numerically when D053 halved ahat; they were
     0.0045/0.36 in bins 0/17 before), still well apart.
     """
@@ -444,7 +453,7 @@ def test_stage2_kernel_agrees_with_delta_at_a_point():
     removes the aliasing (measured stable to +-2% from 40 to 250 theta bins) because it
     never lets a single cell speak for the beam centre alone.
     """
-    samples = _synthetic_samples(n=200_000, seed=2)  # a0_shape=1.0, a0_peak=0.3 -> ahat=0.045
+    samples = _synthetic_samples(n=200_000, seed=2)  # a0_shape=1.0, intensity_peak=0.045 -> ahat=0.045
     table = _table(samples, shape_bins=(48, 64, 64, 32), scheme="cic")
 
     edge = float(np.max(samples.gamma) ** 2)

@@ -77,23 +77,24 @@ def test_shape_is_memoized():
     collision = Collision(interaction=interaction, params=_engine_params())
     first = collision._shape()
     collision._table()
-    collision._table(a0_peak=2.0 * collision.build_overlap().a0_peak)
+    collision._table(intensity_peak=2.0 * collision.build_overlap().intensity_peak)
     second = collision._shape()
     assert first is second
 
 
-def test_table_is_memoized_per_a0_peak():
+def test_table_is_memoized_per_pulse_strength():
     interaction = _interaction()
     collision = Collision(interaction=interaction, params=_engine_params())
     table_a = collision._table()
     table_b = collision._table()
     assert table_a is table_b
-    table_c = collision._table(a0_peak=2.0 * collision.build_overlap().a0_peak)
+    table_c = collision._table(intensity_peak=2.0 * collision.build_overlap().intensity_peak)
     assert table_c is not table_a
-    # luminosity retargets as a0_peak**2 along with ahat (TrajectorySamples.
-    # retargeted_luminosity, applied through retarget_ahat) — twice the peak a0 is 4x the
-    # total weight, exactly (the regrid's overlap weights are row-stochastic, D032).
-    assert table_c.total_weight == pytest.approx(4.0 * table_a.total_weight, rel=1e-9)
+    # luminosity retargets linearly in the peak intensity along with ahat
+    # (TrajectorySamples.retargeted_luminosity, applied through retarget_ahat) — twice the
+    # peak <a^2> is exactly 2x the total weight (the regrid's overlap weights are
+    # row-stochastic, D032). It was 4x while the key was a peak amplitude (D054).
+    assert table_c.total_weight == pytest.approx(2.0 * table_a.total_weight, rel=1e-9)
 
 
 def test_total_yield_and_spectrum_integral_converge_to_the_same_number():

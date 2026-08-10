@@ -57,7 +57,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ...io.bunch import GaussianElectronBeam
-from ...io.laser import CYCLE_AVERAGE_FACTOR, GaussianParaxialLaser
+from ...io.laser import GaussianParaxialLaser
 from ...io.units import C_CGS, SIGMA_T_CGS
 
 __all__ = [
@@ -911,9 +911,9 @@ def estimate_spectrum_width(
     emit_width = math.sqrt(beam.divergence_x() * beam.divergence_y())
     mean_a0_sq = laser.a0_peak() ** 2 if a0_sq is None else a0_sq
     prefactor = 0.5 * 2.355
-    # <ahat>, in the paper's convention (see the note below) — `CYCLE_AVERAGE_FACTOR` so
-    # this and xigma's `stages.ahat_from_shape` share one definition of C (D053).
-    mean_shift = CYCLE_AVERAGE_FACTOR * mean_a0_sq
+    # <ahat>: the cycle-averaged intensity (see the note below). Asked of the laser rather
+    # than written as 0.5, so this and xigma share one definition of C (D053/D054).
+    mean_shift = laser.cycle_average_factor() * mean_a0_sq
     lo, hi = NONLINEAR_BROADENING_RANGE
     return SpectrumWidthBreakdown(
         collimation=prefactor * (gamma0 * theta_col) ** 2,

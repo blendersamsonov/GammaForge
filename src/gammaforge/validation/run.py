@@ -190,7 +190,7 @@ def identity_checks(scenarios: Sequence[Scenario]) -> list[Check]:
         # (`tests/test_stage1_stage2.py` measured 0.5x-1.7x at nearest with 40-100 theta
         # bins; CIC holds within a few percent).
         shape_table = deposit_shape_table(samples, n_bins=(32, 48, 48, 64), scheme="cic")
-        table = retarget_ahat(shape_table, samples.a0_peak)
+        table = retarget_ahat(shape_table, samples.intensity_peak)
         edge = float(np.max(samples.gamma) ** 2)
         s_edges = np.linspace(0.0, 1.05 * edge, 150)
         s_centers = 0.5 * (s_edges[:-1] + s_edges[1:])

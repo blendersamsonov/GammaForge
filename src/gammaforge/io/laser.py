@@ -72,33 +72,22 @@ __all__ = [
     "validate",
     "ELLIPTICITY_IS_NOOP",
     "EMISSION_IS_HEAD_ON",
-    "CYCLE_AVERAGE_FACTOR",
 ]
 
-#: §9.2 is unresolved: the paper gives no energy→a0 relation for elliptical polarization.
-#: Until it lands, ``ellipticity`` is carried but changes nothing. Flipping this to False
-#: is the one-line marker for "the derivation landed" — grep for it.
+#: ``ellipticity`` is applied to **everything that depends on the cycle-averaged
+#: intensity** — the photon yield and the mean nonlinear red-shift (`ahat`) — as of
+#: `DECISIONS.md` D054. What remains unapplied is narrower and lives in one place:
+#: xigma's **angle-resolved** kernel still uses the linear polarization factor
+#: ``cos^2 psi`` rather than the elliptical ``(cos^2 psi + eps^2 sin^2 psi)/(1 + eps^2)``
+#: (`docs/DERIVATIONS.md` §1.2). Flipping this to False when that lands is the one-line
+#: marker — grep for it.
+#:
+#: The reason the split is *exactly* here, rather than being an arbitrary staging: the
+#: cycle-average factor cancels out of every angle-integrated quantity (see
+#: :meth:`GaussianParaxialLaser.intensity_profile`), so those never needed a derivation
+#: at all. Only the angle-resolved kernel, which contracts the polarization vectors
+#: against an observation direction, can tell an ellipse from a line.
 ELLIPTICITY_IS_NOOP = True
-
-#: Cycle average of the normalized intensity at fixed peak a0::
-#:
-#:     <a**2> = CYCLE_AVERAGE_FACTOR * a0**2
-#:
-#: ``a0`` is by definition the normalized **peak** magnitude of the electric field, and
-#: :meth:`GaussianParaxialLaser.a0_profile` returns that peak envelope — `_a0_from_density`
-#: implements the linear-polarization chain (``E0 = sqrt(8 pi U)``) explicitly. A linearly
-#: polarized field oscillates as ``cos(phi)``, so ``<cos**2> = 1/2``; a circularly polarized
-#: one has constant magnitude and the factor is ``1``. Read the other way: at fixed ``a0``
-#: circular carries twice the cycle-averaged energy density, and at fixed pulse energy it
-#: gives an ``a0`` smaller by ``sqrt(2)``.
-#:
-#: **This is the constant `ellipticity` should interpolate** (1/2 → 1) once §9.2 lands; it
-#: is pinned to the linear value for the same reason `_a0_from_density` is, and
-#: :data:`ELLIPTICITY_IS_NOOP` is the marker for both. Consumers that need the *intensity*
-#: an electron experiences must apply it; consumers that convert ``a0**2`` back to a photon
-#: density must **not**, because that conversion (`engines.xigma.stages.photon_density_scale`)
-#: inverts `_a0_from_density` exactly and is self-consistent under either convention.
-CYCLE_AVERAGE_FACTOR = 0.5
 
 #: §9.3 is unresolved: the paper's angular-spectrum derivation is built for
 #: near-backscattering, and warns against extending it without revisiting the geometry.
@@ -128,8 +117,21 @@ class LaserField(Protocol):
     requirement on implementations, not a reason to move sampling back into engines.
     """
 
+    def intensity_profile(self, x, y, z, t):
+        """Cycle-averaged normalized intensity ``<a^2>`` at ``(x, y, z, t)``.
+
+        **The method engines should consume.** It is polarization-agnostic (see
+        `GaussianParaxialLaser.intensity_profile`), so a consumer of this never needs to
+        know or apply a cycle-average factor.
+        """
+        ...
+
     def a0_profile(self, x, y, z, t):
-        """Period-averaged normalized vector-potential envelope at ``(x, y, z, t)``."""
+        """Peak normalized vector-potential envelope at ``(x, y, z, t)``.
+
+        Reported/diagnostic: ``a0`` is convention-dependent (linear-equivalent peak
+        amplitude here). Prefer :meth:`intensity_profile` for anything physical.
+        """
         ...
 
     def field(self, x, y, z, t):
@@ -387,23 +389,100 @@ class GaussianParaxialLaser:
         joint maximum of ``1 / (s1 s2)`` sits between them and is found numerically over
         the interval they span (a 1D unimodal problem, not worth an optimizer).
         """
+        return float(self._a0_from_density(self._peak_density()))
+
+    def intensity_peak(self) -> float:
+        """Peak cycle-averaged ``<a^2>`` anywhere in the pulse — :meth:`a0_peak`'s
+        polarization-agnostic counterpart, and what engines should key off.
+
+        Same peak-density search as :meth:`a0_peak`, converted through the ``4 pi`` chain
+        (:meth:`intensity_profile`) instead of the ``8 pi`` amplitude one.
+
+        Equal to ``cycle_average_factor() * a0_peak()**2`` **only for linear polarization**,
+        and the difference is a trap worth naming: :meth:`a0_peak` reports the
+        *linear-equivalent* amplitude by convention, so rebuilding the peak intensity as
+        ``C * a0_peak()**2`` applies the cycle average without the ``1/sqrt(2C)`` that
+        belongs in the amplitude — the result then varies with ``ellipticity`` although the
+        physical quantity does not.
+        """
+        return (E_ESU / (ME_CGS * C_CGS * self.omega0())) ** 2 * 4.0 * np.pi * self.m(
+            "pulse_energy"
+        ) * self._peak_density()
+
+    def _peak_density(self) -> float:
+        """Peak normalized photon density: where both spots are smallest and the temporal
+        envelope peaks. Shared by :meth:`a0_peak` and :meth:`intensity_peak` so the two
+        cannot disagree about *where* the pulse peaks, only about what they report there.
+        """
         lo, hi = sorted((self.m("z_fx"), self.m("z_fy")))
-        if hi > lo:
-            u = np.linspace(lo, hi, 257)
-        else:
-            u = np.array([lo])
+        u = np.linspace(lo, hi, 257) if hi > lo else np.array([lo])
         s1, s2 = self.spot_sizes(u)
-        return float(np.max(self._a0_from_density(1.0 / ((2.0 * np.pi) ** 1.5 * s1 * s2 * self.sigma_ct()))))
+        return float(np.max(1.0 / ((2.0 * np.pi) ** 1.5 * s1 * s2 * self.sigma_ct())))
+
+    def cycle_average_factor(self) -> float:
+        """``C`` in ``<a^2> = C a0^2``, the cycle average of the normalized intensity.
+
+        From the paper's own normalization ``sum_i |eps_i|^2 = 1`` (eq. `field`) with an
+        ellipse of axis ratio ``eps = ellipticity``, ``eps_0 = 1/sqrt(1+eps^2)`` and
+        ``eps_1 = i eps/sqrt(1+eps^2)``::
+
+            C = (1 + eps^2) / 2
+
+        ``1/2`` for linear (``<cos^2> = 1/2``), ``1`` for circular (constant magnitude),
+        and the exact interpolation between — verified numerically against a
+        period-resolved ellipse at ``eps = 0, 1/4, 1/2, 1/sqrt(3), 1``.
+
+        **This is a property of the polarization state, not a physical prediction**, and
+        it is deliberately *not* how any yield or red-shift is computed — see
+        :meth:`intensity_profile` for why those never need it. It exists because ``a0``
+        itself is a reported number whose definition depends on the convention.
+        """
+        return 0.5 * (1.0 + self.ellipticity**2)
+
+    def intensity_profile(self, x, y, z, t):
+        """Cycle-averaged normalized intensity ``<a^2>`` at ``(x, y, z, t)``.
+
+        **The polarization-agnostic quantity, and the one physics actually depends on.**
+        Every angle-integrated observable — the photon yield, and the mean nonlinear
+        red-shift through ``ahat`` — is a functional of ``<a^2>`` along a trajectory, never
+        of ``a0`` separately. And ``<a^2>`` does not depend on the polarization state at
+        all, at fixed pulse energy::
+
+            <a^2> = C a0^2,   a0^2 = (e / m_e c omega0)^2 * 4 pi U_density / C
+
+        so ``C`` cancels identically, leaving
+
+            <a^2> = (e / m_e c omega0)^2 * 4 pi E_pulse * photon_density
+
+        with no ``C`` and therefore no ``ellipticity`` anywhere in it. Concretely: a
+        circular pulse of the same energy has ``a0`` smaller by ``sqrt(2)`` but carries
+        twice the cycle-averaged intensity per unit ``a0^2``, and the two exactly offset.
+
+        That is why this method, not :meth:`a0_profile`, is what `engines.xigma.stages`
+        integrates: forming ``a0`` first and then re-applying a polarization factor is a
+        round trip through a convention-dependent number for no gain, and it is what let a
+        missing factor of two survive undetected (`DECISIONS.md` D053/D054).
+
+        Note the ``4 pi`` rather than ``8 pi``: this is the cycle **average**, whereas
+        :meth:`a0_profile` returns the **peak** amplitude of a linearly polarized field.
+        """
+        density = np.asarray(self.photon_density(x, y, z, t), dtype=float)
+        return (E_ESU / (ME_CGS * C_CGS * self.omega0())) ** 2 * 4.0 * np.pi * self.m("pulse_energy") * density
 
     def _a0_from_density(self, density):
-        """Period-averaged a0 from a normalized photon-density envelope.
+        """Peak normalized amplitude ``a0`` from a normalized photon-density envelope.
 
-        The standard **linear-polarization** chain in CGS-Gaussian: energy density
-        ``U = E_pulse * density``, intensity ``I = c U``, cycle-averaged
-        ``I = c E0^2 / (8 pi)`` so ``E0 = sqrt(8 pi E_pulse * density)``, and
-        ``a0 = e E0 / (m_e c omega0)``.
+        The chain in CGS-Gaussian: energy density ``U = E_pulse * density``, intensity
+        ``I = c U``, cycle-averaged ``I = c E0^2 / (8 pi)`` for **linear** polarization, so
+        ``E0 = sqrt(8 pi E_pulse * density)`` and ``a0 = e E0 / (m_e c omega0)``.
 
-        ``ellipticity`` does **not** enter — see :data:`ELLIPTICITY_IS_NOOP` and §9.2.
+        ``ellipticity`` does **not** enter, and since D054 that is a stated convention
+        rather than a pending derivation: ``a0`` is reported as the **linear-equivalent
+        peak amplitude**, so that a number quoted as "a0 = 2" means the same field strength
+        regardless of how the pulse is polarized. The elliptical peak amplitude, if it is
+        ever wanted, is this divided by ``sqrt(2 C)`` (:meth:`cycle_average_factor`).
+
+        Physics does not go through here — see :meth:`intensity_profile`.
         """
         e0 = np.sqrt(8.0 * np.pi * self.m("pulse_energy") * np.asarray(density, dtype=float))
         return E_ESU * e0 / (ME_CGS * C_CGS * self.omega0())
@@ -585,9 +664,12 @@ def validate(laser: GaussianParaxialLaser) -> list[str]:
     warnings: list[str] = []
     if ELLIPTICITY_IS_NOOP and laser.ellipticity != 0.0:
         warnings.append(
-            f"ellipticity = {laser.ellipticity:g} is carried but not applied: the "
-            "energy->a0 chain assumes linear polarization until the derivation of §9.2 "
-            "lands. Results are those of a linearly polarized pulse."
+            f"ellipticity = {laser.ellipticity:g} is applied to the photon yield and the "
+            "mean nonlinear red-shift, which are polarization-agnostic at fixed pulse "
+            "energy and therefore exact. It is NOT applied to xigma's angle-resolved "
+            "spectrum, whose kernel still uses the linear polarization factor until the "
+            "derivation of §9.2 lands: that slice's *shape* across angle is that of a "
+            "linearly polarized pulse."
         )
     if EMISSION_IS_HEAD_ON and (laser.m("theta_xz") != 0.0 or laser.m("theta_yz") != 0.0):
         warnings.append(

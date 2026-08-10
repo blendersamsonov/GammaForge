@@ -147,6 +147,46 @@ def test_spot_expands_by_sqrt_two_at_one_rayleigh_range():
     assert float(s1[0]) == pytest.approx(laser.m("sigma_x") * math.sqrt(2.0))
 
 
+@pytest.mark.parametrize("ellipticity", [0.0, 0.3, 0.5, 1.0])
+def test_the_cycle_averaged_intensity_is_polarization_agnostic(ellipticity):
+    """`DECISIONS.md` D054's premise, and the other half of
+    `test_stage0_delta.py::test_stage_0_is_bit_identical_under_any_polarization`.
+
+    At fixed pulse energy, ``<a^2>`` is the same for every polarization state: an
+    elliptical pulse's ``a0`` is smaller by ``sqrt(2C)`` and its cycle average larger by
+    ``C``, exactly offsetting. That is why nothing on the yield/red-shift path needs to
+    know the polarization.
+
+    ``C = (1 + eps^2) / 2`` follows from the paper's own ``sum_i |eps_i|^2 = 1``, and is
+    checked here against a *period-resolved* ellipse rather than restated: the mean of
+    ``|a|^2`` over one cycle divided by its peak.
+    """
+    laser = make_laser(ellipticity=ellipticity)
+    linear = make_laser()
+
+    # C from the paper's normalization, against a directly sampled ellipse.
+    phase = np.linspace(0.0, 2.0 * math.pi, 200_001)
+    norm = 1.0 / math.sqrt(1.0 + ellipticity**2)
+    a_sq = (np.cos(phase) * norm) ** 2 + (ellipticity * norm * np.sin(phase)) ** 2
+    assert laser.cycle_average_factor() == pytest.approx(float(a_sq.mean() / a_sq.max()), rel=1e-5)
+
+    # The invariance itself, at several points in the pulse.
+    for point in [(0.0, 0.0, 0.0, 0.0), (4e-4, 2e-4, 0.01, 5e-13)]:
+        assert laser.intensity_profile(*point) == pytest.approx(
+            linear.intensity_profile(*point), rel=1e-14
+        )
+    assert laser.intensity_peak() == pytest.approx(linear.intensity_peak(), rel=1e-14)
+
+    # And it is a genuine cancellation, not both sides being constant: the *reported*
+    # a0_peak is the linear-equivalent amplitude, so `C * a0_peak**2` is NOT the invariant
+    # — computing it that way is the trap `intensity_peak()` exists to avoid.
+    if ellipticity > 0.0:
+        assert laser.cycle_average_factor() > linear.cycle_average_factor()
+        assert laser.cycle_average_factor() * laser.a0_peak() ** 2 != pytest.approx(
+            laser.intensity_peak(), rel=1e-6
+        )
+
+
 def test_the_rayleigh_range_converts_rms_to_the_1_over_e_squared_convention():
     """The conversion `rayleigh_x` exists to perform, pinned against the profile itself
     rather than against its own formula (author-confirmed 2026-08-10, `DECISIONS.md` D040).

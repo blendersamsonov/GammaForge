@@ -93,12 +93,15 @@ class Collision:
             )
         return self._shape_table
 
-    def _table(self, a0_peak: float | None = None) -> Table:
-        """Stage 1.5, memoized per requested peak a0 (`a0_peak=None` means the pulse's
+    def _table(self, intensity_peak: float | None = None) -> Table:
+        """Stage 1.5, memoized per requested peak ``<a^2>`` (``None`` means the pulse's
         own). Cheap regardless of ``n_particles`` — a small regrid, not a re-deposit —
         because the expensive part, Stage 1's shape deposit, runs at most once via
-        `_shape` no matter how many peak-a0 values are retargeted from it."""
-        key = self.build_overlap().a0_peak if a0_peak is None else a0_peak
+        `_shape` no matter how many pulse strengths are retargeted from it.
+
+        The key is a cycle-averaged **intensity**, not an amplitude, so no polarization
+        convention crosses this boundary (`DECISIONS.md` D054)."""
+        key = self.build_overlap().intensity_peak if intensity_peak is None else intensity_peak
         if key not in self._tables:
             self._tables[key] = retarget_ahat(
                 self._shape(),

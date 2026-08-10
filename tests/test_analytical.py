@@ -477,19 +477,22 @@ def test_mean_a0_sq_is_the_beam_averaged_ahat_that_xigma_computes_per_particle()
     never through `TrajectorySamples` — so unlike every xigma-vs-`delta` comparison, an
     error in xigma's `ahat` is *not* common-mode here. When this test was written the two
     sides differed by exactly 2.00, which is what identified the missing cycle average;
-    they now agree to 0.2%, the quadrature-vs-sampling residual. `CYCLE_AVERAGE_FACTOR` is
-    imported rather than written as `0.5` so that both engines are pinned to one
-    definition of the convention, and §9.2 cannot move one without moving the other."""
+    they now agree to 0.2%, the quadrature-vs-sampling residual. The factor comes from the
+    laser rather than being written as `0.5`, so both engines stay pinned to one definition
+    and §9.2 cannot move one without moving the other. (Since D054 xigma's side never forms
+    the factor at all — Stage 0 integrates `intensity_profile` directly — so this comparison
+    is now between a `C`-applied analytical value and a `C`-free xigma one, which is a
+    stronger cross-check than when both applied it.)"""
     from gammaforge.engines.xigma.stages import integrate_trajectories
-    from gammaforge.io.laser import CYCLE_AVERAGE_FACTOR
 
     beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
     bunch = sample_gaussian_bunch(beam, 30_000, 0)
     samples = integrate_trajectories(bunch, laser, beam.n_electrons(), n_steps=2000, threshold=1e-8)
     live = samples.luminosity > 0
     reference = float(np.average(samples.ahat()[live], weights=samples.luminosity[live]))
-    # `overlap_mean_a0_sq` is the bare <a0^2>; `ahat` is its cycle average.
-    mean_ahat = CYCLE_AVERAGE_FACTOR * overlap_mean_a0_sq(beam, laser, n_quad=8001)
+    # `overlap_mean_a0_sq` is the bare <a0^2>; `ahat` is its cycle average. Asked of the
+    # laser so both engines share one definition (D053/D054).
+    mean_ahat = laser.cycle_average_factor() * overlap_mean_a0_sq(beam, laser, n_quad=8001)
     assert mean_ahat == pytest.approx(reference, rel=1e-2)
 
 

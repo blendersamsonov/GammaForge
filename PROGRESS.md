@@ -1603,6 +1603,62 @@ Both are now italicised.
 
 ---
 
+## 2026-08-10 — physics goes through `<a^2>`; the polarization convention leaves the yield path
+
+Author's observation, verified and implemented (`DECISIONS.md` D054): we never need the
+period-resolved field, only `a0^2` summed along the trajectory — and that is exactly what
+`photon_density` already carries, normalized to the pulse energy. At fixed energy the
+cycle-averaged intensity is the *same* for every polarization state: circular has `a0`
+smaller by `sqrt(2)` and twice the cycle average per unit `a0^2`, offsetting exactly.
+Measured on `BASELINE`: linear `a0 = 0.18117`, circular `a0 = 0.12811`, `<a^2> = 0.0164113`
+for both, equal to the polarization-free `4 pi` chain.
+
+So the total yield and the mean red-shift never needed §9.2 at all. `LaserField` gained
+`intensity_profile`, `GaussianParaxialLaser` gained `intensity_peak`/`cycle_average_factor`,
+Stage 0 integrates `<a^2>` directly, and `TrajectorySamples.a0_peak` became
+`intensity_peak` (with `retarget_ahat`/`Collision._table` keyed on it). `ahat_from_shape`
+is now a plain product with no constant in it, and D053's module-level
+*CYCLE_AVERAGE_FACTOR* is **gone** — there is nothing left on that path for it to multiply.
+
+**This is a structural change, not a rename.** D053 fixed a missing factor of two by adding
+one; this removes the place where such a factor can go missing. The change caught its own
+instance of exactly that: the first version of Stage 0's line rebuilt the peak as
+`cycle_average_factor() * a0_peak()**2`, but `a0_peak()` is the *linear-equivalent*
+amplitude by convention, so `C` got applied without its compensating `1/sqrt(2C)` and the
+supposed invariant ran 0.0164 -> 0.0328 from linear to circular. The new invariance test
+failed immediately; `intensity_peak()` exists so no caller reconstructs it.
+
+**Tests assert an invariance, not a constant.**
+`test_stage_0_is_bit_identical_under_any_polarization` runs Stage 0 at `ellipticity`
+0/0.3/1.0 and requires `luminosity`, `a0_shape` and `ahat` bit-identical — it fails if
+anyone reintroduces a polarization factor anywhere on the path, without needing to know
+where. `test_the_cycle_averaged_intensity_is_polarization_agnostic` pins the other side:
+`C = (1+eps^2)/2` against a period-resolved ellipse, and `a0_peak` genuinely does move, so
+the invariance is a real cancellation rather than both sides being constant.
+
+**Numerically inert:** 424 tests pass, `validation.run` unchanged, goldens unmoved. For the
+bank's linear pulses `<a^2> = a0^2/2` exactly, so every number is what it was. What changed
+is which quantities can be expressed.
+
+`ELLIPTICITY_IS_NOOP` stays `True` for its **one** remaining consumer: xigma's
+angle-resolved kernel, whose polarization factor is still `cos^2 psi` rather than
+`(cos^2 psi + eps^2 sin^2 psi)/(1 + eps^2)`. That is the only place a contraction against an
+observation direction can tell an ellipse from a line — the split falls exactly where the
+physics puts it, not at an arbitrary staging boundary. `validate()`'s warning now says so
+instead of the previous, now-false "results are those of a linearly polarized pulse".
+
+**Also, on "why keep `estimate_yield` if we don't use it?"** — one of D040's two stated
+reasons does not survive checking. It claimed deleting it would lose the anchor that gives
+`overlap_yield` its strongest test, but `overlap_yield` hits the Thomson limit *by itself*,
+ratio `1.000000000` at every quadrature resolution; the round-beam reduction test compares
+against a hand-written form in the test file, not against `estimate_yield`. What genuinely
+remains is port fidelity — `_PREDECESSOR_YIELD` to ~1e-6 — which matters mainly because
+D040's 4x divergence error makes it the record of which predecessor numbers were affected.
+Kept with the reasoning corrected in place; if those results stop needing reproduction, it
+and its three tests are a one-commit deletion.
+
+---
+
 ## How to update this file
 
 - One dated section per work session (or per meaningful chunk of a session).

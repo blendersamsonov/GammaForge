@@ -25,7 +25,6 @@ from gammaforge.engines.xigma.stages import (
     integrate_trajectories,
     photon_density_scale,
 )
-from gammaforge.io.laser import CYCLE_AVERAGE_FACTOR
 from gammaforge.io.interaction import PREFILTER_OFF
 from gammaforge.io.target import OutputKind
 from gammaforge.io.units import Quantity
@@ -218,31 +217,53 @@ def test_the_yield_is_linear_in_pulse_energy_and_a0_shape_is_not():
     assert brighter.ahat() == pytest.approx(ratio * baseline_samples.ahat(), rel=1e-12)
 
 
-def test_ahat_carries_the_polarization_cycle_average_and_the_photon_count_does_not(baseline):
-    """The convention D053 fixed, pinned in the one place it is now expressed.
+@pytest.mark.parametrize("ellipticity", [0.0, 0.3, 1.0])
+def test_stage_0_is_bit_identical_under_any_polarization(ellipticity):
+    """`DECISIONS.md` D054's central claim, asserted as an **invariance** rather than as
+    the value of a constant.
 
-    The paper defines ``ahat = (a0**2 / 2) * int|E|**4 / int|E|**2``. ``a0_profile`` returns
-    the **peak** amplitude envelope (`_a0_from_density` is the linear chain, ``E0 =
-    sqrt(8 pi U)``), so the ``1/2`` — the cycle average ``<a**2> = C a0**2`` of a linearly
-    polarized field — is not already inside ``a0_shape`` and has to be applied on the way
-    out. Until D053 it was not, and every ``ahat`` in this repo was twice the paper's.
+    At fixed pulse energy the cycle-averaged intensity ``<a^2>`` does not depend on the
+    polarization state: the elliptical ``a0`` is smaller by ``sqrt(2C)`` while its cycle
+    average is larger by ``C``, and the two offset exactly. Since every quantity Stage 0
+    produces — ``luminosity``, ``a0_shape``, and therefore ``ahat`` — is a functional of
+    ``<a^2>`` alone, all of them must come out **bit-identical** from linear to circular.
 
-    The second assertion is the other half of the finding, and the reason the correction is
-    applied *once*: `photon_density_scale` inverts `_a0_from_density` exactly, so its
-    ``a0**2 -> photons/cm**3`` conversion is self-consistent under either amplitude
-    convention. Applying ``C`` there too would be a double count — and would break §9.1's
-    closed-form yield identity, which is what makes this checkable rather than a matter of
-    taste. (`ELLIPTICITY_IS_NOOP` pins ``C`` to the linear value; §9.2 makes it a function
-    of ``ellipticity``, 1/2 → 1 toward circular.)
+    This is a stronger and more useful statement than pinning ``C = 1/2`` was: it fails if
+    anyone reintroduces a polarization factor anywhere on the yield or red-shift path, in
+    either direction, without needing to know where they put it. `test_laser.py` covers the
+    other side — that ``a0_peak`` itself genuinely *does* move with ``ellipticity``, so
+    this invariance is a real cancellation and not both sides being constant.
     """
-    assert CYCLE_AVERAGE_FACTOR == 0.5
-    assert ahat_from_shape(baseline.a0_shape, baseline.a0_peak) == pytest.approx(
-        0.5 * baseline.a0_peak**2 * baseline.a0_shape, rel=1e-14
+    linear = _samples(scenarios.BASELINE, n_particles=1500)
+    scenario = replace(
+        scenarios.BASELINE, laser=replace(scenarios.BASELINE.laser, ellipticity=ellipticity)
     )
-    assert baseline.ahat() == pytest.approx(0.5 * baseline.a0_peak**2 * baseline.a0_shape, rel=1e-14)
+    polarized = _samples(scenario, n_particles=1500)
 
-    # The count is untouched by the convention: doubling `a0_shape` (hence `ahat`) leaves
-    # `luminosity`, and therefore the total yield, exactly where it was.
+    assert polarized.intensity_peak == pytest.approx(linear.intensity_peak, rel=1e-14)
+    assert np.array_equal(polarized.luminosity, linear.luminosity)
+    assert np.array_equal(polarized.a0_shape, linear.a0_shape)
+    assert np.array_equal(polarized.ahat(), linear.ahat())
+
+
+def test_ahat_is_a_plain_product_of_shape_and_peak_intensity(baseline):
+    """No cycle-average factor survives in `ahat_from_shape` (D054).
+
+    The paper's ``ahat = (a0^2 Tr Xi / 2) int|E|^4 / int|E|^2`` becomes
+    ``<a^2>_peak * int|E|^4 / int|E|^2`` once ``<a^2> = C a0^2`` is substituted, so with
+    Stage 0 already carrying ``<a^2>`` there is nothing left to apply. Before D054 this
+    took a peak *amplitude* and multiplied by ``C = 1/2`` — arithmetically the same, but a
+    place where a factor could go missing, which is exactly what D053 found had happened.
+
+    The second half is the reason the count is not double-corrected:
+    `photon_density_scale` inverts the same energy→intensity chain, so ``luminosity`` is
+    untouched by anything that moves ``ahat``.
+    """
+    assert baseline.ahat() == pytest.approx(baseline.intensity_peak * baseline.a0_shape, rel=1e-14)
+    assert ahat_from_shape(baseline.a0_shape, baseline.intensity_peak) == pytest.approx(
+        baseline.ahat(), rel=1e-14
+    )
+
     shifted = replace(baseline, a0_shape=2.0 * baseline.a0_shape)
     assert shifted.total_yield() == pytest.approx(baseline.total_yield(), rel=1e-14)
     assert shifted.ahat() == pytest.approx(2.0 * baseline.ahat(), rel=1e-14)
@@ -250,16 +271,23 @@ def test_ahat_carries_the_polarization_cycle_average_and_the_photon_count_does_n
 
 def test_retargeting_ahat_matches_running_the_other_pulse(baseline):
     other = _samples(scenarios.NEAR_A0_MAX)
-    assert baseline.retargeted_ahat(other.a0_peak) == pytest.approx(other.ahat(), rel=1e-12)
+    assert baseline.retargeted_ahat(other.intensity_peak) == pytest.approx(other.ahat(), rel=1e-12)
 
 
-def test_the_photon_density_scale_inverts_the_lasers_own_a0_chain():
-    """Stage 0 reads the whole laser through ``a0_profile``; this is why that is enough."""
-    laser = scenarios.BASELINE.laser
+@pytest.mark.parametrize("ellipticity", [0.0, 0.5, 1.0])
+def test_the_photon_density_scale_inverts_the_lasers_own_intensity_chain(ellipticity):
+    """Stage 0 reads the whole laser through ``intensity_profile``; this is why that is
+    enough — and why the conversion needs no polarization input (D054).
+
+    Parametrized over ``ellipticity`` deliberately: the identity is exact for every
+    polarization state because both sides are built from the same photon density, which is
+    what makes `photon_density_scale` a pure ``4 pi`` conversion with no ``C`` in it.
+    """
+    laser = replace(scenarios.BASELINE.laser, ellipticity=ellipticity)
     scale = photon_density_scale(laser)
     for point in [(0.0, 0.0, 0.0, 0.0), (5e-4, 3e-4, 0.02, 1e-12), (2e-3, 0.0, -0.5, -2e-11)]:
         direct = laser.n_photons() * laser.photon_density(*point)
-        assert scale * laser.a0_profile(*point) ** 2 == pytest.approx(direct, rel=1e-14)
+        assert scale * laser.intensity_profile(*point) == pytest.approx(direct, rel=1e-14)
 
 
 def test_stage_0_agrees_with_the_predecessors_total_yield():
@@ -433,7 +461,7 @@ def test_delta_is_linear_in_charge(baseline):
     doubled = TrajectorySamples(
         gamma=baseline.gamma, theta_x=baseline.theta_x, theta_y=baseline.theta_y,
         a0_shape=baseline.a0_shape, luminosity=2.0 * baseline.luminosity,
-        a0_peak=baseline.a0_peak, n_steps=baseline.n_steps,
+        intensity_peak=baseline.intensity_peak, n_steps=baseline.n_steps,
     )
     edge = float(np.max(baseline.gamma) ** 2)
     s_edges = np.linspace(0.0, 1.05 * edge, 65)

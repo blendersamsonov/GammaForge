@@ -11,11 +11,18 @@ here, so validation can call these directly and a stage can be reasoned about wi
 knowing what cached it.
 
 **The engine calls the laser; it does not model it** (§4.2, P15). Stage 0 samples
-``a0_profile`` along each trajectory through the `LaserField` protocol and needs nothing
-else from it — no envelope formula, no Gaussian assumption, no spot sizes. The photon
-density it needs follows from ``a0`` by inverting the same energy→a0 chain the laser used
-to produce it (see :data:`PHOTON_DENSITY_PER_A0_SQUARED`), so a future non-Gaussian
-`LaserField` drops in with no change here.
+``intensity_profile`` — the cycle-averaged ``<a^2>`` — along each trajectory through the
+`LaserField` protocol and needs nothing else from it: no envelope formula, no Gaussian
+assumption, no spot sizes. The photon density follows by inverting the same
+energy→intensity chain the laser used to produce it (:func:`photon_density_scale`), so a
+future non-Gaussian `LaserField` drops in with no change here.
+
+**Nothing in this module carries a polarization convention** (`DECISIONS.md` D054).
+``<a^2>`` at fixed pulse energy is the same whether the pulse is linear or circular, and
+every quantity xigma's Stage 0/1 produce — yield, ``a0_shape``, ``ahat`` — is a functional
+of it. Ellipticity enters exactly once, in Stage 2's *angle-resolved* polarization factor
+(`io.laser.ELLIPTICITY_IS_NOOP`, §9.2), which is the only place an ellipse is
+distinguishable from a line.
 
 **No coordinate normalization** (§2.1, `DECISIONS.md` D015). The predecessor worked in
 ``k0_las``-normalized coordinates, where a factor ``k0**2`` in the per-step contribution
@@ -31,7 +38,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ...io.bunch import Bunch, illumination_window, overlap_time_window
-from ...io.laser import CYCLE_AVERAGE_FACTOR, LaserField, fit_gaussian_paraxial
+from ...io.laser import LaserField, fit_gaussian_paraxial
 from ...io.units import C_CGS, E_ESU, HBAR_CGS, ME_CGS, SIGMA_T_CGS
 from .chunking import run_in_chunks
 
@@ -76,45 +83,41 @@ BYTES_PER_PARTICLE_STEP = 200
 
 
 def photon_density_scale(laser: LaserField) -> float:
-    """Photons per cm^3 per unit ``a0**2`` — the inverse of the laser's energy→a0 chain.
+    """Photons per cm^3 per unit cycle-averaged intensity ``<a^2>``.
 
-    ``a0 = e sqrt(8 pi U density) / (m_e c omega0)`` with ``density`` the normalized photon
-    envelope and ``U`` the pulse energy, and the physical photon density is
-    ``N_l * density = (U / hbar omega0) * density``. Solving the first for ``density`` and
-    substituting, the pulse energy **cancels**::
+    The inverse of the laser's energy→intensity chain, and **polarization-agnostic** by
+    construction (`DECISIONS.md` D054). With ``<a^2> = (e / m_e c omega0)^2 4 pi U density``
+    and the physical photon density ``N_l density = (U / hbar omega0) density``, the pulse
+    energy cancels::
 
-        n_photons(r, t) = a0(r, t)**2 * (m_e c)**2 omega0 / (8 pi hbar e**2)
+        n_photons(r, t) = <a^2>(r, t) * (m_e c)**2 omega0 / (4 pi hbar e**2)
 
-    which is why Stage 0 can take the whole laser through ``a0_profile`` alone. Only
-    ``omega0`` remains, and that comes from the descriptive fit (§3.3), not from assuming
-    the field is Gaussian.
+    which is why Stage 0 can take the whole laser through `LaserField.intensity_profile`
+    alone. Only ``omega0`` remains, and that comes from the descriptive fit (§3.3), not
+    from assuming the field is Gaussian.
 
-    Linear polarization, like everything downstream of §9.2's unwritten derivation.
+    Note the ``4 pi``: this scales ``<a^2>``, not the peak ``a0^2`` (which would be
+    ``8 pi``, and would carry a polarization convention with it).
     """
     omega0 = fit_gaussian_paraxial(laser).omega0()
-    return (ME_CGS * C_CGS) ** 2 * omega0 / (8.0 * math.pi * HBAR_CGS * E_ESU**2)
+    return (ME_CGS * C_CGS) ** 2 * omega0 / (4.0 * math.pi * HBAR_CGS * E_ESU**2)
 
 
-def ahat_from_shape(a0_shape, a0_peak: float):
-    """The paper's ``ahat`` from `TrajectorySamples.a0_shape` and a peak a0 — the **only**
-    place this repo forms ``ahat``, so the polarization convention is stated once.
+def ahat_from_shape(a0_shape, intensity_peak: float):
+    """The paper's ``ahat`` from `TrajectorySamples.a0_shape` and the peak ``<a^2>``.
 
-    The paper's definition groups as ``ahat = (a0**2 / 2) * int|E|**4 / int|E|**2`` with
-    ``E`` the normalized envelope. `a0_shape` is that shape ratio verbatim and ``a0_peak**2``
-    is the ``a0**2``; the remaining ``1/2`` is `io.laser.CYCLE_AVERAGE_FACTOR`, the cycle
-    average ``<a**2> = C a0**2`` of a **linearly** polarized field. ``a0_profile`` returns
-    the *peak* amplitude envelope, not the cycle-averaged one, so without ``C`` the code's
-    ``ahat`` is twice the paper's — which is exactly the discrepancy this fixed
-    (`DECISIONS.md` D053).
+    The paper's ``ahat = (a0^2 Tr Xi / 2) int|E|^4 / int|E|^2`` groups as
+    ``<a^2>_peak * int|E|^4 / int|E|^2`` once ``<a^2> = C a0^2`` is substituted — and
+    ``<a^2>`` is polarization-agnostic at fixed pulse energy
+    (`io.laser.GaussianParaxialLaser.intensity_profile`), so **no cycle-average factor
+    appears here at all**. `a0_shape` is the shape ratio verbatim; this is a plain product.
 
-    ``C`` belongs here and not inside `a0_shape` because `a0_shape` is the paper's
-    ``int|E|**4 / int|E|**2`` exactly, and keeping it so is what lets the two be compared
-    by eye. It does not belong in the photon count either: `photon_density_scale` inverts
-    `io.laser.GaussianParaxialLaser._a0_from_density` exactly, so its ``a0**2 -> n_photons``
-    conversion is self-consistent whatever the amplitude convention, and applying ``C``
-    there would be a genuine double count.
+    That is the whole point of D054's restructuring. The previous form took a peak *a0*
+    and multiplied by ``C = 1/2`` — arithmetically identical, but it made the red-shift
+    look polarization-dependent when it is not, and its missing ``C`` was the D053 bug.
+    Routing through ``<a^2>`` removes the opportunity rather than documenting it.
     """
-    return CYCLE_AVERAGE_FACTOR * float(a0_peak) ** 2 * a0_shape
+    return float(intensity_peak) * a0_shape
 
 
 @dataclass(frozen=True)
@@ -128,11 +131,16 @@ class TrajectorySamples:
     deposits, integrated over its passage through the pulse. Summing it is the total yield.
 
     ``a0_shape`` is **not** the trajectory-averaged effective intensity ``ahat``; it is
-    the paper's ``int|E|**4 / int|E|**2`` — ``ahat``'s a0-independent shape factor,
-    computed without reference to any actual a0. That is what lets one Stage 0 run be
-    retargeted to a different pulse energy without rerunning it (§5's
+    the paper's ``int|E|**4 / int|E|**2`` — ``ahat``'s intensity-independent shape factor,
+    computed without reference to any actual pulse strength. That is what lets one Stage 0
+    run be retargeted to a different pulse energy without rerunning it (§5's
     `REUSE_INTERMEDIATES` tier). :func:`ahat_from_shape` is the only route from here to
-    ``ahat``, and it carries the polarization cycle average this deliberately does not.
+    ``ahat``.
+
+    ``intensity_peak`` is the peak **cycle-averaged** ``<a^2>``, not a peak ``a0``. Nothing
+    in this dataclass carries a polarization convention, because ``<a^2>`` at fixed pulse
+    energy does not depend on one (D054) — the elliptical ``a0`` is smaller by ``sqrt(2C)``
+    and its cycle average larger by ``C``, exactly offsetting.
 
     It is one scalar per particle rather than a per-timestep distribution, and that is
     physics, not an optimization: in this weakly nonlinear regime the photon formation
@@ -146,7 +154,7 @@ class TrajectorySamples:
     theta_y: np.ndarray
     a0_shape: np.ndarray
     luminosity: np.ndarray
-    a0_peak: float
+    intensity_peak: float
     n_steps: int
 
     @property
@@ -157,25 +165,26 @@ class TrajectorySamples:
         return float(np.sum(self.luminosity))
 
     def ahat(self) -> np.ndarray:
-        """The physical trajectory-averaged effective intensity, at this pulse's own a0."""
-        return ahat_from_shape(self.a0_shape, self.a0_peak)
+        """The trajectory-averaged effective intensity, at this pulse's own strength."""
+        return ahat_from_shape(self.a0_shape, self.intensity_peak)
 
-    def retargeted_ahat(self, a0_peak: float) -> np.ndarray:
-        """``ahat`` as it would be for a pulse of a different peak a0, no rerun needed."""
-        return ahat_from_shape(self.a0_shape, a0_peak)
+    def retargeted_ahat(self, intensity_peak: float) -> np.ndarray:
+        """``ahat`` for a pulse of a different peak ``<a^2>``, no rerun needed."""
+        return ahat_from_shape(self.a0_shape, intensity_peak)
 
-    def retargeted_luminosity(self, a0_peak: float) -> np.ndarray:
-        """``luminosity`` as it would be for a pulse of a different peak a0, no rerun needed.
+    def retargeted_luminosity(self, intensity_peak: float) -> np.ndarray:
+        """``luminosity`` for a pulse of a different peak ``<a^2>``, no rerun needed.
 
-        ``luminosity`` integrates the *actual* local a0 (not the normalized ratio
-        `a0_shape` does), so unlike `a0_shape` it is not already peak-independent — but
-        for the same envelope shape, ``a0_local(t) = a0_peak * envelope(t)`` is exactly
-        linear in ``a0_peak``, so ``luminosity`` (proportional to ``sum(a0_local**2)``)
-        scales as ``a0_peak**2`` exactly, the identical relation that makes `ahat`'s
-        rescale exact. This is what lets both photon count *and* redshift for a
-        different pulse energy come from cached Stage 0 samples with no rerun.
+        ``luminosity`` integrates the *actual* local intensity (not the normalized ratio
+        `a0_shape` does), so unlike `a0_shape` it is not already strength-independent —
+        but for the same envelope shape ``<a^2>(t) = intensity_peak * envelope(t)`` is
+        exactly *linear* in the peak, so ``luminosity`` scales linearly too. (It was
+        ``a0_peak**2`` when this took an amplitude; same relation, one fewer square,
+        because the intensity is the squared quantity.) This is what lets both photon
+        count *and* redshift for a different pulse energy come from cached Stage 0
+        samples with no rerun.
         """
-        return (a0_peak / self.a0_peak) ** 2 * self.luminosity
+        return (intensity_peak / self.intensity_peak) * self.luminosity
 
 
 def integrate_trajectories(
@@ -247,7 +256,16 @@ def integrate_trajectories(
     # the window definition is least meaningful.
     offsets = (np.arange(n_steps) + 0.5) / n_steps
 
-    a0_peak = fit_gaussian_paraxial(laser).a0_peak()
+    metrics = fit_gaussian_paraxial(laser)
+    # The peak *cycle-averaged intensity*, not the peak a0: polarization-agnostic, so
+    # nothing downstream of Stage 0 carries a polarization convention (D054).
+    #
+    # Taken from `intensity_peak()` rather than rebuilt as `C * a0_peak()**2`: `a0_peak()`
+    # is the *linear-equivalent* amplitude by convention, so multiplying it by this
+    # pulse's own `C` applies the cycle average without the compensating `1/sqrt(2C)` in
+    # the amplitude, and the "invariant" comes out varying with `ellipticity`. Writing it
+    # that way is what `test_stage_0_is_bit_identical_under_any_polarization` caught.
+    intensity_peak = metrics.intensity_peak()
     density_scale = photon_density_scale(laser)
     # Absolute photons per macroparticle-second of overlap. The bunch's weights are
     # relative and sum to 1 over the *unfiltered* population, so scaling by N_e here keeps
@@ -260,8 +278,12 @@ def integrate_trajectories(
     def integrate(first_index: int, last_index: int):
         sl = slice(first_index, last_index)
         times = start[sl, None] + offsets[None, :] * span[sl, None]
-        a0 = np.asarray(
-            laser.a0_profile(
+        # `<a^2>`, not `a0`: the cycle-averaged intensity is what every quantity below is
+        # a functional of, and it is polarization-agnostic at fixed pulse energy (D054).
+        # Forming `a0` here and squaring it would round-trip through a convention-dependent
+        # number for no gain — and is exactly where D053's missing factor of two hid.
+        intensity = np.asarray(
+            laser.intensity_profile(
                 bunch.x[sl, None] + velocity[0][sl, None] * times,
                 bunch.y[sl, None] + velocity[1][sl, None] * times,
                 bunch.z[sl, None] + velocity[2][sl, None] * times,
@@ -273,13 +295,13 @@ def integrate_trajectories(
         # the Jacobian of its coordinate normalization and has no counterpart here (D015).
         dt = span[sl] / n_steps
         rate = RELATIVE_VELOCITY * density_scale * C_CGS * SIGMA_T_CGS
-        luminosity = rate * weight[sl] * dt * np.sum(a0**2, axis=1)
+        luminosity = rate * weight[sl] * dt * np.sum(intensity, axis=1)
 
-        # `ratio` is the local photon density as a fraction of the pulse's peak — equally,
-        # (a0/a0_peak)**2. a0_shape is its second moment over the trajectory, normalized
-        # by its first: the intensity an electron *effectively* experiences, weighted by
-        # where it actually radiated.
-        ratio = (a0 / a0_peak) ** 2
+        # `ratio` is the local intensity as a fraction of the pulse's peak. a0_shape is its
+        # second moment over the trajectory, normalized by its first: the intensity an
+        # electron *effectively* experiences, weighted by where it actually radiated. Being
+        # a ratio of intensities, it is polarization-agnostic like everything else here.
+        ratio = intensity / intensity_peak
         moment_1 = np.sum(ratio, axis=1)
         # A particle with no window saw nothing, whatever the envelope reads at the
         # anchor time above; its effective intensity is zero, not the value at t = 0.
@@ -313,7 +335,7 @@ def integrate_trajectories(
         theta_y=bunch.thy,
         a0_shape=a0_shape,
         luminosity=luminosity,
-        a0_peak=a0_peak,
+        intensity_peak=intensity_peak,
         n_steps=n_steps,
     )
 
@@ -365,15 +387,15 @@ def _validate_edges_and_shape(edges: tuple[np.ndarray, ...], H: np.ndarray, name
 @dataclass(frozen=True)
 class ShapeTable:
     """Stage 1's output: a 4D photon-weight density over ``(gamma, theta_x, theta_y,
-    a0_shape)`` — peak-a0-agnostic on its axis, since ``a0_shape`` is by construction
-    independent of any actual pulse (`TrajectorySamples.a0_shape`).
+    a0_shape)`` — pulse-strength-agnostic on its axis, since ``a0_shape`` is by
+    construction independent of any actual pulse (`TrajectorySamples.a0_shape`).
 
     Not agnostic in *mass*: ``H`` is deposited with ``samples.luminosity`` at
-    ``source_a0_peak`` (the pulse Stage 0 actually ran), and luminosity itself scales as
-    ``a0_peak**2`` for the same cached trajectories
+    ``source_intensity_peak`` (the pulse Stage 0 actually ran), and luminosity scales
+    linearly in that peak for the same cached trajectories
     (`TrajectorySamples.retargeted_luminosity`) — the same relation that makes ``ahat``'s
-    rescale exact. Querying at a different peak a0 needs :func:`retarget_ahat` to rescale
-    ``H``'s total mass, not just relabel the axis.
+    rescale exact. Querying at a different pulse strength needs :func:`retarget_ahat` to
+    rescale ``H``'s total mass, not just relabel the axis.
 
     Every axis stays uniform (unlike the ``ahat`` axis of the `Table` this feeds into), so
     :attr:`bin_volume` is a single scalar, same as `Table`'s used to be.
@@ -386,7 +408,7 @@ class ShapeTable:
     H: np.ndarray
     total_weight: float
     scheme: str
-    source_a0_peak: float
+    source_intensity_peak: float
 
     def __post_init__(self) -> None:
         _validate_edges_and_shape(
@@ -564,7 +586,7 @@ def deposit_shape_table(
         H=H_raw / bin_volume,
         total_weight=float(H_raw.sum()),
         scheme=scheme,
-        source_a0_peak=samples.a0_peak,
+        source_intensity_peak=samples.intensity_peak,
     )
 
 
@@ -599,7 +621,7 @@ def _ahat_target_edges(ahat_min: float, ahat_max: float, n_bins: int, decades: f
 
 def retarget_ahat(
     shape_table: ShapeTable,
-    a0_peak: float,
+    intensity_peak: float,
     *,
     ahat_min: float = DEFAULT_AHAT_MIN,
     ahat_max: float = DEFAULT_AHAT_MAX,
@@ -608,33 +630,34 @@ def retarget_ahat(
 ) -> Table:
     """Stage 1.5: conservative (mass-preserving) regrid of a `ShapeTable`'s ``a0_shape``
     axis onto the fixed, non-uniform ``ahat`` axis Stage 2 actually queries, for one
-    specific peak a0 (`DECISIONS.md` D032, supersedes D028).
+    specific peak cycle-averaged intensity ``<a^2>`` (`DECISIONS.md` D032, supersedes
+    D028; D054 for why the parameter is an intensity rather than an amplitude).
 
     Cheap and independent of ``n_particles`` — a ``shape_table.a0_shape_edges.size x
     n_bins``-sized tensordot, not a re-deposit — so a `Collision` can cache the shape
-    deposit once and retarget many peak-a0 values from it.
+    deposit once and retarget many pulse strengths from it.
 
     Adapted from the predecessor's ``retarget_a0`` (overlap-weighted 1D histogram regrid,
     conservative under the same piecewise-uniform-density assumption deposition itself
     makes), with two differences: the target grid is :func:`_ahat_target_edges`'s
     non-uniform law instead of a plain ``linspace``, and the deposited mass is rescaled by
-    ``(a0_peak / shape_table.source_a0_peak)**2``
+    ``intensity_peak / shape_table.source_intensity_peak``
     (:meth:`TrajectorySamples.retargeted_luminosity`'s relation) — needed because this
-    ``retarget_ahat`` is meant to serve a genuinely different peak a0 than the one Stage 0
-    ran at, unlike the predecessor's, which only ever retargeted onto its own run's laser.
+    ``retarget_ahat`` is meant to serve a genuinely different pulse strength than the one
+    Stage 0 ran at, unlike the predecessor's, which only retargeted onto its own laser.
     """
     if ahat_max <= ahat_min:
         raise ValueError(f"retarget_ahat: ahat_max ({ahat_max}) must exceed ahat_min ({ahat_min})")
-    a0_peak = float(a0_peak)
+    intensity_peak = float(intensity_peak)
 
     # Exact, and the third and last caller of :func:`ahat_from_shape`: a0_shape is
-    # peak-independent by construction, so the axis transform is a pure scale.
-    source_edges = ahat_from_shape(shape_table.a0_shape_edges, a0_peak)
+    # strength-independent by construction, so the axis transform is a pure scale.
+    source_edges = ahat_from_shape(shape_table.a0_shape_edges, intensity_peak)
     target_edges = _ahat_target_edges(ahat_min, ahat_max, n_bins, decades)
 
     # Extend both outer target edges to +-inf for overlap purposes only: source mass below
     # ahat_min folds into the floor bin, and — symmetrically — source mass above ahat_max
-    # (a0_peak large enough to push the rescaled source past the configured ceiling) folds
+    # (a pulse strong enough to push the rescaled source past the configured ceiling) folds
     # into the top bin rather than being silently dropped.
     edges_ext = target_edges.copy()
     edges_ext[0] = -np.inf
@@ -655,9 +678,9 @@ def retarget_ahat(
     # the predecessor's identically-shaped `da_source = table.grid.widths[3]`, which was
     # only safe because its source was uniform too (never a general non-uniform case).
     da_source = shape_table.a0_shape_edges[1] - shape_table.a0_shape_edges[0]
-    luminosity_rescale = (a0_peak / shape_table.source_a0_peak) ** 2
+    luminosity_rescale = intensity_peak / shape_table.source_intensity_peak
 
-    mass_source = shape_table.H * da_source * luminosity_rescale  # density -> mass, at this a0_peak
+    mass_source = shape_table.H * da_source * luminosity_rescale  # density -> mass, at this strength
     mass_target = np.tensordot(mass_source, W, axes=([3], [0]))
     target_width = np.diff(target_edges)
     H_target = mass_target / target_width

@@ -12,7 +12,7 @@ from dataclasses import replace
 import numpy as np
 
 from ...io.interaction import InteractionParameters
-from ...io.laser import CYCLE_AVERAGE_FACTOR, fit_gaussian_paraxial
+from ...io.laser import fit_gaussian_paraxial
 from ...io.results import Axis, PhasespaceSlice, Results
 from ...io.schema import Parameters
 from ...io.target import OutputKind, OutputRequest, auto_ranges, slice_axis_values
@@ -80,15 +80,14 @@ class AnalyticalEngine:
         # rate at which it does so. Closes the last part of the foci-displacement growth
         # item for the width, which `estimate_spectrum_width` alone could not (D042).
         mean_a0_sq = overlap_mean_a0_sq(beam, metrics, n_quad_overlap, n_quad_u)
-        # The cycle-averaged normalized intensity. `a0` is the peak field magnitude, and
-        # `io.laser._a0_from_density` builds it through the *linear*-polarization chain, so
-        # the cycle average carries C = 1/2. (Circular would be C = 1 — the same factor by
-        # which it holds twice the energy density at fixed a0; that is where `ellipticity`
-        # enters, §9.2.) Passing `mean_a0_sq` here instead would double the red-shift.
-        # `CYCLE_AVERAGE_FACTOR` rather than a literal, so this engine and xigma's
-        # `stages.ahat_from_shape` cannot drift apart (D053) — the disagreement between
-        # them is what identified the missing factor in the first place.
-        ahat = CYCLE_AVERAGE_FACTOR * mean_a0_sq
+        # The cycle-averaged normalized intensity `<a^2>`, which is what red-shifts the
+        # resonance. `overlap_mean_a0_sq` returns a mean of `a0_profile**2` — a *peak*
+        # amplitude squared — so the cycle average is applied here. Asking the laser for
+        # its own factor rather than writing 0.5 keeps this engine and xigma pinned to one
+        # definition (D053/D054); the disagreement between them is what found the missing
+        # factor in the first place, and D054 made the same quantity polarization-agnostic
+        # on xigma's side by routing Stage 0 through `intensity_profile` directly.
+        ahat = metrics.cycle_average_factor() * mean_a0_sq
         width = estimate_spectrum_width(beam, metrics, theta_col, mean_a0_sq)
 
         # auto_ranges builds a range for every request up front, including kinds this
