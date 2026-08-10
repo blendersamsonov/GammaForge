@@ -18,6 +18,7 @@ from gammaforge.engines.xigma.collision import Collision
 from gammaforge.engines.xigma.engine import XigmaEngine
 from gammaforge.io.results import Axis
 from gammaforge.io.target import OutputKind, OutputRequest
+from gammaforge.io.units import Quantity as Q
 from gammaforge.validation import scenarios
 
 _SMALL_BINS = dict(
@@ -44,7 +45,6 @@ def test_supported_outputs_matches_what_run_actually_fills():
         OutputRequest(OutputKind.TOTAL_YIELD),
         OutputRequest(OutputKind.SPECTRUM, resolution=(6,)),
         OutputRequest(OutputKind.ANGULAR_DISTRIBUTION, resolution=(3, 3)),
-        OutputRequest(OutputKind.SPECTRAL_ANGULAR_DISTRIBUTION, resolution=(4, 3, 3)),
         OutputRequest(OutputKind.COLLIMATED_SPECTRUM, resolution=(4, 3, 3)),
     )
     interaction = _interaction(outputs=requests)
@@ -126,17 +126,25 @@ def test_the_two_normalization_paths_inside_one_results_object_agree():
     (`test_total_yield_and_spectrum_integral_converge_to_the_same_number`) has both of its
     sides on the non-table path.
 
-    Integrating `SPECTRAL_ANGULAR_DISTRIBUTION` back over its two angle axes has to
-    reproduce `SPECTRUM`. It lands ~13% low, and the deficit is understood: the auto-range
-    spans about ``+-4.6/gamma``, which a closed-form capture correction puts near 94% of the
-    cone, and a 25-point trapezoid over a peaked angular profile shaves the rest. Nothing
-    like a factor of 6.28 hides in that.
+    Integrating `COLLIMATED_SPECTRUM` back over its two angle axes has to reproduce
+    `SPECTRUM` — which needs a collimation window wide enough to stand in for the whole
+    radiation cone, so this test manually widens `Target`'s collimation half-angles to
+    ``~4.6/gamma0`` (the same order the deleted auto-ranged `SPECTRAL_ANGULAR_DISTRIBUTION`
+    used) instead of the baseline scenario's much narrower default. It lands ~13% low, and
+    the deficit is understood: that window still misses part of the cone, and a 25-point
+    trapezoid over a peaked angular profile shaves off more. Nothing like a factor of 6.28
+    hides in that.
     """
+    interaction = _interaction(n_particles=4000)
+    wide = 4.6 / interaction.beam.gamma0()
     requests = (
         OutputRequest(OutputKind.SPECTRUM, resolution=(80,)),
-        OutputRequest(OutputKind.SPECTRAL_ANGULAR_DISTRIBUTION, resolution=(80, 25, 25)),
+        OutputRequest(OutputKind.COLLIMATED_SPECTRUM, resolution=(80, 25, 25)),
     )
-    interaction = _interaction(n_particles=4000, outputs=requests)
+    target = replace(
+        interaction.target, theta_x_col=Q(wide, "rad"), theta_y_col=Q(wide, "rad"), outputs=requests
+    )
+    interaction = replace(interaction, target=target)
     params = XigmaEngine.schema.with_values(
         n_bins_gamma=32, n_bins_theta_x=24, n_bins_theta_y=24,
         n_bins_a0_shape=64, n_bins_ahat=8, scheme="cic",
@@ -144,7 +152,7 @@ def test_the_two_normalization_paths_inside_one_results_object_agree():
     results = XigmaEngine().run(interaction, params)
 
     spectrum = results.photon_slices[OutputKind.SPECTRUM]
-    cube = results.photon_slices[OutputKind.SPECTRAL_ANGULAR_DISTRIBUTION]
+    cube = results.photon_slices[OutputKind.COLLIMATED_SPECTRUM]
     energy = spectrum.axes[Axis.ENERGY]
     theta_x, theta_y = cube.axes[Axis.THETA_X], cube.axes[Axis.THETA_Y]
 
@@ -157,19 +165,9 @@ def test_the_two_normalization_paths_inside_one_results_object_agree():
 def test_angular_and_collimated_slices_are_nonnegative():
     requests = (
         OutputRequest(OutputKind.ANGULAR_DISTRIBUTION, resolution=(4, 4)),
-        OutputRequest(OutputKind.SPECTRAL_ANGULAR_DISTRIBUTION, resolution=(5, 4, 4)),
         OutputRequest(OutputKind.COLLIMATED_SPECTRUM, resolution=(5, 4, 4)),
     )
     interaction = _interaction(n_particles=3000, outputs=requests)
     results = XigmaEngine().run(interaction, _engine_params())
-    for kind in (OutputKind.ANGULAR_DISTRIBUTION, OutputKind.SPECTRAL_ANGULAR_DISTRIBUTION, OutputKind.COLLIMATED_SPECTRUM):
+    for kind in (OutputKind.ANGULAR_DISTRIBUTION, OutputKind.COLLIMATED_SPECTRUM):
         assert np.all(results.photon_slices[kind].distr >= 0.0)
-
-
-def test_spectral_angular_distribution_axis_order_matches_slice_axes():
-    requests = (OutputRequest(OutputKind.SPECTRAL_ANGULAR_DISTRIBUTION, resolution=(5, 4, 3)),)
-    interaction = _interaction(n_particles=2000, outputs=requests)
-    results = XigmaEngine().run(interaction, _engine_params())
-    sl = results.photon_slices[OutputKind.SPECTRAL_ANGULAR_DISTRIBUTION]
-    assert sl.axis_order == (Axis.ENERGY, Axis.THETA_X, Axis.THETA_Y)
-    assert sl.distr.shape == (5, 4, 3)

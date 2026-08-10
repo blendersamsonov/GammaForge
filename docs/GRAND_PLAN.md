@@ -1,9 +1,38 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.16 — 2026-08-08
+**Status:** draft v0.25 — 2026-08-10
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 **Changelog**
+- **v0.25**: `ahat` **corrected** — the code was short the polarization cycle average and
+  every `ahat` was twice the paper's, overstating the nonlinear red-shift by 2x
+  (`DECISIONS.md` D053). Raised as a §0 BLOCKING code/paper discrepancy and settled by the
+  author: `a0` is the normalized **peak** field magnitude, so `<a²> = C a0²` with `C = 1/2`
+  linear, `1` circular, and `a0_profile` is the linear peak envelope. §7 gains the two
+  structural blind spots this exposed (shared inputs are common-mode; integrated
+  observables hide redistribution), and §9.2 gains a concrete hook: `C` is what
+  `ellipticity` interpolates. *(v0.19–v0.24 are on the parallel Phase 4 branch
+  `worktree-phase4-analytical-engine`; this entry deliberately numbers past them so the
+  changelogs interleave rather than collide on merge.)*
+- **v0.18**: Stage 2's long-term production path is now stated explicitly (§4.2): once a
+  ring/annulus-based importance-sampling kernel is built and validated against the
+  existing brute-force grid quadrature, it becomes the **sole production path** for
+  `spectrum_from_table`/`angular_spectrum_from_table`, on **every backend it ships for —
+  CPU included, not GPU-only** (mirrors Stage 0/1's numpy/cupy/numba backend set, §4.2).
+  The current brute-force quadrature then demotes to a validation-only reference kernel,
+  the role its own predecessor ancestor (*reference.py*) already had. This does not
+  supersede D029: D029 rejected porting the predecessor's *specific, already-audited*
+  sampler (trust-level C, 3x-30x variance, no GPU to validate against at the time) as
+  *this phase's* only implementation — it did not reject an importance-sampling kernel in
+  general once it can be built and cross-checked against the working brute-force path.
+  Not scheduled against a phase yet; recorded now so the eventual work has a stated target
+  shape instead of being invented ad hoc when it starts.
+- **v0.17**: `OutputKind.SPECTRAL_ANGULAR_DISTRIBUTION` **removed** from the vocabulary
+  (§3.4). It shared its `(E, θx, θy)` axes with `collimated_spectrum` and differed only in
+  using an auto-ranged full radiation cone (~1/γ0) instead of the target's collimation
+  window — but no experiment measures the untruncated cone, only the collimated emission,
+  so the auto-ranged kind was never a real observable. `collimated_spectrum` is now the
+  sole 3D energy-angle output kind. `DECISIONS.md` D052.
 - **v0.16**: §9.1 **closed**, and §9.3 given the marker §9.2 already had — Phase 3b's
   code-side work, which was always the only part of 3b that did not depend on a derivation
   the paper lacks. The `1/(2π)` D026 derived is now applied at both places this repo
@@ -531,7 +560,6 @@ methods):
   - `spatial_distribution` (x,y) — resolution; **autorange** (from beam/laser sizes),
     manual override only as an advanced option
   - `angular_distribution` (θx,θy) — resolution; **autorange** (~1/γ0 window)
-  - `spectral_angular_distribution` (E,θx,θy) — resolutions; auto ranges
   - `collimated_spectrum` (= "spectrum on target") — a **3D slice in (E, θx, θy)** whose
     **angular ranges are the target's collimation window** (user-defined, not auto;
     energy range auto). It is a distinct output from the fully angle-integrated
@@ -560,7 +588,6 @@ to a slice shape or a special entry:
 | `temporal_envelope` | `(t,)` | auto; no range field |
 | `spatial_distribution` | `(x, y)` | auto (manual override advanced) |
 | `angular_distribution` | `(θx, θy)` | auto |
-| `spectral_angular_distribution` | `(E, θx, θy)` | auto |
 | `collimated_spectrum` | `(E, θx, θy)` | angular = target window; energy auto |
 | `macroparticle_dump` | — (not a slice; MC-only, §3.6) | — |
 
@@ -684,7 +711,13 @@ The tabulated-overlap pipeline, restructured into composable stages:
   path ports the predecessor's brute-force grid quadrature (its validation-only
   `reference.py`), not its GPU importance sampler — trust-level C in the predecessor's own
   audit, not something to import as this phase's only implementation (D029). `cupy`/
-  `numba` are gated like Stage 0's until real kernels exist. **One authoritative
+  `numba` are gated like Stage 0's until real kernels exist. **Target shape (v0.18,
+  unscheduled):** the eventual production kernel is a ring/annulus-based importance
+  sampler, built and cross-checked against this brute-force quadrature rather than ported
+  from the predecessor's own audited-noisy one — on **every backend it ships for,
+  including CPU** (not a GPU-exclusive path), same backend set as Stage 0/1. The
+  brute-force quadrature then becomes the validation-only reference, same role
+  `reference.py` already had for the predecessor. **One authoritative
   normalization, isolated in one module-level location**
   (`stages.KERNEL_NORMALIZATION_CONSTANT`) and arbitrated against delta (§9.1) — the
   constant itself is pi-free and unchanged from the predecessor's kernel math; the ~2π
@@ -908,6 +941,22 @@ assumption was broken" test zoo.
   compared with **statistical tolerance** (fixed-seed runs or error bars), not tight
   absolute bounds. kascade only counts once its own Thomson-limit sanity check passes
   (§4.4).
+  - **Two structural blind spots, both demonstrated rather than hypothetical** (found by
+    D053's factor-of-2 in `ahat`, which the entire suite passed through unnoticed). A
+    cross-check is only as independent as its *inputs* and as sensitive as its *observable*:
+    1. **Shared inputs are common-mode.** xigma and delta both read `ahat` from the same
+       `TrajectorySamples`, so an error in it cancels in every xigma-vs-delta comparison.
+       Legs that share a stage do not cross-validate that stage — they cross-validate what
+       comes after it. delta is an independent *kernel*, not an independent *Stage 0*, and
+       the leg that finally exposed D053 was analytical, which computes `ahat` from its
+       own overlap integral. When adding a leg, state explicitly which upstream quantities
+       it shares.
+    2. **Integrated observables hide redistribution.** The nonlinear red-shift moves photons
+       along `s` while conserving their number, so any check that compares *counts* is blind
+       to it by construction: `run.py`'s fourth identity leg reads 0.9996 whether `ahat` is
+       right, doubled, or halved. Each physical effect needs a check on an observable that
+       effect actually moves — for the red-shift, the spectrum's centroid or edge position,
+       not its integral.
 - **~2π arbitration**: delta (built in Phase 2.5) is the independent arbiter; the paper
   formula is necessary-not-sufficient (its validation section is an unwritten
   placeholder, A1) — encode the identity tests regardless of paper agreement.
@@ -986,6 +1035,17 @@ annotated at both equations.
 - Rebuild: carry `ellipticity`, `psi_pol`, focusing axes as first-class schema parameters
   now; wire the energy→a0 derivation as an **explicit no-op/identity** (documented)
   until the derivation lands. Never gating engineering milestones (P14c).
+- **Narrowed as of D053.** Fixing `ahat`'s missing cycle average gave this item a concrete
+  shape it did not have before. `a0` is the normalized **peak** field magnitude, so the
+  cycle-averaged normalized intensity is `<a²> = C a0²` — `C = 1/2` for linear (`<cos²>`),
+  `C = 1` for circular (constant magnitude); equivalently, at fixed pulse energy circular
+  gives an `a0` smaller by `√2`. That `1/2 → 1` interpolation **is** what a scalar
+  `ellipticity` has to supply, and it enters in exactly two places: `CYCLE_AVERAGE_FACTOR`
+  (the red-shift, through `ahat`) and `_a0_from_density`'s `√(8π u)` (the energy→a0
+  conversion itself, which is the linear relation). So §9.2 is no longer "does ellipticity
+  matter" but "apply a known factor in two known places" — with the open modeling question
+  above (does a scalar `ellipticity` map cleanly onto `Ξ̂`?) still the thing that gates it.
+  `ELLIPTICITY_IS_NOOP` remains `True` and remains the marker for both places.
 
 ### 9.3 Crossing angle (net-new derivation, parallel track)
 

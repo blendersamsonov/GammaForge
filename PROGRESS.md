@@ -830,6 +830,101 @@ be verified when Phase 5/7 turns the comparison on, not assumed now.
 
 ---
 
+## 2026-08-08 — `SPECTRAL_ANGULAR_DISTRIBUTION` removed from the `OutputKind` vocabulary
+
+Dropped `OutputKind.SPECTRAL_ANGULAR_DISTRIBUTION` entirely: it shared its `(E, θx, θy)`
+axes and its fill code with `COLLIMATED_SPECTRUM`, differing only in an auto-derived
+~1/γ0 radiation-cone angular window versus the target's actual collimation half-angles —
+and no experiment measures the untruncated cone, only the collimated emission. Removed
+from `OutputKind`, `SLICE_AXES`, `Target.auto_ranges`, `Collision._SUPPORTED`/`_fill`
+(the shared branch now keys on `COLLIMATED_SPECTRUM` alone), and
+`XigmaEngine.SUPPORTED_OUTPUTS`.
+
+Along the way, fixed a latent bug the removal exposed: `make_references._KIND_BY_AXES`
+excluded `COLLIMATED_SPECTRUM` from its axis-grouping map purely to disambiguate it from
+`SPECTRAL_ANGULAR_DISTRIBUTION`'s identical axes; with that kind gone the exclusion would
+have left the `(E, θx, θy)` grouping unmapped (`KeyError` on any old-repo slice with those
+axes). Axis groupings now map 1:1 to `OutputKind`.
+
+`tests/test_xigma_engine.py`'s `test_the_two_normalization_paths_inside_one_results_object_agree`
+— the only test pinning the §9.1/D033 closed-form-vs-table-kernel `2 pi` regression guard
+— was retargeted onto `COLLIMATED_SPECTRUM` (manually widened to `~4.6/gamma0` collimation
+half-angles, matching the deleted auto-range's order) rather than deleted, so the guard it
+provides is preserved. `test_spectral_angular_distribution_axis_order_matches_slice_axes`
+was deleted outright — redundant once `COLLIMATED_SPECTRUM` is the only kind with those
+axes.
+
+`docs/GRAND_PLAN.md` bumped to v0.17 (§3.4's vocabulary list and table). `DECISIONS.md`
+gained D052.
+
+**Verification:** full `pytest` suite green.
+
+---
+
+## 2026-08-10 — `ahat` was twice the paper's; the polarization cycle average is now applied
+
+Closed the §0 BLOCKING item `docs/DERIVATIONS.md` raised last session. The author settled
+it: `a0` is the normalized **peak** field magnitude, so `<a^2> = C a0^2` with `C = 1/2`
+linear and `1` circular, and `_a0_from_density` implements the linear chain — so
+`a0_profile` is the linear peak envelope and the `1/2` was simply missing. Every `ahat` in
+the repo was twice the paper's, overstating the nonlinear red-shift by 2x at both live
+consumers (`delta.resonance_spectrum`'s `s_res`, and xigma's Stage 2 kernel).
+
+`engines.xigma.stages.ahat_from_shape` is now the single route from `a0_shape` to `ahat`
+and applies `io.laser.CYCLE_AVERAGE_FACTOR = 0.5`; `TrajectorySamples.ahat()`,
+`.retargeted_ahat()` and `retarget_ahat()`'s axis rescale all go through it. `a0_shape`
+keeps its literal meaning — the paper's `int|E|^4 / int|E|^2` — so the paper's own grouping
+stays readable in the code. The photon count is deliberately untouched:
+`photon_density_scale` inverts `_a0_from_density` exactly, so applying `C` there too would
+double-count and would break §9.1's yield identity. Total yield is bit-for-bit unchanged.
+
+**The whole suite passed through the fix, 293 tests, and that is the finding worth keeping.**
+xigma and `delta` share `TrajectorySamples.ahat()`, so the error was common-mode and
+cancelled in every xigma-vs-`delta` comparison — §7's cross-check machinery was blind to it
+by construction. Worse, `run.py`'s fourth identity leg compares a **sum over `s`**, and the
+red-shift moves photons along `s` while conserving that sum: the leg reads 0.9996 whether
+`ahat` is right, doubled or halved. Both blind spots are now written into `GRAND_PLAN.md`
+§7, and `tests/test_stage1_stage2.py::test_the_kernel_and_delta_agree_on_where_the_redshift_puts_the_photons`
+watches the spectrum's **centroid** instead of its integral (a 1.2x kernel-side `ahat` bias
+moves it 0.53%, against a 0.009% clean residual).
+
+Also re-derived the stale annotations the fix invalidated: the synthetic fixtures'
+`a0_shape=0.05/4.0 at a0_peak=0.3` now give `ahat = 0.00225/0.18` in target bins 0/6, not
+`0.0045/0.36` in bins 0/17.
+
+**Measured, before -> after.** Fourth identity leg: `near_a0_max` `0.9848 -> 1.0245`, the
+other two unmoved, all well inside the `0.1` tolerance. Bank `ahat` (luminosity-weighted
+mean): `baseline` `0.0114 -> 0.0057`, `low_a0` `0.00114 -> 0.00057`, `near_a0_max`
+`0.0571 -> 0.0286`. Golden scalars unchanged (they compare `a0_peak`/`gamma0`/
+`n_electrons`/`n_photons`, none of which touch `ahat`).
+
+**Left open deliberately.** D032's target-grid defaults were tuned against `ahat` values
+that were 2x too large, and halving them pushes the bank further into the grid's coarse
+floor region (`near_a0_max`: four resolved bins -> two). The resulting centroid bias against
+`delta` is ~1% and is dominated by the floor bin standing in at its own centre for
+everything below 0.035 — **pre-existing, not created here** (`low_a0` moved `-1.59% ->
+-1.65%`). `decades = 1.0 -> 0.3` at the same `n_bins`/`ahat_max` removes most of it
+(kernel/`delta` at the spectral peak, `near_a0_max`: `0.60 -> 0.99`), but that is a
+production default the author tuned with stated reasoning, so it is recorded with numbers
+rather than changed. `DECISIONS.md` D053's last section has the sweep.
+
+`docs/DERIVATIONS.md` §0 marked resolved, and §1.1 extended: under the author's peak
+convention `C` enters both the energy->a0 chain and `ahat`, and the two **cancel**, so at
+fixed pulse energy `ahat` is ellipticity-independent either way. §9.2's only physical effect
+on the spectrum is therefore §1.2's kernel polarization factor; `a0_peak` itself is the one
+reported number that would move. `ELLIPTICITY_IS_NOOP` and `EMISSION_IS_HEAD_ON` both stay
+`True`.
+
+`docs/GRAND_PLAN.md` bumped to v0.25 (numbering past the parallel Phase 4 branch's v0.19-v0.24
+so the changelogs interleave on merge); `DECISIONS.md` gained D053, and the local
+`SPECTRAL_ANGULAR_DISTRIBUTION` entry was renumbered D035 -> D052 to clear D035-D051, which
+that branch had already taken.
+
+**Verification:** full `pytest` green (295); `python -m gammaforge.validation.run` all checks
+pass.
+
+---
+
 ## How to update this file
 
 - One dated section per work session (or per meaningful chunk of a session).

@@ -215,9 +215,9 @@ def test_retarget_ahat_folds_mass_below_ahat_min_into_the_floor_bin():
     """The floor-fold path — otherwise never exercised, since nothing in the default
     ahat_min=0.0 configuration has any ahat to fold (`DECISIONS.md` D032).
     """
-    samples = _synthetic_samples(a0_shape=1.0, a0_peak=0.3)  # ahat = 0.09
+    samples = _synthetic_samples(a0_shape=1.0, a0_peak=0.3)  # ahat = 0.045 (D053: C = 1/2)
     shape_table = deposit_shape_table(samples, n_bins=(8, 8, 8, 16))
-    # ahat_min well above the population's actual ahat (0.09): everything must fold into
+    # ahat_min well above the population's actual ahat (0.045): everything must fold into
     # bin 0, and total weight must still be exactly conserved.
     table = retarget_ahat(shape_table, samples.a0_peak, ahat_min=0.2, ahat_max=0.5, n_bins=16, decades=1.0)
     assert table.ahat_edges[0] == pytest.approx(0.2)
@@ -232,7 +232,7 @@ def test_retarget_ahat_truncates_unpopulated_bins():
     (`DECISIONS.md` D032) — `retarget_ahat` drops them rather than returning a table
     padded with zeros out to `ahat_max`.
     """
-    samples = _synthetic_samples(a0_shape=1.0, a0_peak=0.05)  # ahat = 0.0025, tiny
+    samples = _synthetic_samples(a0_shape=1.0, a0_peak=0.05)  # ahat = 0.00125, tiny
     shape_table = deposit_shape_table(samples, n_bins=(8, 8, 8, 16))
     table = retarget_ahat(shape_table, samples.a0_peak, ahat_min=0.0, ahat_max=0.5, n_bins=32, decades=1.0)
     assert table.ahat_edges[-1] < 0.5
@@ -282,13 +282,61 @@ def test_spectrum_from_table_is_nonnegative_and_zero_past_the_compton_edge():
     assert np.all(spec[s > 1.1 * edge] == 0.0)
 
 
+def test_the_kernel_and_delta_agree_on_where_the_redshift_puts_the_photons():
+    """The one check that watches ``ahat`` itself, rather than integrating it away.
+
+    Every other kernel-vs-`delta` comparison here and in `validation.run` compares *photon
+    counts* — a sum over ``s``. The nonlinear redshift moves photons along ``s`` and
+    conserves that sum exactly, so those checks are structurally blind to ``ahat``: the
+    fourth identity leg reads 0.9996 whether ``ahat`` is right, doubled, or halved
+    (measured, `DECISIONS.md` D053). The **centroid** in ``s`` is the quantity ``ahat``
+    controls, so that is what this compares.
+
+    It cannot catch a wrong ``ahat`` *convention* — the two paths share
+    `TrajectorySamples`, so a common-mode factor cancels here as it does everywhere else
+    (D053's §7 gap, and the reason the analytical engine is the leg that exposed it). What
+    it does catch is the kernel losing the redshift to grid coarseness: the ``ahat`` axis
+    must actually resolve the population for the table to reproduce `delta`'s centroid, and
+    at the production defaults ``NEAR_A0_MAX`` lands in two bins.
+
+    Teeth, measured by biasing the table's ``ahat`` axis alone (a kernel-side error `delta`
+    does not share): a 1.2x bias moves the centroid 0.53%, a 2x bias 2.6% — the ``rel=2e-3``
+    below catches all of them with margin, against a 0.009% residual when nothing is wrong.
+    """
+    samples = _samples(scenarios.NEAR_A0_MAX)
+    shape_table = deposit_shape_table(samples, n_bins=(32, 48, 48, 64), scheme="cic")
+    edge = float(np.max(samples.gamma)) ** 2
+    s_edges = np.linspace(0.0, 1.05 * edge, 150)
+    s_centers = 0.5 * (s_edges[:-1] + s_edges[1:])
+
+    def centroid(spectrum):
+        return float(np.sum(s_centers * spectrum) / np.sum(spectrum))
+
+    # `ahat_max` narrowed to the bank's own scale: the production 0.5 is headroom for
+    # pulses far brighter than any scenario here, and spends 30 of its 32 bins above them.
+    fine = retarget_ahat(shape_table, samples.a0_peak, ahat_max=0.1, n_bins=32)
+    assert fine.H.shape[3] >= 8, "the point of this test is a resolved ahat axis"
+    kernel = angular_spectrum_from_table(fine, [0.0], [0.0], s_centers)[0, 0, :]
+    reference = resonance_spectrum(samples, s_edges, 0.0, 0.0)
+    assert centroid(kernel) == pytest.approx(centroid(reference), rel=2e-3)
+
+    # And the redshift is present, not merely consistent: four times the ahat (twice the
+    # peak a0) pulls the centroid down by several percent, on both paths independently.
+    bright = retarget_ahat(shape_table, 2.0 * samples.a0_peak, ahat_max=0.4, n_bins=32)
+    kernel_bright = angular_spectrum_from_table(bright, [0.0], [0.0], s_centers)[0, 0, :]
+    reference_bright = resonance_spectrum(replace(samples, a0_peak=2.0 * samples.a0_peak), s_edges, 0.0, 0.0)
+    assert centroid(kernel_bright) == pytest.approx(centroid(reference_bright), rel=2e-3)
+    assert centroid(kernel_bright) < 0.97 * centroid(kernel)
+
+
 def test_spectrum_shifts_with_ahat_not_merely_rescales():
     """Regression for the predecessor's fixed bug: g/prefac must be recomputed inside the
     ahat loop. An ahat-independent shortcut would rescale the spectrum's amplitude but
     never move where its edge falls; the nonlinear redshift must move the edge.
 
-    a0_shape=0.05 and 4.0 at a0_peak=0.3 give ahat = 0.0045 and 0.36 — bins 0 and 17 of
-    the production target grid (checked numerically while writing this test), well apart.
+    a0_shape=0.05 and 4.0 at a0_peak=0.3 give ahat = 0.00225 and 0.18 — bins 0 and 6 of
+    the production target grid (re-checked numerically when D053 halved ahat; they were
+    0.0045/0.36 in bins 0/17 before), still well apart.
     """
     low = _synthetic_samples(a0_shape=0.05)
     high = _synthetic_samples(a0_shape=4.0, seed=0)
@@ -350,7 +398,7 @@ def test_stage2_kernel_agrees_with_delta_at_a_point():
     removes the aliasing (measured stable to +-2% from 40 to 250 theta bins) because it
     never lets a single cell speak for the beam centre alone.
     """
-    samples = _synthetic_samples(n=200_000, seed=2)  # a0_shape=1.0, a0_peak=0.3 -> ahat=0.09
+    samples = _synthetic_samples(n=200_000, seed=2)  # a0_shape=1.0, a0_peak=0.3 -> ahat=0.045
     table = _table(samples, shape_bins=(48, 64, 64, 32), scheme="cic")
 
     edge = float(np.max(samples.gamma) ** 2)

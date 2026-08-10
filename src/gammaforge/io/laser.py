@@ -28,7 +28,10 @@ and consumed only in part, and both say so out loud rather than passing unremark
   **linear-polarization** relation; §9.2 records that the paper has no formula for the
   elliptical case (its polarization object is a normalized coherence matrix with no
   scalar ellipticity), so inventing one here would be exactly the silent approximation
-  P14 forbids.
+  P14 forbids. Since Phase 3b/D053 the polarization state has a *named* home —
+  :data:`CYCLE_AVERAGE_FACTOR`, the ``<a**2> = C a0**2`` factor, ``1/2`` linear and ``1``
+  circular — so §9.2 is no longer "does ellipticity matter" but "interpolate a known
+  constant in the two places that hold it", this one and `_a0_from_density`.
 * ``theta_xz``/``theta_yz`` are **geometry-only**. The rotation above is applied
   everywhere the pulse is sampled, so *where* and *when* a crossing beam overlaps the
   bunch is right; the *emission* physics downstream of that sampling is still head-on
@@ -69,12 +72,33 @@ __all__ = [
     "validate",
     "ELLIPTICITY_IS_NOOP",
     "EMISSION_IS_HEAD_ON",
+    "CYCLE_AVERAGE_FACTOR",
 ]
 
 #: §9.2 is unresolved: the paper gives no energy→a0 relation for elliptical polarization.
 #: Until it lands, ``ellipticity`` is carried but changes nothing. Flipping this to False
 #: is the one-line marker for "the derivation landed" — grep for it.
 ELLIPTICITY_IS_NOOP = True
+
+#: Cycle average of the normalized intensity at fixed peak a0::
+#:
+#:     <a**2> = CYCLE_AVERAGE_FACTOR * a0**2
+#:
+#: ``a0`` is by definition the normalized **peak** magnitude of the electric field, and
+#: :meth:`GaussianParaxialLaser.a0_profile` returns that peak envelope — `_a0_from_density`
+#: implements the linear-polarization chain (``E0 = sqrt(8 pi U)``) explicitly. A linearly
+#: polarized field oscillates as ``cos(phi)``, so ``<cos**2> = 1/2``; a circularly polarized
+#: one has constant magnitude and the factor is ``1``. Read the other way: at fixed ``a0``
+#: circular carries twice the cycle-averaged energy density, and at fixed pulse energy it
+#: gives an ``a0`` smaller by ``sqrt(2)``.
+#:
+#: **This is the constant `ellipticity` should interpolate** (1/2 → 1) once §9.2 lands; it
+#: is pinned to the linear value for the same reason `_a0_from_density` is, and
+#: :data:`ELLIPTICITY_IS_NOOP` is the marker for both. Consumers that need the *intensity*
+#: an electron experiences must apply it; consumers that convert ``a0**2`` back to a photon
+#: density must **not**, because that conversion (`engines.xigma.stages.photon_density_scale`)
+#: inverts `_a0_from_density` exactly and is self-consistent under either convention.
+CYCLE_AVERAGE_FACTOR = 0.5
 
 #: §9.3 is unresolved: the paper's angular-spectrum derivation is built for
 #: near-backscattering, and warns against extending it without revisiting the geometry.

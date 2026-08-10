@@ -87,14 +87,10 @@ _SCALAR_TRANSLATION = {
 }
 
 #: Axis grouping -> `OutputKind`. The old repo identified a slice purely by its axis set;
-#: this repo names the observable (§3.4), and `COLLIMATED_SPECTRUM` shares its axes with
-#: `SPECTRAL_ANGULAR_DISTRIBUTION`, so the ambiguous grouping resolves to the uncollimated
-#: one — which is what the old models produced.
-_KIND_BY_AXES = {
-    frozenset(axes): kind
-    for kind, axes in SLICE_AXES.items()
-    if axes is not None and kind is not OutputKind.COLLIMATED_SPECTRUM
-}
+#: this repo names the observable (§3.4). Axis groupings map 1:1 to `OutputKind` now that
+#: `SPECTRAL_ANGULAR_DISTRIBUTION` (which used to share `COLLIMATED_SPECTRUM`'s axes) is
+#: gone — no ambiguity left to resolve.
+_KIND_BY_AXES = {frozenset(axes): kind for kind, axes in SLICE_AXES.items() if axes is not None}
 
 
 #: Fields this boundary cannot carry, with the value that means "absent". The predecessor's

@@ -21,9 +21,11 @@ from gammaforge.engines.xigma import chunking
 from gammaforge.engines.xigma.stages import (
     RELATIVE_VELOCITY,
     TrajectorySamples,
+    ahat_from_shape,
     integrate_trajectories,
     photon_density_scale,
 )
+from gammaforge.io.laser import CYCLE_AVERAGE_FACTOR
 from gammaforge.io.interaction import PREFILTER_OFF
 from gammaforge.io.target import OutputKind
 from gammaforge.io.units import Quantity
@@ -214,6 +216,36 @@ def test_the_yield_is_linear_in_pulse_energy_and_a0_shape_is_not():
     assert brighter.total_yield() == pytest.approx(ratio * baseline_samples.total_yield(), rel=1e-12)
     assert brighter.a0_shape == pytest.approx(baseline_samples.a0_shape, rel=1e-12)
     assert brighter.ahat() == pytest.approx(ratio * baseline_samples.ahat(), rel=1e-12)
+
+
+def test_ahat_carries_the_polarization_cycle_average_and_the_photon_count_does_not(baseline):
+    """The convention D053 fixed, pinned in the one place it is now expressed.
+
+    The paper defines ``ahat = (a0**2 / 2) * int|E|**4 / int|E|**2``. ``a0_profile`` returns
+    the **peak** amplitude envelope (`_a0_from_density` is the linear chain, ``E0 =
+    sqrt(8 pi U)``), so the ``1/2`` — the cycle average ``<a**2> = C a0**2`` of a linearly
+    polarized field — is not already inside ``a0_shape`` and has to be applied on the way
+    out. Until D053 it was not, and every ``ahat`` in this repo was twice the paper's.
+
+    The second assertion is the other half of the finding, and the reason the correction is
+    applied *once*: `photon_density_scale` inverts `_a0_from_density` exactly, so its
+    ``a0**2 -> photons/cm**3`` conversion is self-consistent under either amplitude
+    convention. Applying ``C`` there too would be a double count — and would break §9.1's
+    closed-form yield identity, which is what makes this checkable rather than a matter of
+    taste. (`ELLIPTICITY_IS_NOOP` pins ``C`` to the linear value; §9.2 makes it a function
+    of ``ellipticity``, 1/2 → 1 toward circular.)
+    """
+    assert CYCLE_AVERAGE_FACTOR == 0.5
+    assert ahat_from_shape(baseline.a0_shape, baseline.a0_peak) == pytest.approx(
+        0.5 * baseline.a0_peak**2 * baseline.a0_shape, rel=1e-14
+    )
+    assert baseline.ahat() == pytest.approx(0.5 * baseline.a0_peak**2 * baseline.a0_shape, rel=1e-14)
+
+    # The count is untouched by the convention: doubling `a0_shape` (hence `ahat`) leaves
+    # `luminosity`, and therefore the total yield, exactly where it was.
+    shifted = replace(baseline, a0_shape=2.0 * baseline.a0_shape)
+    assert shifted.total_yield() == pytest.approx(baseline.total_yield(), rel=1e-14)
+    assert shifted.ahat() == pytest.approx(2.0 * baseline.ahat(), rel=1e-14)
 
 
 def test_retargeting_ahat_matches_running_the_other_pulse(baseline):

@@ -52,7 +52,6 @@ class OutputKind(Enum):
     TEMPORAL_ENVELOPE = "temporal_envelope"
     SPATIAL_DISTRIBUTION = "spatial_distribution"
     ANGULAR_DISTRIBUTION = "angular_distribution"
-    SPECTRAL_ANGULAR_DISTRIBUTION = "spectral_angular_distribution"
     COLLIMATED_SPECTRUM = "collimated_spectrum"
     MACROPARTICLE_DUMP = "macroparticle_dump"
 
@@ -66,7 +65,6 @@ SLICE_AXES: dict[OutputKind, tuple[Axis, ...] | None] = {
     OutputKind.TEMPORAL_ENVELOPE: (Axis.TIME,),
     OutputKind.SPATIAL_DISTRIBUTION: (Axis.X, Axis.Y),
     OutputKind.ANGULAR_DISTRIBUTION: (Axis.THETA_X, Axis.THETA_Y),
-    OutputKind.SPECTRAL_ANGULAR_DISTRIBUTION: (Axis.ENERGY, Axis.THETA_X, Axis.THETA_Y),
     OutputKind.COLLIMATED_SPECTRUM: (Axis.ENERGY, Axis.THETA_X, Axis.THETA_Y),
     OutputKind.MACROPARTICLE_DUMP: None,
 }
@@ -246,8 +244,6 @@ def auto_ranges(
             ranges[kind] = {Axis.ENERGY: energy_range}
         elif kind is OutputKind.ANGULAR_DISTRIBUTION:
             ranges[kind] = dict(angular_range)
-        elif kind is OutputKind.SPECTRAL_ANGULAR_DISTRIBUTION:
-            ranges[kind] = {Axis.ENERGY: energy_range, **angular_range}
         elif kind is OutputKind.COLLIMATED_SPECTRUM:
             ranges[kind] = {Axis.ENERGY: energy_range, **collimation_range}
         elif kind is OutputKind.SPATIAL_DISTRIBUTION:

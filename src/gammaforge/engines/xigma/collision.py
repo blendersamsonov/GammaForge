@@ -50,7 +50,6 @@ _SUPPORTED = frozenset({
     OutputKind.TOTAL_YIELD,
     OutputKind.SPECTRUM,
     OutputKind.ANGULAR_DISTRIBUTION,
-    OutputKind.SPECTRAL_ANGULAR_DISTRIBUTION,
     OutputKind.COLLIMATED_SPECTRUM,
 })
 
@@ -167,7 +166,7 @@ class Collision:
             distr = np.trapezoid(cube, s, axis=-1)
             return PhasespaceSlice(axes=values, distr=distr)
 
-        if kind in (OutputKind.SPECTRAL_ANGULAR_DISTRIBUTION, OutputKind.COLLIMATED_SPECTRUM):
+        if kind is OutputKind.COLLIMATED_SPECTRUM:
             values = slice_axis_values(request, ranges)
             s = values[Axis.ENERGY] / (4.0 * photon_energy)
             cube = self.angular_spectrum(s, values[Axis.THETA_X], values[Axis.THETA_Y], psi_pol=psi_pol)

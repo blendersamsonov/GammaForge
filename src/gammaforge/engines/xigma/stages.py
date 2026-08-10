@@ -31,12 +31,13 @@ from dataclasses import dataclass
 import numpy as np
 
 from ...io.bunch import Bunch, overlap_time_window
-from ...io.laser import LaserField, fit_gaussian_paraxial
+from ...io.laser import CYCLE_AVERAGE_FACTOR, LaserField, fit_gaussian_paraxial
 from ...io.units import C_CGS, E_ESU, HBAR_CGS, ME_CGS, SIGMA_T_CGS
 from .chunking import run_in_chunks
 
 __all__ = [
     "TrajectorySamples",
+    "ahat_from_shape",
     "integrate_trajectories",
     "photon_density_scale",
     "RELATIVE_VELOCITY",
@@ -94,6 +95,28 @@ def photon_density_scale(laser: LaserField) -> float:
     return (ME_CGS * C_CGS) ** 2 * omega0 / (8.0 * math.pi * HBAR_CGS * E_ESU**2)
 
 
+def ahat_from_shape(a0_shape, a0_peak: float):
+    """The paper's ``ahat`` from `TrajectorySamples.a0_shape` and a peak a0 — the **only**
+    place this repo forms ``ahat``, so the polarization convention is stated once.
+
+    The paper's definition groups as ``ahat = (a0**2 / 2) * int|E|**4 / int|E|**2`` with
+    ``E`` the normalized envelope. `a0_shape` is that shape ratio verbatim and ``a0_peak**2``
+    is the ``a0**2``; the remaining ``1/2`` is `io.laser.CYCLE_AVERAGE_FACTOR`, the cycle
+    average ``<a**2> = C a0**2`` of a **linearly** polarized field. ``a0_profile`` returns
+    the *peak* amplitude envelope, not the cycle-averaged one, so without ``C`` the code's
+    ``ahat`` is twice the paper's — which is exactly the discrepancy this fixed
+    (`DECISIONS.md` D053).
+
+    ``C`` belongs here and not inside `a0_shape` because `a0_shape` is the paper's
+    ``int|E|**4 / int|E|**2`` exactly, and keeping it so is what lets the two be compared
+    by eye. It does not belong in the photon count either: `photon_density_scale` inverts
+    `io.laser.GaussianParaxialLaser._a0_from_density` exactly, so its ``a0**2 -> n_photons``
+    conversion is self-consistent whatever the amplitude convention, and applying ``C``
+    there would be a genuine double count.
+    """
+    return CYCLE_AVERAGE_FACTOR * float(a0_peak) ** 2 * a0_shape
+
+
 @dataclass(frozen=True)
 class TrajectorySamples:
     """One sample per macroparticle, ready for Stage 1 deposition. CGS.
@@ -105,9 +128,11 @@ class TrajectorySamples:
     deposits, integrated over its passage through the pulse. Summing it is the total yield.
 
     ``a0_shape`` is **not** the trajectory-averaged effective intensity ``ahat``; it is
-    ``ahat``'s a0-independent shape factor, ``ahat = a0_peak**2 * a0_shape``, computed
-    without reference to any actual a0. That is what lets one Stage 0 run be retargeted to
-    a different pulse energy without rerunning it (§5's `REUSE_INTERMEDIATES` tier).
+    the paper's ``int|E|**4 / int|E|**2`` — ``ahat``'s a0-independent shape factor,
+    computed without reference to any actual a0. That is what lets one Stage 0 run be
+    retargeted to a different pulse energy without rerunning it (§5's
+    `REUSE_INTERMEDIATES` tier). :func:`ahat_from_shape` is the only route from here to
+    ``ahat``, and it carries the polarization cycle average this deliberately does not.
 
     It is one scalar per particle rather than a per-timestep distribution, and that is
     physics, not an optimization: in this weakly nonlinear regime the photon formation
@@ -133,11 +158,11 @@ class TrajectorySamples:
 
     def ahat(self) -> np.ndarray:
         """The physical trajectory-averaged effective intensity, at this pulse's own a0."""
-        return self.a0_peak**2 * self.a0_shape
+        return ahat_from_shape(self.a0_shape, self.a0_peak)
 
     def retargeted_ahat(self, a0_peak: float) -> np.ndarray:
         """``ahat`` as it would be for a pulse of a different peak a0, no rerun needed."""
-        return a0_peak**2 * self.a0_shape
+        return ahat_from_shape(self.a0_shape, a0_peak)
 
     def retargeted_luminosity(self, a0_peak: float) -> np.ndarray:
         """``luminosity`` as it would be for a pulse of a different peak a0, no rerun needed.
@@ -580,8 +605,9 @@ def retarget_ahat(
         raise ValueError(f"retarget_ahat: ahat_max ({ahat_max}) must exceed ahat_min ({ahat_min})")
     a0_peak = float(a0_peak)
 
-    # Exact: ahat = a0_peak**2 * a0_shape, and a0_shape is peak-independent by construction.
-    source_edges = shape_table.a0_shape_edges * a0_peak**2
+    # Exact, and the third and last caller of :func:`ahat_from_shape`: a0_shape is
+    # peak-independent by construction, so the axis transform is a pure scale.
+    source_edges = ahat_from_shape(shape_table.a0_shape_edges, a0_peak)
     target_edges = _ahat_target_edges(ahat_min, ahat_max, n_bins, decades)
 
     # Extend both outer target edges to +-inf for overlap purposes only: source mass below
@@ -740,8 +766,7 @@ def angular_spectrum_from_table(
 ) -> np.ndarray:
     """Stage 2: :func:`spectrum_from_table` evaluated over a grid of observation points.
 
-    Feeds `OutputKind.SPECTRAL_ANGULAR_DISTRIBUTION` and `OutputKind.COLLIMATED_SPECTRUM`
-    (§3.4) — the two differ only in the requested range, not in this function. Shape
+    Feeds `OutputKind.COLLIMATED_SPECTRUM` (§3.4). Shape
     ``(len(theta_x_grid), len(theta_y_grid), len(s))``.
     """
     tx = np.atleast_1d(np.asarray(theta_x_grid, dtype=float))

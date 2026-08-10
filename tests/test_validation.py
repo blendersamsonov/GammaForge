@@ -407,10 +407,12 @@ def test_a_scenario_the_boundary_cannot_carry_is_refused():
 def test_every_axis_and_scalar_the_old_repo_reports_has_a_translation():
     assert set(_AXIS_TRANSLATION) == {"E_eV", "t_seconds", "x", "y", "theta_x", "theta_y"}
     assert set(_SCALAR_TRANSLATION.values()) <= set(derived_scalars(scenarios.BASELINE))
-    # Every grouping an old slice can have resolves to exactly one OutputKind.
+    # Every grouping an old slice can have resolves to exactly one OutputKind — axis
+    # groupings map 1:1 to OutputKind now that SPECTRAL_ANGULAR_DISTRIBUTION (which used
+    # to share COLLIMATED_SPECTRUM's axes) is gone (DECISIONS.md D052).
     assert frozenset({Axis.ENERGY}) in _KIND_BY_AXES
     assert _KIND_BY_AXES[frozenset()] is OutputKind.TOTAL_YIELD
-    assert OutputKind.COLLIMATED_SPECTRUM not in _KIND_BY_AXES.values()
+    assert OutputKind.COLLIMATED_SPECTRUM in _KIND_BY_AXES.values()
 
 
 # ---------------------------------------------------------------------------

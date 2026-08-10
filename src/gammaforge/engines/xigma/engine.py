@@ -22,7 +22,6 @@ SUPPORTED_OUTPUTS: tuple[OutputKind, ...] = (
     OutputKind.TOTAL_YIELD,
     OutputKind.SPECTRUM,
     OutputKind.ANGULAR_DISTRIBUTION,
-    OutputKind.SPECTRAL_ANGULAR_DISTRIBUTION,
     OutputKind.COLLIMATED_SPECTRUM,
 )
 
