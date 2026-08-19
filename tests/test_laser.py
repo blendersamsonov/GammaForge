@@ -149,7 +149,7 @@ def test_spot_expands_by_sqrt_two_at_one_rayleigh_range():
 
 @pytest.mark.parametrize("ellipticity", [0.0, 0.3, 0.5, 1.0])
 def test_the_cycle_averaged_intensity_is_polarization_agnostic(ellipticity):
-    """`DECISIONS.md` D054's premise, and the other half of
+    """D054's premise, and the other half of
     `test_stage0_delta.py::test_stage_0_is_bit_identical_under_any_polarization`.
 
     At fixed pulse energy, ``<a^2>`` is the same for every polarization state: an
@@ -189,14 +189,14 @@ def test_the_cycle_averaged_intensity_is_polarization_agnostic(ellipticity):
 
 def test_the_rayleigh_range_converts_rms_to_the_1_over_e_squared_convention():
     """The conversion `rayleigh_x` exists to perform, pinned against the profile itself
-    rather than against its own formula (author-confirmed 2026-08-10, `DECISIONS.md` D040).
+    rather than against its own formula (author-confirmed 2026-08-10, D040).
 
     ``z_R = pi w0^2 / lambda`` is stated in the **1/e² convention**, but this class stores
     intensity **RMS** widths — at ``r = sigma`` the density is down by ``e^-1/2``, not
     ``e^-2``. Skipping the conversion is a factor of 4 in ``z_R`` and in the far-field
-    angle, which is exactly the predecessor error D040 pins at 3.285x in the baseline
-    yield. So this measures ``w0`` off `photon_density` directly, and only then checks the
-    textbook formula against it — a test written as ``4 pi sigma^2 / lambda`` would restate
+    angle — the predecessor's error (D040). So this measures ``w0`` off `photon_density`
+    directly, and only then checks the textbook formula against it — a test written as
+    ``4 pi sigma^2 / lambda`` would restate
     the implementation and pass however wrong the convention was.
     """
     laser = make_laser()

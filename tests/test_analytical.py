@@ -441,10 +441,9 @@ def test_exact_2d_mode_converges_toward_the_1d_path_at_a_small_crossing_angle():
 
 
 def test_nonlinear_broadening_is_reported_as_a_bracket_not_a_number():
-    """The spread of `ahat` across the beam is what broadens the edge, and it is not
-    analytically available (D049) — so the width breakdown brackets it rather than inventing
-    a value. The scalar `nonlinearity` sits at a factor of 1, near the *top* of the measured
-    bracket, because the predecessor's formula implicitly assumes spread equals mean."""
+    """The spread of `ahat` across the beam is not analytically available (D049), so the
+    width breakdown brackets it rather than inventing a value; the legacy `nonlinearity`
+    scalar sits inside that bracket, near its top."""
     beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
     width = estimate_spectrum_width(beam, laser, theta_col=1e-3, a0_sq=1e-2)
     lo, hi = NONLINEAR_BROADENING_RANGE
@@ -472,17 +471,9 @@ def test_mean_a0_sq_is_the_beam_averaged_ahat_that_xigma_computes_per_particle()
     `Int n_e a0^4 / Int n_e a0^2`. Checked against xigma, which averages each trajectory
     numerically and splits nothing, so this pins the identity rather than a resemblance.
 
-    **This is also the check that caught `DECISIONS.md` D053**, and the only one that could
-    have. `overlap_mean_a0_sq` reaches `ahat` through this engine's own overlap integral,
-    never through `TrajectorySamples` — so unlike every xigma-vs-`delta` comparison, an
-    error in xigma's `ahat` is *not* common-mode here. When this test was written the two
-    sides differed by exactly 2.00, which is what identified the missing cycle average;
-    they now agree to 0.2%, the quadrature-vs-sampling residual. The factor comes from the
-    laser rather than being written as `0.5`, so both engines stay pinned to one definition
-    and §9.2 cannot move one without moving the other. (Since D054 xigma's side never forms
-    the factor at all — Stage 0 integrates `intensity_profile` directly — so this comparison
-    is now between a `C`-applied analytical value and a `C`-free xigma one, which is a
-    stronger cross-check than when both applied it.)"""
+    `overlap_mean_a0_sq` reaches `ahat` through this engine's own overlap integral, never
+    through `TrajectorySamples` — so unlike every xigma-vs-`delta` comparison, an error in
+    xigma's `ahat` is *not* common-mode here, which is what let this test catch D053."""
     from gammaforge.engines.xigma.stages import integrate_trajectories
 
     beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
@@ -1106,7 +1097,7 @@ def test_engine_reports_the_shifted_edge_and_uses_the_cycle_average():
 
 def test_spectrum_integral_equals_total_yield_exactly():
     """§7: "Total yield: integral spectrum = total_yield -- exact identities, not
-    tolerances, where the contract guarantees them." `DECISIONS.md` D036 makes this exact
+    tolerances, where the contract guarantees them." D036 makes this exact
     by construction for analytical."""
     interaction = _interaction(
         outputs=(OutputRequest(OutputKind.TOTAL_YIELD), OutputRequest(OutputKind.SPECTRUM, resolution=(200,)))

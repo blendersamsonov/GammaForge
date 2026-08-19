@@ -5,8 +5,8 @@
 two questions a fresh session actually needs: *what works right now*, and *what is
 unfinished or waiting on someone*.
 
-`docs/GRAND_PLAN.md` is the plan and owns the phase definitions (§11); `DECISIONS.md` owns
-the reasoning behind implementation choices.
+`docs/GRAND_PLAN.md` is the plan and owns the phase definitions (§11); `docs/decisions/`
+(via `INDEX.md`) owns the reasoning behind implementation choices.
 
 ---
 
@@ -92,5 +92,5 @@ Worth keeping visible: these are places where a green suite proves less than it 
   threads, and delete what stopped being true.
 - Keep every entry actionable: what is unfinished, who is blocked, which file has the
   detail. If something is merely *done*, the code and `git log` say so better.
-- Reasoning behind an implementation choice goes in `DECISIONS.md`; plan changes go in
+- Reasoning behind an implementation choice goes in `docs/decisions/`; plan changes go in
   `docs/GRAND_PLAN.md`'s changelog. This file links, it does not duplicate.

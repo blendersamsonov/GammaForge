@@ -3,7 +3,7 @@
 Stage 0 (:func:`integrate_trajectories`), Stage 1 (:func:`deposit_shape_table`, onto the
 a0-independent :attr:`TrajectorySamples.a0_shape` axis), the retarget step
 (:func:`retarget_ahat`, a conservative regrid onto the physical, non-uniform ``ahat`` axis
-for one specific peak a0 — `DECISIONS.md` D032) and Stage 2 (:func:`spectrum_from_table`,
+for one specific peak a0 — D032) and Stage 2 (:func:`spectrum_from_table`,
 :func:`angular_spectrum_from_table`, :func:`spectrum_in_angular_range`) all live here.
 
 **Every stage is a pure function.** State lives in the `Collision` facade (Phase 3a), not
@@ -17,16 +17,14 @@ assumption, no spot sizes. The photon density follows by inverting the same
 energy→intensity chain the laser used to produce it (:func:`photon_density_scale`), so a
 future non-Gaussian `LaserField` drops in with no change here.
 
-**Nothing in this module carries a polarization convention** (`DECISIONS.md` D054).
+**Nothing in this module carries a polarization convention** (D054).
 ``<a^2>`` at fixed pulse energy is the same whether the pulse is linear or circular, and
 every quantity xigma's Stage 0/1 produce — yield, ``a0_shape``, ``ahat`` — is a functional
 of it. Ellipticity enters exactly once, in Stage 2's *angle-resolved* polarization factor
 (`io.laser.ELLIPTICITY_IS_NOOP`, §9.2), which is the only place an ellipse is
 distinguishable from a line.
 
-**No coordinate normalization** (§2.1, `DECISIONS.md` D015). The predecessor worked in
-``k0_las``-normalized coordinates, where a factor ``k0**2`` in the per-step contribution
-was exactly what replaced ``c``. Here everything is CGS and the ``c`` is simply ``c``.
+**No coordinate normalization** (§2.1, D015): everything here is lab-frame CGS.
 """
 
 from __future__ import annotations
@@ -86,7 +84,7 @@ def photon_density_scale(laser: LaserField) -> float:
     """Photons per cm^3 per unit cycle-averaged intensity ``<a^2>``.
 
     The inverse of the laser's energy→intensity chain, and **polarization-agnostic** by
-    construction (`DECISIONS.md` D054). With ``<a^2> = (e / m_e c omega0)^2 4 pi U density``
+    construction (D054). With ``<a^2> = (e / m_e c omega0)^2 4 pi U density``
     and the physical photon density ``N_l density = (U / hbar omega0) density``, the pulse
     energy cancels::
 
@@ -110,12 +108,8 @@ def ahat_from_shape(a0_shape, intensity_peak: float):
     ``<a^2>_peak * int|E|^4 / int|E|^2`` once ``<a^2> = C a0^2`` is substituted — and
     ``<a^2>`` is polarization-agnostic at fixed pulse energy
     (`io.laser.GaussianParaxialLaser.intensity_profile`), so **no cycle-average factor
-    appears here at all**. `a0_shape` is the shape ratio verbatim; this is a plain product.
-
-    That is the whole point of D054's restructuring. The previous form took a peak *a0*
-    and multiplied by ``C = 1/2`` — arithmetically identical, but it made the red-shift
-    look polarization-dependent when it is not, and its missing ``C`` was the D053 bug.
-    Routing through ``<a^2>`` removes the opportunity rather than documenting it.
+    appears here at all** (D054). `a0_shape` is the shape ratio verbatim; this is a plain
+    product.
     """
     return float(intensity_peak) * a0_shape
 
@@ -137,10 +131,9 @@ class TrajectorySamples:
     `REUSE_INTERMEDIATES` tier). :func:`ahat_from_shape` is the only route from here to
     ``ahat``.
 
-    ``intensity_peak`` is the peak **cycle-averaged** ``<a^2>``, not a peak ``a0``. Nothing
+    ``intensity_peak`` is the peak **cycle-averaged** ``<a^2>``, not a peak ``a0``; nothing
     in this dataclass carries a polarization convention, because ``<a^2>`` at fixed pulse
-    energy does not depend on one (D054) — the elliptical ``a0`` is smaller by ``sqrt(2C)``
-    and its cycle average larger by ``C``, exactly offsetting.
+    energy does not depend on one (D054).
 
     It is one scalar per particle rather than a per-timestep distribution, and that is
     physics, not an optimization: in this weakly nonlinear regime the photon formation
@@ -178,11 +171,9 @@ class TrajectorySamples:
         ``luminosity`` integrates the *actual* local intensity (not the normalized ratio
         `a0_shape` does), so unlike `a0_shape` it is not already strength-independent —
         but for the same envelope shape ``<a^2>(t) = intensity_peak * envelope(t)`` is
-        exactly *linear* in the peak, so ``luminosity`` scales linearly too. (It was
-        ``a0_peak**2`` when this took an amplitude; same relation, one fewer square,
-        because the intensity is the squared quantity.) This is what lets both photon
-        count *and* redshift for a different pulse energy come from cached Stage 0
-        samples with no rerun.
+        exactly *linear* in the peak, so ``luminosity`` scales linearly too (D028). This is
+        what lets both photon count *and* redshift for a different pulse energy come from
+        cached Stage 0 samples with no rerun.
         """
         return (intensity_peak / self.intensity_peak) * self.luminosity
 
@@ -258,13 +249,9 @@ def integrate_trajectories(
 
     metrics = fit_gaussian_paraxial(laser)
     # The peak *cycle-averaged intensity*, not the peak a0: polarization-agnostic, so
-    # nothing downstream of Stage 0 carries a polarization convention (D054).
-    #
-    # Taken from `intensity_peak()` rather than rebuilt as `C * a0_peak()**2`: `a0_peak()`
-    # is the *linear-equivalent* amplitude by convention, so multiplying it by this
-    # pulse's own `C` applies the cycle average without the compensating `1/sqrt(2C)` in
-    # the amplitude, and the "invariant" comes out varying with `ellipticity`. Writing it
-    # that way is what `test_stage_0_is_bit_identical_under_any_polarization` caught.
+    # nothing downstream of Stage 0 carries a polarization convention (D054). Do not
+    # rebuild this as `C * a0_peak()**2` — that reintroduces polarization-dependence
+    # (D053/D054's bug); use `intensity_peak()` directly.
     intensity_peak = metrics.intensity_peak()
     density_scale = photon_density_scale(laser)
     # Absolute photons per macroparticle-second of overlap. The bunch's weights are
@@ -278,10 +265,9 @@ def integrate_trajectories(
     def integrate(first_index: int, last_index: int):
         sl = slice(first_index, last_index)
         times = start[sl, None] + offsets[None, :] * span[sl, None]
-        # `<a^2>`, not `a0`: the cycle-averaged intensity is what every quantity below is
-        # a functional of, and it is polarization-agnostic at fixed pulse energy (D054).
-        # Forming `a0` here and squaring it would round-trip through a convention-dependent
-        # number for no gain — and is exactly where D053's missing factor of two hid.
+        # `<a^2>`, not `a0`: everything below is a functional of the cycle-averaged
+        # intensity, polarization-agnostic at fixed pulse energy (D054). Do not form `a0`
+        # and square it here — that's where D053's missing factor of two hid.
         intensity = np.asarray(
             laser.intensity_profile(
                 bunch.x[sl, None] + velocity[0][sl, None] * times,
@@ -347,7 +333,7 @@ def integrate_trajectories(
 DEFAULT_SHAPE_BINS = (48, 48, 48, 96)
 
 #: Defaults for :func:`retarget_ahat`'s fixed, non-uniform target grid, tuned against this
-#: repo's scenario bank (`DECISIONS.md` D032) rather than re-derived from the predecessor's
+#: repo's scenario bank (D032) rather than re-derived from the predecessor's
 #: ``DEFAULT_A0_MAX``/``retarget_a0`` defaults, which were sized for a different bank.
 DEFAULT_RETARGET_BINS = 32
 DEFAULT_AHAT_MIN = 0.0
@@ -450,7 +436,7 @@ class Table:
 
     ``H`` is a **density** (weight per unit cell volume). Unlike `ShapeTable`, the ``ahat``
     axis is generally **non-uniform** — :func:`retarget_ahat` builds it dense near
-    ``ahat_max`` and coarse toward ``ahat_min`` (`DECISIONS.md` D032), so there is no
+    ``ahat_max`` and coarse toward ``ahat_min`` (D032), so there is no
     single scalar cell volume; :attr:`ahat_widths` and :attr:`gamma_theta_cell_area` are
     what :func:`spectrum_from_table` actually needs.
     """
@@ -553,7 +539,7 @@ def deposit_shape_table(
     actual pulse) with ``samples.luminosity`` as the deposited weight, so one deposit
     serves every peak a0 a caller might later want via :func:`retarget_ahat` — unlike the
     single-stage ``ahat``-axis deposit this replaces, which needed a fresh deposit per
-    peak a0 (`DECISIONS.md` D028, superseded by D032).
+    peak a0 (D028, superseded by D032).
 
     ``scheme`` is ``"nearest"`` (one cell per sample) or ``"cic"`` (cloud-in-cell, 16
     neighbours per sample) — both conserve total weight exactly; CIC trades a discretized
@@ -593,18 +579,17 @@ def deposit_shape_table(
 def _ahat_target_edges(ahat_min: float, ahat_max: float, n_bins: int, decades: float) -> np.ndarray:
     """``n_bins + 1`` non-uniform ``ahat`` edges, log-spaced in distance from the top:
     finest near ``ahat_max`` (where the redshift correction is significant), coarsest near
-    ``ahat_min`` (folded floor bin — §4.2, `DECISIONS.md` D032)::
+    ``ahat_min`` (folded floor bin — §4.2, D032)::
 
         v_i = (ahat_max - ahat_min) * 10**(-decades * i / n_bins),  i = 0..n_bins
         ahat_i = ahat_max - v_i
 
     ``i=0`` lands exactly on ``ahat_min`` (``v_0`` is the full span). The raw ``i=n_bins``
     value lands within ``10**-decades`` of ``ahat_max``, not exactly on it; snapped to
-    ``ahat_max`` exactly below, matching how the predecessor's ``retarget_a0`` used
-    ``np.linspace(a0_min, a0_max, n+1)``, which lands exactly on both ends. **This widens
+    ``ahat_max`` exactly below, so both ends of the grid are exact. **This widens
     the single top bin** — negligibly at ``decades >= 3`` (the widening is a factor of
     ``10**-decades`` of the span), but visibly at the ``decades=1`` this repo's scenario
-    bank actually uses (`DECISIONS.md` D032): the top bin ends up wider than its immediate
+    bank actually uses (D032): the top bin ends up wider than its immediate
     neighbour, not narrower. A deliberate, bounded exception to the "finer toward the top"
     trend at the very last bin, not a bug — every other bin still shrinks monotonically.
     """
@@ -630,21 +615,18 @@ def retarget_ahat(
 ) -> Table:
     """Stage 1.5: conservative (mass-preserving) regrid of a `ShapeTable`'s ``a0_shape``
     axis onto the fixed, non-uniform ``ahat`` axis Stage 2 actually queries, for one
-    specific peak cycle-averaged intensity ``<a^2>`` (`DECISIONS.md` D032, supersedes
+    specific peak cycle-averaged intensity ``<a^2>`` (D032, supersedes
     D028; D054 for why the parameter is an intensity rather than an amplitude).
 
     Cheap and independent of ``n_particles`` — a ``shape_table.a0_shape_edges.size x
     n_bins``-sized tensordot, not a re-deposit — so a `Collision` can cache the shape
     deposit once and retarget many pulse strengths from it.
 
-    Adapted from the predecessor's ``retarget_a0`` (overlap-weighted 1D histogram regrid,
-    conservative under the same piecewise-uniform-density assumption deposition itself
-    makes), with two differences: the target grid is :func:`_ahat_target_edges`'s
-    non-uniform law instead of a plain ``linspace``, and the deposited mass is rescaled by
-    ``intensity_peak / shape_table.source_intensity_peak``
-    (:meth:`TrajectorySamples.retargeted_luminosity`'s relation) — needed because this
-    ``retarget_ahat`` is meant to serve a genuinely different pulse strength than the one
-    Stage 0 ran at, unlike the predecessor's, which only retargeted onto its own laser.
+    Conservative (mass-preserving) under the same piecewise-uniform-density assumption
+    deposition itself makes, onto :func:`_ahat_target_edges`'s non-uniform target law. The
+    deposited mass is rescaled by ``intensity_peak / shape_table.source_intensity_peak``
+    (:meth:`TrajectorySamples.retargeted_luminosity`'s relation), since the requested
+    intensity is generally not the one Stage 0 ran at.
     """
     if ahat_max <= ahat_min:
         raise ValueError(f"retarget_ahat: ahat_max ({ahat_max}) must exceed ahat_min ({ahat_min})")
@@ -707,21 +689,13 @@ def retarget_ahat(
     )
 
 
-#: The §9.1 constant, isolated to this one location (§4.2) and **set** as of Phase 3b
-#: (`DECISIONS.md` D033). The predecessor's kernel math was pi-free (`coef = 1.5`,
-#: transcribed from the paper's eq. *(main)* prefactor of ``6``); D026 derived that the
-#: paper's differential cross-section is short a factor ``1/(2 pi)``, which eq. *(main)*
-#: inherits, so the transcription inherits it too. ``1.5 / (2 pi)`` is that correction, and
-#: nothing else — the same factor `references/delta.py` now applies to its own transcription
-#: of the same equation.
+#: The §9.1 constant (§4.2, D033): the predecessor's kernel math is pi-free (``coef =
+#: 1.5``); ``1/(2 pi)`` is the correction D026 derived is missing from the paper's
+#: cross-section, applied here and nowhere else (`references/delta.py` applies the same
+#: correction to its own transcription).
 #:
-#: **This value was derived and then confirmed, never fitted (P14).** The prediction came
-#: from D026's two elementary integrals; the confirmation is that the kernel's own
-#: angle-integrated photon count matches Stage 0's elementary ``flux x cross-section x
-#: time`` total, which it missed by ``2 pi`` before
-#: (`tests/test_stage1_stage2.py::test_the_table_kernel_angle_integrates_to_stage_0_total`).
-#: Do not adjust it to make a check pass; if a check disagrees, that is a physics finding
-#: to escalate (§0), not a number to tune.
+#: **Derived and confirmed, never fitted (P14). Do not adjust it to make a check pass** —
+#: if a check disagrees, that is a physics finding to escalate (§0), not a number to tune.
 KERNEL_NORMALIZATION_CONSTANT = 1.5 / (2.0 * math.pi)
 
 
@@ -752,19 +726,15 @@ def _interp_gamma(table: Table, g: np.ndarray) -> np.ndarray:
 def spectrum_from_table(table: Table, theta_x: float, theta_y: float, s, *, psi_pol: float = 0.0) -> np.ndarray:
     """Stage 2: ``d2N / (ds dOmega)`` at one observation direction, over an array of ``s``.
 
-    The brute-force grid quadrature the predecessor kept as its validation-only
-    reference, ported here as the production numpy path instead of its 550-line GPU
-    importance sampler (`DECISIONS.md` D029): correct and checkable over fast but
-    trust-level-C in the predecessor's own audit (3x-30x variance in sparse/narrow-angle
-    configs). It sums Stage 1's table over its own ``(theta_x, theta_y, ahat)`` cells,
-    inverting the resonance condition at each cell to find the gamma an electron there
-    would need to radiate a photon of energy ``s`` toward ``(theta_x, theta_y)``, and
-    interpolates ``H`` at that gamma (:func:`_interp_gamma`).
+    A direct grid quadrature over Stage 1's table, not the predecessor's GPU importance
+    sampler (D029) — sums the table's own ``(theta_x, theta_y, ahat)`` cells, inverting the
+    resonance condition at each cell to find the gamma an electron there would need to
+    radiate a photon of energy ``s`` toward ``(theta_x, theta_y)``, and interpolates ``H``
+    at that gamma (:func:`_interp_gamma`).
 
     ``g``/``prefac`` are recomputed inside the ahat loop implicitly — this function never
     factors ahat out of the resonance condition — because the resonance shifts with ahat
-    (the nonlinear redshift) and an ahat-independent shortcut was a real, since-fixed bug
-    in the predecessor (its docstrings flag it explicitly).
+    (the nonlinear redshift); an ahat-independent shortcut is wrong, not just slower.
     """
     s_arr = np.atleast_1d(np.asarray(s, dtype=float))
     tx_c = table.theta_x_centers[:, None, None]

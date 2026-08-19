@@ -9,7 +9,7 @@ order:
 * `runners` — running one engine on one scenario
 * `invariance` — the chunk / prefilter / backend / seed properties of §7
 * `make_references` — regenerating goldens from the predecessor; the *only* place the old
-  repo is referenced, and it runs it in a subprocess (`DECISIONS.md` D019)
+  repo is referenced, and it runs it in a subprocess (D019)
 * `run` — the entry point: ``python -m gammaforge.validation.run``
 
 `references/` holds the committed snapshots under ``data/``, and will hold `delta` (§4.5)

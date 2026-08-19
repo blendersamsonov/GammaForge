@@ -8,6 +8,8 @@ laser-pulse interaction. This repo is a **ground-up rebuild** of a predecessor a
 around solely as a historical reference and a source of golden validation data, never
 as code to extend in place.
 
+Note: `CLAUDE.md` is a symlink to this file. Edit the real file, not the symlink.
+
 **The authoritative documents, in the order to read them:**
 
 1. **`docs/GRAND_PLAN.md`** — the architecture and phase plan. Versioned (`vX.Y`), with
@@ -16,14 +18,16 @@ as code to extend in place.
 2. **`PROGRESS.md`** — **current state and open threads only**, deliberately short. It is
    not a session log: `git log` is, and it does not go stale. Read it for what works right
    now and what is unfinished or waiting on the author.
-3. **`DECISIONS.md`** — implementation-level decisions with rejected alternatives, in
-   the plan's own documentation-discipline spirit (goal #8). Start at its **index table**,
-   which covers both this file and `docs/DECISIONS_ARCHIVE.md` (settled history: Phase
-   0–2.5 scaffolding and superseded entries, moved verbatim). Read its header once: it
-   has a load-bearing convention (backticks = resolves right now; *italics* = a
-   hypothetical/rejected/future name) that a doc-staleness test enforces.
-   **Ids are an addressing scheme** — ~90 code comments cite `DNNN`, so entries are never
-   renumbered and never deleted, only archived.
+3. **`docs/decisions/INDEX.md`** — start here for implementation-level decisions, in
+   the plan's own documentation-discipline spirit (goal #8). One file per decision, under
+   `docs/decisions/{lifecycle}/{class}/`; `docs/decisions/README.md` has the full
+   lifecycle (`proposed`/`implemented`/`rejected`/`archived`) and classification system,
+   the header format, and a load-bearing convention (backticks = resolves right now;
+   *italics* = a hypothetical/rejected/future name) that `tests/test_doc_staleness.py`
+   enforces on every `proposed`/`implemented`/`rejected` entry, plus a structural format
+   check in `tests/test_decision_format.py`.
+   **Ids are an addressing scheme** — ~124 code comments cite `DNNN` bare (not a path), so
+   entries are never renumbered and never deleted, only archived.
 
 The physics authority is the paper draft at `~/Work/Papers/2026/Compton-Numerics`. It
 is in flux. **If code and paper disagree, that is BLOCKING — stop and flag it, don't
@@ -44,7 +48,7 @@ constraints (`GRAND_PLAN.md` §1 has the full table with provenance — P1–P15
   `Bunch` declares its units as data and converts through a scale factor. Never introduce
   a second internal unit system "for convenience", and note there is **no coordinate
   normalization** anywhere: xigma works in CGS directly, `k0_las` scaling is not carried
-  over from the predecessor (see `DECISIONS.md` D013–D015).
+  over from the predecessor (see D013–D015 in `docs/decisions/`).
 - **No `gammaforge.core` package.** The shared layer is `gammaforge.io` — yes, that
   name is odd, it's kept for continuity with the predecessor. Don't add an intermediate
   layer between `io` and `engines`.
@@ -79,12 +83,23 @@ constraints (`GRAND_PLAN.md` §1 has the full table with provenance — P1–P15
 - **Tests:** `pytest` from the repo root (or `source .venv/bin/activate && pytest`).
   Keep `pytest` green — Phase exit criteria in `GRAND_PLAN.md` §11 are the actual
   definition of "done" for a phase, not just "tests pass."
-- **`DECISIONS.md` entries:** add one when you make a real implementation choice with a
-  rejected alternative, *after* it's built (not as a promise). Append; never renumber.
-  Add the row to its index table. Follow its backticks-vs-italics convention —
-  `tests/test_doc_staleness.py` checks it. When an entry is superseded, put a pointer at
-  the top of both, then move the old one to `docs/DECISIONS_ARCHIVE.md` **verbatim** —
-  editing its reasoning would falsify what was decided at the time.
+- **Decisions:** file one under `docs/decisions/implemented/<class>/` when you make a
+  real implementation choice with a rejected alternative, *after* it's built (not as a
+  promise) — or `docs/decisions/proposed/<class>/` for something reviewed but not yet
+  built. Append; ids are never renumbered or reused. Add the row to
+  `docs/decisions/INDEX.md`. Follow the backticks-vs-italics convention and the
+  Problem/Decision/Alternatives-considered/Rationale/Consequences skeleton in
+  `docs/decisions/README.md` — `tests/test_doc_staleness.py` and
+  `tests/test_decision_format.py` both check it. When an entry is superseded, put a
+  pointer at the top of both, then move the old one to `docs/decisions/archived/<class>/`
+  **verbatim** plus an `Archived:` line — editing its reasoning would falsify what was
+  decided at the time.
+- **Citing a decision from code:** a comment/docstring may cite `(D0NN)` bare — no path
+  needed, ids are permanent. Keep it a pointer: one clause of current behavior plus the
+  citation. If the surrounding comment grows past that — a derivation of *why*, rejected
+  alternatives, historical numbers — that's a sign the content belongs in the decision
+  file, not the code; move it there and trim what's left to the pointer (D056; see
+  `docs/decisions/README.md`'s *Citing from code*).
 - **`PROGRESS.md`:** **do not append a session log.** Edit the phase table and the open
   threads in place, and delete what stopped being true — git holds the narrative. Anything
   merely *done* belongs in the code and the commit message, not here.
@@ -100,6 +115,9 @@ constraints (`GRAND_PLAN.md` §1 has the full table with provenance — P1–P15
 - **Validation:** `python -m gammaforge.validation.run` is the suite entry point (it runs
   what is runnable and says what it skipped); `gammaforge.validation.scenarios.SCENARIOS`
   is the shared bank — iterate it, don't hardcode a scenario name in a runner.
+- **Postmortems:** `docs/postmortems/README.md` has the criteria for when a bug is worth
+  a postmortem (subtle + systemic + costly to rediscover) rather than just a fix — distinct
+  from a decision, which records a deliberate choice rather than a failure.
 - **Graphify:** the repo is now big enough that a codebase-wide question is usually
   better answered from the knowledge graph than by grepping. **The graph is not
   committed** — `graphify-out/` is gitignored, so on a fresh clone it does not exist and
@@ -116,7 +134,7 @@ constraints (`GRAND_PLAN.md` §1 has the full table with provenance — P1–P15
 deliberately carries only what does not change between phases:
 
 - Most module files named in `GRAND_PLAN.md` are **deliberately absent** until their phase
-  lands (`DECISIONS.md` D003). Check before assuming one exists; the knowledge graph
+  lands (D003 in `docs/decisions/`). Check before assuming one exists; the knowledge graph
   (`graphify query`) answers this faster than grep.
 - Only the **numpy** backend is real. `cupy`/`numba` are gated everywhere they appear.
 - **§9.2 and §9.3 are open derivations the paper does not contain**, wired as documented
@@ -124,3 +142,70 @@ deliberately carries only what does not change between phases:
   `EMISSION_IS_HEAD_ON`). Don't "fix" either by inventing a formula — that is the specific
   failure P14c names. `docs/DERIVATIONS.md` holds what has been derived and what each
   result is blocked on; `PROGRESS.md`'s open threads say which parts are already closed.
+
+
+## Behavioral guidelines to reduce common LLM coding mistakes. 
+
+Merge with project-specific instructions as needed.
+
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+
+## 1. Think Before Coding
+
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
+
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+## 2. Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+## 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+## 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+---
+
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.

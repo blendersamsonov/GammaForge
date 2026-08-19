@@ -19,8 +19,7 @@ general integral reduces to it analytically — which makes it a real regression
 and because it pins port fidelity. It carries an approximation *and* a laser-divergence
 convention error; its own docstring says so. Prefer :func:`overlap_yield`.
 
-**Three cost tiers, deliberately** (`DECISIONS.md` D043), because §4.3 calls analytical
-the only real-time engine and that claim has to stay true of *something*:
+**Three cost tiers** (D043), because §4.3 calls analytical the only real-time engine:
 
 ======================================  ==========  ===================================
 tier                                    cost        what it assumes
@@ -30,14 +29,10 @@ tier                                    cost        what it assumes
 :func:`overlap_yield` (``n_quad_u>1``)  ~40-800 ms  nothing — exact
 ======================================  ==========  ===================================
 
-The first two are real-time at any interaction rate; the third is a deliberate
-semi-analytical mode. Measured on the worst corner available — a 2 um waist against a
-200 um bunch — the 1D path is within 1.9e-4 at 20 mrad and 1.6e-3 at 0.4 rad, so the exact
-mode is a check and a future-proofing option rather than a correction anyone routinely
-needs. It also converges *more slowly* than the 1D path at small crossing angles, where
-the widths barely vary along the direction it adds; it earns its cost at large ones.
+The first two are real-time at any interaction rate; the third is an opt-in exact check,
+not something a caller reaches for by default (D043).
 
-**What this closes, precisely.** All three of `DECISIONS.md` D035's growth items for the
+**What this closes, precisely.** All three of D035's growth items for the
 **total yield**: non-round beams, foci displacement, and (with :func:`overlap_mean_a0_sq`
 feeding :func:`estimate_spectrum_width`) the a0 the bunch actually samples. A crossing
 angle is covered too (D041), for the yield. Still open: constructing the collimated
@@ -85,12 +80,9 @@ _ERFCX_ASYMPTOTIC_THRESHOLD = 25.0
 def _erfcx(nu: float) -> float:
     """``exp(nu**2) * erfc(nu)``, the scaled complementary error function.
 
-    Hand-rolled from `math.erfc` rather than `scipy.special.erfcx` — `pyproject.toml`
-    declares only `numpy` today, and `gammaforge.io.bunch._chi2_6_cdf` already sets the
-    precedent of writing out a closed-form special function rather than adding `scipy` to
-    keep the dependency surface where `pyproject.toml` already draws it (`DECISIONS.md`
-    D037). Direct evaluation is exact (to `math.erfc`'s own precision) below the overflow
-    threshold; above it, the standard asymptotic expansion
+    Hand-rolled from `math.erfc` rather than `scipy.special.erfcx`, to keep the dependency
+    surface at just `numpy` (D037). Direct evaluation is exact (to `math.erfc`'s own
+    precision) below the overflow threshold; above it, the standard asymptotic expansion
     ``erfcx(x) ~ (1/(x*sqrt(pi))) * (1 - 1/(2x^2) + 3/(4x^4) - 15/(8x^6))`` takes over.
 
     ``estimate_yield`` only ever evaluates this at ``nu >= 0`` (built from sums of squares
@@ -123,18 +115,9 @@ def estimate_yield(beam: GaussianElectronBeam, laser: GaussianParaxialLaser, N_e
 
        **This function's laser hourglass term disagrees with this repository's own
        Rayleigh-range convention by a factor of 4 in the angle**, and it is kept only as
-       a port-fidelity anchor. :func:`overlap_yield` is the one to use.
-
-       The ``lambda^2 / (pi^2 sigma_lr0^2)`` term below is a laser divergence of
-       ``lambda / (pi sigma)``. The generalized derivation (`docs/DERIVATIONS.md` §A)
-       shows the coefficient is exactly ``sigma_l / z_R``, and both this repository's
-       `GaussianParaxialLaser.rayleigh_x` *and the predecessor's own pulse class* define
-       ``z_R = 4 pi sigma^2 / lambda`` (``w0 = 2 sigma``), giving ``lambda / (4 pi
-       sigma)``. The predecessor's ``analytical.py`` is therefore inconsistent with the
-       predecessor's *own* laser model; the port carried that faithfully rather than
-       introducing it. On the baseline scenario — where the hourglass is almost entirely
-       laser-driven — the discrepancy is a factor of 3.3 in the yield
-       (`DECISIONS.md` D040).
+       a port-fidelity anchor — a faithfully-ported predecessor bug, not introduced here.
+       :func:`overlap_yield` is the one to use. On the baseline scenario the discrepancy
+       is a factor of 3.3 in the yield (D040).
     """
     sigma_ex = beam.m("sigma_x")
     sigma_ey = beam.m("sigma_y")
@@ -189,7 +172,7 @@ def _laser_covariance(laser: GaussianParaxialLaser, z):
     axes within the transverse plane, so the pulse's variance ellipse is generally **not**
     diagonal in the bunch's own x/y. Carrying the full 2x2 covariance rather than a pair
     of widths is what lets `overlap_yield` handle a rotated elliptical spot exactly
-    instead of approximating it (`DECISIONS.md` D039).
+    instead of approximating it (D039).
     """
     s1, s2 = laser.spot_sizes(-np.asarray(z, dtype=float))
     psi = laser.m("psi_focus")
@@ -685,7 +668,7 @@ def overlap_mean_a0_sq(
     arrive off-focus or off-peak contribute photons at a lower intensity, and this weights
     each by exactly the rate at which it scatters. It is what
     :func:`estimate_spectrum_width`'s nonlinearity term wants, and computing it closes the
-    last part of the foci-displacement growth item (`DECISIONS.md` D042).
+    last part of the foci-displacement growth item (D042).
 
     No new integral is needed. ``a0^2`` is exactly proportional to the *normalized* photon
     density (`GaussianParaxialLaser._a0_from_density` is a square root of it), so
@@ -717,7 +700,7 @@ def overlap_mean_a0_sq(
     numerically: agreement is within xigma's own particle-sampling noise.
 
     The **spread** of ``ahat`` across the beam does *not* follow the same way — see
-    :data:`NONLINEAR_BROADENING_RANGE` and `DECISIONS.md` D049 for why, and for what is
+    :data:`NONLINEAR_BROADENING_RANGE` and D049 for why, and for what is
     reported instead.
     """
     k_const = laser.a0_profile(0.0, 0.0, 0.0, 0.0) ** 2 / laser.photon_density(0.0, 0.0, 0.0, 0.0)
@@ -855,12 +838,11 @@ class SpectrumWidthBreakdown:
     emittance: float  #: from angular divergence, ``(gamma * sqrt(div_x * div_y))^2``
     energy_spread: float  #: from beam energy spread, ``sigma_gamma / gamma``
     nonlinearity: float  #: ponderomotive, at the predecessor's implicit ``std = mean``
-    #: The nonlinear term is the one quantity here that cannot be pinned to a number: it is
-    #: set by the *spread* of ``ahat`` across the beam, which is not analytically available
-    #: (D049). These bracket it using :data:`NONLINEAR_BROADENING_RANGE`. ``nonlinearity``
-    #: above sits at a factor of 1, i.e. near the top of the measured bracket — the
-    #: predecessor's formula implicitly assumes the spread equals the mean, which
-    #: over-estimates the broadening for most geometries.
+    #: The nonlinear term is the one quantity here that cannot be pinned exactly — it is
+    #: set by the *spread* of ``ahat`` across the beam, not analytically available (D049),
+    #: and is bracketed instead by :data:`NONLINEAR_BROADENING_RANGE`. ``nonlinearity``
+    #: above sits at a factor of 1 — near the top of that bracket, so it over-estimates
+    #: broadening for most geometries.
     nonlinearity_lo: float = 0.0
     nonlinearity_hi: float = 0.0
 
@@ -890,7 +872,7 @@ def estimate_spectrum_width(
 
     ``theta_col``: collimation half-angle (rad) — a single scalar; a caller combining
     `gammaforge.io.target.Target`'s separate ``theta_x_col``/``theta_y_col`` should use
-    their geometric mean (`DECISIONS.md` D038), the same x/y-combining convention this
+    their geometric mean (D038), the same x/y-combining convention this
     module already uses for the laser waist (``sigma_lr0``) and the emittance term below.
 
     ``laser`` is the fitted `GaussianParaxialLaser` (see :func:`estimate_yield`);
@@ -898,13 +880,11 @@ def estimate_spectrum_width(
     pulse's own maximum a0, not the a0 at the electron bunch's actual position.
 
     ``a0_sq`` is the mean square a0 the bunch actually samples. Pass
-    :func:`overlap_mean_a0_sq`, which is that average weighted by the luminosity, and the
-    nonlinearity term stops using the pulse's own maximum — closing the last part of the
-    foci-displacement growth item (`DECISIONS.md` D042). It **defaults to**
-    ``laser.a0_peak()**2``, deliberately: this function's other job is reproducing the
-    predecessor's worked example, and changing what it computes by default would break the
-    `_PREDECESSOR_WIDTH_TOTAL` pin that exists to detect exactly that.
-    `AnalyticalEngine` passes the overlap-weighted value explicitly.
+    :func:`overlap_mean_a0_sq` (D042), the luminosity-weighted average, rather than the
+    pulse's own peak. It **defaults to** ``laser.a0_peak()**2`` deliberately: this
+    function's other job is reproducing the predecessor's worked example, and changing the
+    default would break the `_PREDECESSOR_WIDTH_TOTAL` pin that exists to detect exactly
+    that. `AnalyticalEngine` passes the overlap-weighted value explicitly.
     """
     gamma0 = beam.gamma0()
     sigma_gamma = beam.sigma_gamma()
@@ -967,7 +947,7 @@ def angle_integrated_spectrum(
 
     Only the *mean* ``ahat`` is applied. Electrons sample different intensities, so the edge
     is also smeared; that spread is not analytically available and is bracketed instead
-    (:data:`NONLINEAR_BROADENING_RANGE`, `DECISIONS.md` D049).
+    (:data:`NONLINEAR_BROADENING_RANGE`, D049).
 
     Raises ``ValueError`` for ``sigma_gamma <= 0``: `gammaforge.io.bunch.validate` permits
     a beam with exactly zero energy spread (only rejects negative), but the quadrature

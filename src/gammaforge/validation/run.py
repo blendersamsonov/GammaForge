@@ -11,11 +11,10 @@ honest about what it did rather than silently doing less:
   prefilter discarding only particles the pulse never reaches). These run now.
 * **identities** — methods that must agree on the same number: Stage 0's total yield, the
   closed-form single-electron spectrum, and delta's brute-force angular integral. All
-  three now agree on 1: the third disagreed by exactly ``2 pi`` until Phase 3b closed §9.1
-  (`DECISIONS.md` D033), and this leg is what would catch that factor coming back. A
+  three agree on 1 (§9.1, D033); this leg is what would catch that factor coming back. A
   fourth leg compares Stage 2's own table kernel against delta at one point; both carry
-  the same §9.1 factor, so it read ~1 before the closure and reads ~1 after — it checks
-  deposition and interpolation, deliberately not the normalization.
+  the same §9.1 factor, so it is deliberately blind to the normalization — it checks
+  deposition and interpolation instead.
 * **goldens** — every committed snapshot is loaded and its stored closed-form scalars are
   compared against what this repo computes for the same scenario. This is a real
   cross-implementation check with no engine in it: two independent codebases, the same
@@ -25,13 +24,11 @@ The engine sections (cross-engine consistency, chunk/backend/prefilter invarianc
 closed-form identity tests) are `invariance.engine_checks` and `golden.compare_to_golden`
 applied to a registered engine. They are not stubbed here: an empty engine list prints as
 an empty engine list, and the section appears when an engine does. **`XigmaEngine`
-exists** (Phase 3a, `engines/xigma/engine.py`) but is not passed to `run_suite` by
-`main()` below: the scenario bank's `_DEFAULT_OUTPUTS` resolution
-(`COLLIMATED_SPECTRUM` at 64x16x16, tuned for the predecessor's GPU importance sampler)
-takes tens of seconds per slice against this phase's numpy brute-force kernel
-(`DECISIONS.md` D031) — real for a deliberate Calculate (§12), not for a suite run meant
-to be exercised routinely. `tests/test_xigma_engine.py` and `tests/test_stage1_stage2.py`
-exercise it at a suite-appropriate scale instead.
+exists** (`engines/xigma/engine.py`) but is not passed to `run_suite` by `main()` below —
+the scenario bank's default output resolution is too slow against this phase's numpy
+kernel for a suite run meant to be exercised routinely (D031).
+`tests/test_xigma_engine.py` and `tests/test_stage1_stage2.py` exercise it at a
+suite-appropriate scale instead.
 """
 
 from __future__ import annotations
@@ -124,13 +121,9 @@ def identity_checks(scenarios: Sequence[Scenario]) -> list[Check]:
     integrates to that same number as an identity; delta's angular integral is the
     independent brute-force path. All three agree on one.
 
-    **The delta leg is the §9.1 tripwire, and it changed meaning in Phase 3b.** It used to
-    report against a *derived* ``2 pi`` — green while the question was open, red if the
-    ratio moved — because encoding "expected 1.0" would have meant either a permanently red
-    suite or a constant nobody had justified (P14). D026 derived the factor and D033 applied
-    it at both transcriptions of the paper's cross-section, so the leg now reads what an
-    identity should read. What it watches is unchanged: a ratio that walks away from its
-    expected value, which after the closure includes a return to ``2 pi``.
+    **The delta leg is the §9.1 tripwire.** It watches a ratio that must equal 1; before
+    §9.1 closed it read a derived ``2 pi`` instead (D026, D033) — this leg is what would
+    catch that factor coming back.
 
     The fourth leg (Phase 3a) is Stage 2's own table kernel against delta, at one
     observation point. Both sides carry the *same* §9.1 factor, before and after the
@@ -180,11 +173,8 @@ def identity_checks(scenarios: Sequence[Scenario]) -> list[Check]:
         ))
 
         # Fourth leg: Stage 2's table kernel against delta's particle-based histogram, at
-        # one observation point. Both carry the *same* section-9.1 factor
-        # (`stages.py`'s `KERNEL_NORMALIZATION_CONSTANT` and delta's `DIFFERENTIAL_PREFACTOR`
-        # are the same correction applied to the same equation), so this ratio read ~1
-        # before D033 and reads ~1 after: it checks deposition and interpolation, and is
-        # deliberately insensitive to the normalization the leg above watches.
+        # one observation point. Both carry the same normalization constant (D033), so this
+        # ratio is deliberately insensitive to it — it checks deposition and interpolation.
         # CIC, not the default `nearest`: evaluating exactly at the beam centre
         # aliases against a nearest-deposited table's own cell boundaries
         # (`tests/test_stage1_stage2.py` measured 0.5x-1.7x at nearest with 40-100 theta

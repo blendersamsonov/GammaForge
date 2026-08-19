@@ -28,14 +28,9 @@ SUPPORTED_OUTPUTS: tuple[OutputKind, ...] = (
 #: §5's mapping, restricted to what is honestly wired **today**. Bunch charge is exactly
 #: linear in N_e (§3.5) for every engine and is handled at the `io` level
 #: (`InteractionParameters.with_charge`/`Results.scaled`) without an engine run at all, so
-#: it costs nothing regardless of which engine is active. Everything xigma-specific
-#: (`schema.py`'s own fields, beam/laser physical parameters) is left out and so defaults
-#: to `FULL_RERUN` (base.py) — including pulse energy, even though a fixed-shape a0
-#: rescale is analytically a pure multiply (`TrajectorySamples.retargeted_ahat`): claiming
-#: that as `REUSE_INTERMEDIATES` would assume `a0_profile` scales linearly with a single
-#: peak-a0 knob, a `GaussianParaxialLaser`-specific fact the `LaserField` protocol (P15)
-#: does not guarantee. `DECISIONS.md` D030 has the full reasoning, including why this
-#: walks back an earlier §5 illustration.
+#: it costs nothing regardless of which engine is active. Everything else defaults to
+#: `FULL_RERUN` (base.py) — including pulse energy, not claimed cheap despite being
+#: analytically a pure rescale (D030).
 RECOMPUTE_COSTS: dict[str, RecomputeCost] = {
     "n_e": RecomputeCost.QUERY_ONLY,
 }

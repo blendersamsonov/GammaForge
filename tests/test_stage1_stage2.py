@@ -1,5 +1,5 @@
 """Stage 1 (a0_shape deposition), the ahat retarget, and Stage 2 (spectrum queries),
-GRAND_PLAN.md §4.2, Phase 3a (`DECISIONS.md` D032).
+GRAND_PLAN.md §4.2, Phase 3a (D032).
 
 Stage 1's job is conservation: every particle's weight lands somewhere in the shape
 table, and the table's own total agrees with Stage 0's regardless of resolution or scheme.
@@ -12,7 +12,7 @@ implementation of the same differential form — to within grid/interpolation er
 
 Most of those are ratios between two paths carrying the same normalization, which is what
 makes them robust and also what makes them blind: `test_the_table_kernel_angle_integrates_to_stage_0_total`
-is the one absolute check, and the one that pins §9.1's constant (`DECISIONS.md` D033).
+is the one absolute check, and the one that pins §9.1's constant (D033).
 """
 
 from __future__ import annotations
@@ -139,7 +139,7 @@ def test_shape_table_rejects_a_shape_mismatched_H():
 
 
 def test_deposition_is_cheap_next_to_stage_0(baseline):
-    """The measurement `DECISIONS.md` D028/D032 rests on: deposit_shape_table's cost
+    """The measurement D028/D032 rests on: deposit_shape_table's cost
     against integrate_trajectories's, for the same particle count. If deposition were not
     cheap, caching the shape table once per `Collision` (D032) rather than per particle
     count would matter far less.
@@ -211,15 +211,14 @@ def test_retarget_ahat_redistributes_mass_toward_higher_ahat_as_the_pulse_streng
     table_other = retarget_ahat(shape_table, 2.0 * samples.intensity_peak)
     # Both total_weight (exact identity above) and where that mass sits move: twice the
     # peak intensity is twice the yield *and* twice the ahat, so the populated range's own
-    # top edge (after truncation, §Truncation) reaches a higher ahat. (The factor was 4
-    # while this took a peak *amplitude*, which is the squared relation — D054.)
+    # top edge (after truncation, §Truncation) reaches a higher ahat (D054).
     assert table_other.total_weight == pytest.approx(2.0 * table_own.total_weight, rel=1e-9)
     assert table_other.ahat_edges[-1] > table_own.ahat_edges[-1]
 
 
 def test_retarget_ahat_folds_mass_below_ahat_min_into_the_floor_bin():
     """The floor-fold path — otherwise never exercised, since nothing in the default
-    ahat_min=0.0 configuration has any ahat to fold (`DECISIONS.md` D032).
+    ahat_min=0.0 configuration has any ahat to fold (D032).
     """
     samples = _synthetic_samples(a0_shape=1.0)  # ahat = 0.045 (D053: C = 1/2)
     shape_table = deposit_shape_table(samples, n_bins=(8, 8, 8, 16))
@@ -235,7 +234,7 @@ def test_retarget_ahat_folds_mass_below_ahat_min_into_the_floor_bin():
 
 def test_retarget_ahat_truncates_unpopulated_bins():
     """Trailing target bins the rescaled source never reaches carry exactly zero mass
-    (`DECISIONS.md` D032) — `retarget_ahat` drops them rather than returning a table
+    (D032) — `retarget_ahat` drops them rather than returning a table
     padded with zeros out to `ahat_max`.
     """
     samples = _synthetic_samples(a0_shape=1.0, intensity_peak=0.00125)  # ahat = 0.00125, tiny
@@ -295,13 +294,13 @@ def test_the_kernel_and_delta_agree_on_where_the_redshift_puts_the_photons():
     counts* — a sum over ``s``. The nonlinear redshift moves photons along ``s`` and
     conserves that sum exactly, so those checks are structurally blind to ``ahat``: the
     fourth identity leg reads 0.9996 whether ``ahat`` is right, doubled, or halved
-    (measured, `DECISIONS.md` D053). The **centroid** in ``s`` is the quantity ``ahat``
+    (measured, D053). The **centroid** in ``s`` is the quantity ``ahat``
     controls, so that is what this compares.
 
     It cannot catch a wrong ``ahat`` *convention* — the two paths share
     `TrajectorySamples`, so a common-mode factor cancels here as it does everywhere else
-    (D053's §7 gap, and the reason the analytical engine is the leg that exposed it). What
-    it does catch is the kernel losing the redshift to grid coarseness: the ``ahat`` axis
+    (D053). What it does catch is the kernel losing the redshift to grid coarseness: the
+    ``ahat`` axis
     must actually resolve the population for the table to reproduce `delta`'s centroid, and
     at the production defaults ``NEAR_A0_MAX`` lands in two bins.
 
@@ -349,7 +348,7 @@ def test_the_production_ahat_grid_under_resolves_the_bank_by_a_known_amount(
 
     The test above resolves the ``ahat`` axis deliberately (``ahat_max=0.1``) — but
     `Collision._table` builds the grid from the schema defaults, and nothing else here
-    exercises those on the quantity ``ahat`` controls. At `DECISIONS.md` D032's defaults
+    exercises those on the quantity ``ahat`` controls. At D032's defaults
     (``ahat_max=0.5``, ``n_bins=32``, ``decades=1.0``) the first non-floor edge sits at
     0.035, so the whole scenario bank lands at or near the floor bin and the kernel uses
     that bin's own centre — 0.0174 — in place of population means of 0.0057, 0.00057 and
@@ -390,8 +389,7 @@ def test_spectrum_shifts_with_ahat_not_merely_rescales():
     never move where its edge falls; the nonlinear redshift must move the edge.
 
     a0_shape=0.05 and 4.0 at intensity_peak=0.045 give ahat = 0.00225 and 0.18 — bins 0 and 6 of
-    the production target grid (re-checked numerically when D053 halved ahat; they were
-    0.0045/0.36 in bins 0/17 before), still well apart.
+    the production target grid (D053), still well apart.
     """
     low = _synthetic_samples(a0_shape=0.05)
     high = _synthetic_samples(a0_shape=4.0, seed=0)
@@ -468,7 +466,7 @@ def test_stage2_kernel_agrees_with_delta_at_a_point():
 
 
 def test_the_table_kernel_angle_integrates_to_stage_0_total(baseline):
-    """§9.1's closure, on the one quantity that can actually see it (`DECISIONS.md` D033).
+    """§9.1's closure, on the one quantity that can actually see it (D033).
 
     Every other Stage-2 check in this file is a *ratio* between two paths that carry the
     same normalization constant, so all of them stayed green through a factor of ``2 pi``
@@ -476,22 +474,14 @@ def test_the_table_kernel_angle_integrates_to_stage_0_total(baseline):
     kernel over solid angle and over ``s``, and compare with Stage 0's elementary
     ``flux x cross-section x time`` photon count. It is the same arbitration
     `delta.check_normalization` performs for delta, applied to the kernel that actually
-    ships.
-
-    The sequence matters, and it was this one: D026 derived ``1/(2 pi)`` from two
-    elementary integrals; `KERNEL_NORMALIZATION_CONSTANT` was set to
-    ``1.5 / (2 pi)`` from that derivation; *then* this integral was measured. With the
-    uncorrected constant it read ``2 pi x 0.997`` on a 49x49 grid with 640 ``s`` bins — the
-    factor, and nothing but the factor. Nothing here was tuned to make a number come out
-    (P14).
+    ships. D033 has the full derivation-then-measurement sequence that justified the fix.
 
     **The tolerance is resolution, not doubt.** Both integrals are midpoint sums over grids
     sized for a ten-second test: the angular one samples a ``1/gamma``-wide cone, and the
-    ``s`` one a spectrum narrower still. Refining either walks the ratio straight in —
-    measured on this fixture, 1.078 here, 1.015 at 21 angles, 1.006 at 21 angles and 480
-    ``s`` bins, 0.991 at 21 angles over six cone widths. ±15% covers the grid this test can
-    afford, and is nowhere near wide enough to blur the only distinction it exists to make,
-    which is between 1 and 6.28.
+    ``s`` one a spectrum narrower still. Refining either walks the ratio straight toward 1
+    (D033 has the convergence sequence) — ±15% covers the grid this test can afford, and is
+    nowhere near wide enough to blur the only distinction it exists to make, which is
+    between 1 and 6.28.
     """
     n_angles, cone = 17, 4.0
     table = _table(baseline, shape_bins=(32, 24, 24, 64), scheme="cic")

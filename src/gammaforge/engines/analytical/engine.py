@@ -38,9 +38,8 @@ SUPPORTED_OUTPUTS: tuple[OutputKind, ...] = (OutputKind.TOTAL_YIELD, OutputKind.
 RECOMPUTE_COSTS: dict[str, RecomputeCost] = {
     "n_e": RecomputeCost.QUERY_ONLY,
     # Every quadrature knob re-runs the integrals. That is affordable — the default 1D
-    # path is ~2 ms — which is what keeps analytical the one real-time engine (§4.3).
-    # `n_quad_u > 1` is the exception: the exact 2D mode costs ~40-800 ms and is a
-    # deliberate semi-analytical tier, not something to re-trigger per keystroke (D043).
+    # path is ~2 ms, keeping analytical the one real-time engine (§4.3). `n_quad_u > 1`
+    # is the exception: the exact 2D mode costs ~40-800 ms (D043).
     "n_quad": RecomputeCost.FULL_RERUN,
     "n_quad_overlap": RecomputeCost.FULL_RERUN,
     "n_quad_u": RecomputeCost.FULL_RERUN,
@@ -62,31 +61,22 @@ class AnalyticalEngine:
         photon_energy = metrics.photon_energy()
         n_quad = params.get_int("n_quad")
 
-        # The general overlap integral, not `formulas.estimate_yield`'s round-beam closed
-        # form: it keeps the per-axis sizes, the Twiss `alpha` (electron waist offset), the
-        # astigmatic laser waists and the `psi_focus` rotation that this collision geometry
-        # actually has, and it uses this repository's own Rayleigh-range convention
-        # (`DECISIONS.md` D039/D040). The closed form stays available as the reduction
-        # anchor and port-fidelity pin, but the engine does not ship its approximations.
+        # The general overlap integral (`overlap_yield`), not `formulas.estimate_yield`'s
+        # round-beam closed form — the latter stays only as a reduction anchor and
+        # port-fidelity pin (D039/D040).
         n_quad_overlap = params.get_int("n_quad_overlap")
         n_quad_u = params.get_int("n_quad_u")
         total_yield = overlap_yield(beam, metrics, interaction.N_e, n_quad_overlap, n_quad_u)
-        # Target already owns the two collimation half-angles separately; a single
-        # scalar theta_col for the width breakdown is their geometric mean, the same
-        # x/y-combining convention `formulas.py` uses for the laser waist (D038).
+        # Target owns theta_x_col/theta_y_col separately; theta_col here is their
+        # geometric mean, matching `formulas.py`'s x/y-combining convention (D038).
         theta_col = math.sqrt(target.m("theta_x_col") * target.m("theta_y_col"))
-        # The a0 the bunch actually samples, not the pulse's own peak: electrons arriving
-        # off-focus or off-peak scatter at lower intensity, and this weights each by the
-        # rate at which it does so. Closes the last part of the foci-displacement growth
-        # item for the width, which `estimate_spectrum_width` alone could not (D042).
+        # The a0 the bunch actually samples (luminosity-weighted), not the pulse's own
+        # peak — the width's remaining foci-displacement gap (D042).
         mean_a0_sq = overlap_mean_a0_sq(beam, metrics, n_quad_overlap, n_quad_u)
-        # The cycle-averaged normalized intensity `<a^2>`, which is what red-shifts the
-        # resonance. `overlap_mean_a0_sq` returns a mean of `a0_profile**2` — a *peak*
-        # amplitude squared — so the cycle average is applied here. Asking the laser for
-        # its own factor rather than writing 0.5 keeps this engine and xigma pinned to one
-        # definition (D053/D054); the disagreement between them is what found the missing
-        # factor in the first place, and D054 made the same quantity polarization-agnostic
-        # on xigma's side by routing Stage 0 through `intensity_profile` directly.
+        # The cycle-averaged normalized intensity `<a^2>`: `overlap_mean_a0_sq` returns a
+        # mean of *peak*-amplitude-squared, so the cycle-average factor is applied here.
+        # Read from the laser, not hardcoded, to stay pinned to xigma's own definition
+        # (D053/D054).
         ahat = metrics.cycle_average_factor() * mean_a0_sq
         width = estimate_spectrum_width(beam, metrics, theta_col, mean_a0_sq)
 
@@ -163,13 +153,11 @@ class AnalyticalEngine:
         if kind is OutputKind.SPECTRUM:
             values = slice_axis_values(request, ranges)
             s = values[Axis.ENERGY] / (4.0 * photon_energy)
-            # angle_integrated_spectrum's raw shape (at N_e=1) integrates to "one
-            # scattering attempt per electron," not a photon count. SPECTRUM is defined
-            # as total_yield times that shape's normalized density — not two
-            # independently-estimated quantities reconciled after the fact — so that
-            # PhasespaceSlice.integrate() reproduces total_yield exactly (§7), matching
-            # against the grid's own discrete integral rather than the analytic value of
-            # 1 (DECISIONS.md D036).
+            # angle_integrated_spectrum's raw shape (at N_e=1) integrates to one
+            # scattering attempt per electron, not a photon count. SPECTRUM = total_yield
+            # times that shape's normalized density, matched against the grid's own
+            # discrete integral so PhasespaceSlice.integrate() reproduces total_yield
+            # exactly (D036).
             raw = angle_integrated_spectrum(beam.gamma0(), beam.sigma_gamma(), 1.0, s, n_quad, ahat)
             raw_dN_dE = raw / (4.0 * photon_energy)
             raw_integral = float(np.trapezoid(raw_dN_dE, values[Axis.ENERGY]))

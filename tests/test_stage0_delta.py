@@ -4,8 +4,7 @@ The physics assertions here are the ones §7 asks for: closed-form identities wh
 contract guarantees them, invariance where a knob must not matter, and convergence where
 a discretization must vanish. The ``2 pi`` of §9.1 used to be the exception — two methods
 that genuinely disagreed, with the test pinning the *derived* value rather than the
-convenient one so the disagreement stayed visible. Phase 3b closed it (`DECISIONS.md`
-D033), so those tests now pin one; what they still do is fail loudly if the factor comes
+convenient one so the disagreement stayed visible. Phase 3b closed it (D033), so those tests now pin one; what they still do is fail loudly if the factor comes
 back, which is the same job under a different expected number.
 """
 
@@ -219,7 +218,7 @@ def test_the_yield_is_linear_in_pulse_energy_and_a0_shape_is_not():
 
 @pytest.mark.parametrize("ellipticity", [0.0, 0.3, 1.0])
 def test_stage_0_is_bit_identical_under_any_polarization(ellipticity):
-    """`DECISIONS.md` D054's central claim, asserted as an **invariance** rather than as
+    """D054's central claim, asserted as an **invariance** rather than as
     the value of a constant.
 
     At fixed pulse energy the cycle-averaged intensity ``<a^2>`` does not depend on the
@@ -251,9 +250,7 @@ def test_ahat_is_a_plain_product_of_shape_and_peak_intensity(baseline):
 
     The paper's ``ahat = (a0^2 Tr Xi / 2) int|E|^4 / int|E|^2`` becomes
     ``<a^2>_peak * int|E|^4 / int|E|^2`` once ``<a^2> = C a0^2`` is substituted, so with
-    Stage 0 already carrying ``<a^2>`` there is nothing left to apply. Before D054 this
-    took a peak *amplitude* and multiplied by ``C = 1/2`` — arithmetically the same, but a
-    place where a factor could go missing, which is exactly what D053 found had happened.
+    Stage 0 already carrying ``<a^2>`` there is nothing left to apply.
 
     The second half is the reason the count is not double-corrected:
     `photon_density_scale` inverts the same energy→intensity chain, so ``luminosity`` is
@@ -369,10 +366,8 @@ def test_delta_counts_the_same_photons_as_stage_0(baseline):
 
     ``int dOmega`` of the paper's bare prefactor is ``2 pi`` analytically (delta's module
     docstring), which is exactly the factor `delta.DIFFERENTIAL_PREFACTOR` now removes, so
-    two paths that count the same photons report the same number. The predecessor recorded
-    the uncorrected ratio as "~6.3x ... not yet explained"; reproducing it from an
-    independent CGS implementation is what ruled out its coordinate normalization as the
-    cause, and the assertion below is what would surface it again.
+    two paths that count the same photons report the same number — this assertion is what
+    would surface the factor coming back.
 
     The tolerance covers the angular grid's truncation, which `expected_ratio` already
     corrects for approximately — a square grid reaches past the disc the correction

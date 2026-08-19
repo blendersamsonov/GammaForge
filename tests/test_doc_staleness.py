@@ -2,8 +2,12 @@
 
 Checks that backticked tokens in the "current-state" docs actually resolve — either as
 a real file somewhere in the repo, or as a real symbol in the installed `gammaforge`
-package (or a Python builtin). Scope is deliberately limited to `DECISIONS.md` for now;
-see that file's own D002 entry for why `GRAND_PLAN.md` and `PROGRESS.md` are excluded.
+package (or a Python builtin). Scope is every decision file under
+`docs/decisions/{proposed,implemented,rejected}/` — not `archived/`, which describes code
+that's since moved or gone, and not `docs/decisions/README.md`/`INDEX.md`, which are
+navigation/meta prose in the same category as `GRAND_PLAN.md`/`PROGRESS.md`. See
+`docs/decisions/` for why an after-the-fact decision log is the one place "every backtick
+resolves" is true by construction (originally D002; see its entry for the superseding id).
 
 This is a heuristic, not a full parser: a token that doesn't clearly look like a file
 path or a Python identifier is skipped rather than guessed at — a false positive here
@@ -24,7 +28,15 @@ from pathlib import Path
 import gammaforge
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CHECKED_DOCS = [REPO_ROOT / "DECISIONS.md"]
+CHECKED_DECISION_LIFECYCLES = ("proposed", "implemented", "rejected")
+
+
+def _checked_docs() -> list[Path]:
+    decisions_root = REPO_ROOT / "docs" / "decisions"
+    docs = []
+    for lifecycle in CHECKED_DECISION_LIFECYCLES:
+        docs.extend(sorted((decisions_root / lifecycle).rglob("*.md")))
+    return docs
 
 BACKTICK_RE = re.compile(r"`([^`\n]+)`")
 FILE_LIKE_RE = re.compile(r"^[\w./-]*\.[A-Za-z0-9]{1,15}$")
@@ -150,7 +162,7 @@ def _classify_and_check(token: str, names: set[str], classes: dict[str, type]) -
 def test_decisions_doc_backticks_resolve():
     names, classes = _package_symbol_index()
     failures = []
-    for doc in CHECKED_DOCS:
+    for doc in _checked_docs():
         text = doc.read_text()
         for token in BACKTICK_RE.findall(text):
             if _classify_and_check(token, names, classes) is False:
