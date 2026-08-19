@@ -3,11 +3,15 @@
 Checks that backticked tokens in the "current-state" docs actually resolve — either as
 a real file somewhere in the repo, or as a real symbol in the installed `gammaforge`
 package (or a Python builtin). Scope is every decision file under
-`docs/decisions/{proposed,implemented,rejected}/` — not `archived/`, which describes code
-that's since moved or gone, and not `docs/decisions/README.md`/`INDEX.md`, which are
-navigation/meta prose in the same category as `GRAND_PLAN.md`/`PROGRESS.md`. See
-`docs/decisions/` for why an after-the-fact decision log is the one place "every backtick
-resolves" is true by construction (originally D002; see its entry for the superseding id).
+`docs/decisions/{proposed,implemented,rejected}/` and every derivation file under
+`docs/derivations/{derived,validated,verified,rejected}/` — not either tree's
+`archived/`, which describes code that's since moved or gone, and not either tree's
+`README.md`/`INDEX.md`, which are navigation/meta prose in the same category as
+`GRAND_PLAN.md`/`PROGRESS.md`. See `docs/decisions/` for why an after-the-fact decision
+log is the one place "every backtick resolves" is true by construction (originally RES002;
+see its entry for the superseding id) — derivations extend the same reasoning: `derived`/
+`validated`/`verified` all describe a claim about real, present code or a real, present
+formula, not a future promise (RES057).
 
 This is a heuristic, not a full parser: a token that doesn't clearly look like a file
 path or a Python identifier is skipped rather than guessed at — a false positive here
@@ -29,13 +33,17 @@ import gammaforge
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CHECKED_DECISION_LIFECYCLES = ("proposed", "implemented", "rejected")
+CHECKED_DERIVATION_STATUSES = ("derived", "validated", "verified", "rejected")
 
 
 def _checked_docs() -> list[Path]:
     decisions_root = REPO_ROOT / "docs" / "decisions"
+    derivations_root = REPO_ROOT / "docs" / "derivations"
     docs = []
     for lifecycle in CHECKED_DECISION_LIFECYCLES:
         docs.extend(sorted((decisions_root / lifecycle).rglob("*.md")))
+    for status in CHECKED_DERIVATION_STATUSES:
+        docs.extend(sorted((derivations_root / status).rglob("*.md")))
     return docs
 
 BACKTICK_RE = re.compile(r"`([^`\n]+)`")

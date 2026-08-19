@@ -28,6 +28,13 @@ Note: `CLAUDE.md` is a symlink to this file. Edit the real file, not the symlink
    check in `tests/test_decision_format.py`.
    **Ids are an addressing scheme** — ~124 code comments cite `DNNN` bare (not a path), so
    entries are never renumbered and never deleted, only archived.
+4. **`docs/derivations/INDEX.md`** — the long-form physics derivations that back specific
+   code, one file per result under `docs/derivations/{status}/DVNNN-*.md`. Unlike a
+   decision, a derivation's status is a **confidence pipeline**, not a build lifecycle:
+   `derived` (worked out, not yet reviewed) → `validated` (a domain expert checked the
+   algebra) → `verified` (checked against code — a test, a closed-form limit, an
+   independent method). See `docs/derivations/README.md`. Cite `DVNNN` bare from code and
+   decisions the same way as a `D0NN` decision id.
 
 The physics authority is the paper draft at `~/Work/Papers/2026/Compton-Numerics`. It
 is in flux. **If code and paper disagree, that is BLOCKING — stop and flag it, don't
@@ -48,7 +55,7 @@ constraints (`GRAND_PLAN.md` §1 has the full table with provenance — P1–P15
   `Bunch` declares its units as data and converts through a scale factor. Never introduce
   a second internal unit system "for convenience", and note there is **no coordinate
   normalization** anywhere: xigma works in CGS directly, `k0_las` scaling is not carried
-  over from the predecessor (see D013–D015 in `docs/decisions/`).
+  over from the predecessor (see RES013–RES015 in `docs/decisions/`).
 - **No `gammaforge.core` package.** The shared layer is `gammaforge.io` — yes, that
   name is odd, it's kept for continuity with the predecessor. Don't add an intermediate
   layer between `io` and `engines`.
@@ -98,7 +105,7 @@ constraints (`GRAND_PLAN.md` §1 has the full table with provenance — P1–P15
   needed, ids are permanent. Keep it a pointer: one clause of current behavior plus the
   citation. If the surrounding comment grows past that — a derivation of *why*, rejected
   alternatives, historical numbers — that's a sign the content belongs in the decision
-  file, not the code; move it there and trim what's left to the pointer (D056; see
+  file, not the code; move it there and trim what's left to the pointer (RES056; see
   `docs/decisions/README.md`'s *Citing from code*).
 - **`PROGRESS.md`:** **do not append a session log.** Edit the phase table and the open
   threads in place, and delete what stopped being true — git holds the narrative. Anything
@@ -134,14 +141,15 @@ constraints (`GRAND_PLAN.md` §1 has the full table with provenance — P1–P15
 deliberately carries only what does not change between phases:
 
 - Most module files named in `GRAND_PLAN.md` are **deliberately absent** until their phase
-  lands (D003 in `docs/decisions/`). Check before assuming one exists; the knowledge graph
+  lands (RES003 in `docs/decisions/`). Check before assuming one exists; the knowledge graph
   (`graphify query`) answers this faster than grep.
 - Only the **numpy** backend is real. `cupy`/`numba` are gated everywhere they appear.
 - **§9.2 and §9.3 are open derivations the paper does not contain**, wired as documented
   no-ops with `validate()` warnings and one-line markers (`ELLIPTICITY_IS_NOOP`,
   `EMISSION_IS_HEAD_ON`). Don't "fix" either by inventing a formula — that is the specific
-  failure P14c names. `docs/DERIVATIONS.md` holds what has been derived and what each
-  result is blocked on; `PROGRESS.md`'s open threads say which parts are already closed.
+  failure P14c names. `docs/derivations/` (DER004, DER005) holds what has been derived and
+  what each result is blocked on; `PROGRESS.md`'s open threads say which parts are
+  already closed.
 
 
 ## Behavioral guidelines to reduce common LLM coding mistakes. 

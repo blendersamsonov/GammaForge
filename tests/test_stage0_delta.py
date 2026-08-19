@@ -4,7 +4,7 @@ The physics assertions here are the ones §7 asks for: closed-form identities wh
 contract guarantees them, invariance where a knob must not matter, and convergence where
 a discretization must vanish. The ``2 pi`` of §9.1 used to be the exception — two methods
 that genuinely disagreed, with the test pinning the *derived* value rather than the
-convenient one so the disagreement stayed visible. Phase 3b closed it (D033), so those tests now pin one; what they still do is fail loudly if the factor comes
+convenient one so the disagreement stayed visible. Phase 3b closed it (RES033), so those tests now pin one; what they still do is fail loudly if the factor comes
 back, which is the same job under a different expected number.
 """
 
@@ -218,7 +218,7 @@ def test_the_yield_is_linear_in_pulse_energy_and_a0_shape_is_not():
 
 @pytest.mark.parametrize("ellipticity", [0.0, 0.3, 1.0])
 def test_stage_0_is_bit_identical_under_any_polarization(ellipticity):
-    """D054's central claim, asserted as an **invariance** rather than as
+    """RES054's central claim, asserted as an **invariance** rather than as
     the value of a constant.
 
     At fixed pulse energy the cycle-averaged intensity ``<a^2>`` does not depend on the
@@ -246,7 +246,7 @@ def test_stage_0_is_bit_identical_under_any_polarization(ellipticity):
 
 
 def test_ahat_is_a_plain_product_of_shape_and_peak_intensity(baseline):
-    """No cycle-average factor survives in `ahat_from_shape` (D054).
+    """No cycle-average factor survives in `ahat_from_shape` (RES054).
 
     The paper's ``ahat = (a0^2 Tr Xi / 2) int|E|^4 / int|E|^2`` becomes
     ``<a^2>_peak * int|E|^4 / int|E|^2`` once ``<a^2> = C a0^2`` is substituted, so with
@@ -274,7 +274,7 @@ def test_retargeting_ahat_matches_running_the_other_pulse(baseline):
 @pytest.mark.parametrize("ellipticity", [0.0, 0.5, 1.0])
 def test_the_photon_density_scale_inverts_the_lasers_own_intensity_chain(ellipticity):
     """Stage 0 reads the whole laser through ``intensity_profile``; this is why that is
-    enough — and why the conversion needs no polarization input (D054).
+    enough — and why the conversion needs no polarization input (RES054).
 
     Parametrized over ``ellipticity`` deliberately: the identity is exact for every
     polarization state because both sides are built from the same photon density, which is
@@ -362,7 +362,7 @@ def test_delta_off_axis_is_redshifted_relative_to_on_axis(baseline):
 
 
 def test_delta_counts_the_same_photons_as_stage_0(baseline):
-    """§9.1, closed (D033) — and the tripwire that keeps it closed.
+    """§9.1, closed (RES033) — and the tripwire that keeps it closed.
 
     ``int dOmega`` of the paper's bare prefactor is ``2 pi`` analytically (delta's module
     docstring), which is exactly the factor `delta.DIFFERENTIAL_PREFACTOR` now removes, so

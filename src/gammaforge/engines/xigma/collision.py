@@ -3,14 +3,14 @@
 Owns one fixed `InteractionParameters` + xigma `Parameters` pair and memoizes what its
 stages produce from them — Stage 0's `TrajectorySamples`, Stage 1's `ShapeTable` (at most
 once, peak-a0-agnostic), and Stage 1.5's retargeted `Table` per requested peak a0
-(D032) — so calling `spectrum`/`angular_spectrum`/`spectrum_in_angular_range`
+(RES032) — so calling `spectrum`/`angular_spectrum`/`spectrum_in_angular_range`
 more than once, or asking `run()` for several outputs that all need the same table, does
 the expensive work exactly once. `XigmaEngine.run()` (`engine.py`) builds one `Collision`
 per call; notebooks may hold one across several queries.
 
 **What this does not do.** It does not detect "only field X changed" across *different*
 `InteractionParameters` instances. A `Collision` is cheap to reuse, not smart about being
-replaced (D030).
+replaced (RES030).
 """
 
 from __future__ import annotations
@@ -98,7 +98,7 @@ class Collision:
         `_shape` no matter how many pulse strengths are retargeted from it.
 
         The key is a cycle-averaged **intensity**, not an amplitude, so no polarization
-        convention crosses this boundary (D054)."""
+        convention crosses this boundary (RES054)."""
         key = self.build_overlap().intensity_peak if intensity_peak is None else intensity_peak
         if key not in self._tables:
             self._tables[key] = retarget_ahat(

@@ -72,7 +72,7 @@ def test_build_overlap_is_memoized():
 
 def test_shape_is_memoized():
     """Stage 1's shape deposit runs at most once per `Collision`, regardless of how many
-    distinct peak a0 values `_table()` is later asked for (D032)."""
+    distinct peak a0 values `_table()` is later asked for (RES032)."""
     interaction = _interaction()
     collision = Collision(interaction=interaction, params=_engine_params())
     first = collision._shape()
@@ -93,7 +93,7 @@ def test_table_is_memoized_per_pulse_strength():
     # luminosity retargets linearly in the peak intensity along with ahat
     # (TrajectorySamples.retargeted_luminosity, applied through retarget_ahat) — twice the
     # peak <a^2> is exactly 2x the total weight (the regrid's overlap weights are
-    # row-stochastic, D032).
+    # row-stochastic, RES032).
     assert table_c.total_weight == pytest.approx(2.0 * table_a.total_weight, rel=1e-9)
 
 
@@ -119,7 +119,7 @@ def test_total_yield_and_spectrum_integral_converge_to_the_same_number():
 
 
 def test_the_two_normalization_paths_inside_one_results_object_agree():
-    """`Results` mixes two independent spectral paths, and only this compares them (D033).
+    """`Results` mixes two independent spectral paths, and only this compares them (RES033).
 
     `SPECTRUM` comes from `stages.angle_integrated_spectrum` — Stage 0's own closed form,
     which never touches the table or its kernel constant. Every angular output comes from
@@ -131,7 +131,7 @@ def test_the_two_normalization_paths_inside_one_results_object_agree():
     radiation cone, so this test manually widens `Target`'s collimation half-angles to
     ``~4.6/gamma0`` instead of the baseline scenario's much narrower default. It lands
     somewhat low, and the deficit is understood window/quadrature slack, not a hidden
-    factor of ``2 pi`` (D033 has the numbers).
+    factor of ``2 pi`` (RES033 has the numbers).
     """
     interaction = _interaction(n_particles=4000)
     wide = 4.6 / interaction.beam.gamma0()

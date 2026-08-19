@@ -21,7 +21,7 @@ configuration is then carried into the real 3D geometry by
 lab y-axis. The roll about k-hat is *determined by that composition order*, not a free
 parameter, which is exactly why the order is pinned rather than left to the caller.
 
-**Two quantities, and which one is physics** (D054). :meth:`intensity_profile`
+**Two quantities, and which one is physics** (RES054). :meth:`intensity_profile`
 returns the cycle-averaged ``<a^2>``; :meth:`a0_profile` returns the peak amplitude ``a0``.
 Engines want the first. ``<a^2>`` at fixed pulse energy is **the same for every polarization
 state** — an elliptical pulse's ``a0`` is smaller by ``sqrt(2C)`` and its cycle average
@@ -36,7 +36,7 @@ one is still partial; both say so out loud rather than passing unremarked:
   — by being irrelevant to them, per the invariance above. It is **not** applied to xigma's
   *angle-resolved* kernel, whose polarization factor is still the linear ``cos^2 psi``
   rather than ``(cos^2 psi + eps^2 sin^2 psi)/(1 + eps^2)`` (§9.2,
-  `docs/DERIVATIONS.md` §1.2). That is the only place a contraction against an observation
+  DER004 §1.2). That is the only place a contraction against an observation
   direction can distinguish an ellipse from a line, so the split falls where the physics
   puts it. :data:`ELLIPTICITY_IS_NOOP` marks that one remaining consumer.
 * ``theta_xz``/``theta_yz`` are **geometry-only**. The rotation above is applied
@@ -83,10 +83,10 @@ __all__ = [
 
 #: ``ellipticity`` is applied to **everything that depends on the cycle-averaged
 #: intensity** — the photon yield and the mean nonlinear red-shift (`ahat`) — as of
-#: D054. What remains unapplied is narrower and lives in one place:
+#: RES054. What remains unapplied is narrower and lives in one place:
 #: xigma's **angle-resolved** kernel still uses the linear polarization factor
 #: ``cos^2 psi`` rather than the elliptical ``(cos^2 psi + eps^2 sin^2 psi)/(1 + eps^2)``
-#: (`docs/DERIVATIONS.md` §1.2). Flipping this to False when that lands is the one-line
+#: (DER004 §1.2). Flipping this to False when that lands is the one-line
 #: marker — grep for it.
 #:
 #: The reason the split is *exactly* here, rather than being an arbitrary staging: the
@@ -355,7 +355,7 @@ class GaussianParaxialLaser:
     def rayleigh_x(self) -> float:
         """Rayleigh range of focusing axis 1, cm.
 
-        **The conversion is the whole content of this method** (D040). The textbook formula
+        **The conversion is the whole content of this method** (RES040). The textbook formula
         ``z_R = pi w0^2 / lambda`` is stated in the **1/e² convention**: ``w0`` is the
         radius at which intensity falls to ``e^-2`` of its on-axis value. This class stores
         widths as **RMS of the photon-density (= intensity) profile**
@@ -367,7 +367,7 @@ class GaussianParaxialLaser:
         hence ``z_R = 4 pi sigma^2 / lambda``. Anything that reads a Rayleigh range or a
         divergence off a stored ``sigma`` **must** go through that factor of two in the
         radius — skipping it is a factor of 4 in ``z_R`` and in the far-field angle
-        ``sigma / z_R`` (D040).
+        ``sigma / z_R`` (RES040).
 
         The flying-focus factor stretches it by ``(1 + beta_ff)``, the predecessor's xigma
         convention.
@@ -460,12 +460,12 @@ class GaussianParaxialLaser:
 
             <a^2> = (e / m_e c omega0)^2 * 4 pi E_pulse * photon_density
 
-        with no ``C`` and therefore no ``ellipticity`` anywhere in it (D054's Rationale has
+        with no ``C`` and therefore no ``ellipticity`` anywhere in it (RES054's Rationale has
         the numeric check).
 
         That is why `engines.xigma.stages` integrates this method, not :meth:`a0_profile` —
         forming ``a0`` first and re-applying a polarization factor round-trips through a
-        convention-dependent number (D053/D054).
+        convention-dependent number (RES053/RES054).
 
         Note the ``4 pi`` rather than ``8 pi``: this is the cycle **average**, whereas
         :meth:`a0_profile` returns the **peak** amplitude of a linearly polarized field.
@@ -481,7 +481,7 @@ class GaussianParaxialLaser:
         ``E0 = sqrt(8 pi E_pulse * density)`` and ``a0 = e E0 / (m_e c omega0)``.
 
         ``ellipticity`` does **not** enter — ``a0`` is reported as the **linear-equivalent
-        peak amplitude**, a stated convention (D054), so that a number quoted as "a0 = 2"
+        peak amplitude**, a stated convention (RES054), so that a number quoted as "a0 = 2"
         means the same field strength regardless of how the pulse is polarized. The
         elliptical peak amplitude, if it is ever wanted, is this divided by ``sqrt(2 C)``
         (:meth:`cycle_average_factor`).

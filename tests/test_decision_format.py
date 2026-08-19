@@ -25,8 +25,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 LIFECYCLES = ("proposed", "implemented", "rejected", "archived")
 CLASSES = ("feature", "bug-fix", "simplification", "architecture", "process", "testing")
 
-FILENAME_RE = re.compile(r"^(D\d{3,})-[a-z0-9-]+\.md$")
-TITLE_LINE_RE = re.compile(r"^# (D\d{3,}) — (.+)$")
+FILENAME_RE = re.compile(r"^(RES\d{3,})-[a-z0-9-]+\.md$")
+TITLE_LINE_RE = re.compile(r"^# (RES\d{3,}) — (.+)$")
 STATUS_LINE_RE = re.compile(r"^Status: (proposed|implemented|rejected — .+)$")
 CLASS_LINE_RE = re.compile(r"^Class: ([a-z-]+)$")
 ARCHIVED_LINE_RE = re.compile(r"^Archived: (\d{4}-\d{2}-\d{2})$")
@@ -77,7 +77,7 @@ def _header_errors(df: DecisionFile) -> list[str]:
 
     title_match = TITLE_LINE_RE.match(lines[0]) if lines else None
     if not title_match:
-        errors.append("first line must be '# DNNN — <title>'")
+        errors.append("first line must be '# RESNNN — <title>'")
     elif title_match.group(1) != df.id_:
         errors.append(f"title id {title_match.group(1)} != filename id {df.id_}")
 
@@ -162,7 +162,7 @@ def _index_errors(decisions: list[DecisionFile], index_path: Path) -> list[str]:
     index_text = index_path.read_text()
     index_rows = {}
     for line in index_text.splitlines():
-        m = re.match(r"^\|\s*(D\d{3,})\s*\|.*\|\s*([a-z-]+)\s*\|\s*(\S+)\s*\|\s*(\S+)\s*\|$", line)
+        m = re.match(r"^\|\s*(RES\d{3,})\s*\|.*\|\s*([a-z-]+)\s*\|\s*(\S+)\s*\|\s*(\S+)\s*\|$", line)
         if m:
             index_rows[m.group(1)] = {"class": m.group(2), "status": m.group(3), "path": m.group(4)}
 

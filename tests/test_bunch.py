@@ -528,7 +528,7 @@ def test_validate_warns_about_a_units_mix_up():
 
 
 # ---------------------------------------------------------------------------
-# Dimensional typing at the engine boundary (GRAND_PLAN.md §2.1, DECISIONS D013)
+# Dimensional typing at the engine boundary (GRAND_PLAN.md §2.1, DECISIONS RES013)
 # ---------------------------------------------------------------------------
 # The point of typing these fields is that a unit mistake at an engine boundary becomes an
 # exception instead of a silent factor-of-100 error in the answer. These tests assert that

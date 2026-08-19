@@ -11,7 +11,7 @@ honest about what it did rather than silently doing less:
   prefilter discarding only particles the pulse never reaches). These run now.
 * **identities** — methods that must agree on the same number: Stage 0's total yield, the
   closed-form single-electron spectrum, and delta's brute-force angular integral. All
-  three agree on 1 (§9.1, D033); this leg is what would catch that factor coming back. A
+  three agree on 1 (§9.1, RES033); this leg is what would catch that factor coming back. A
   fourth leg compares Stage 2's own table kernel against delta at one point; both carry
   the same §9.1 factor, so it is deliberately blind to the normalization — it checks
   deposition and interpolation instead.
@@ -26,7 +26,7 @@ applied to a registered engine. They are not stubbed here: an empty engine list 
 an empty engine list, and the section appears when an engine does. **`XigmaEngine`
 exists** (`engines/xigma/engine.py`) but is not passed to `run_suite` by `main()` below —
 the scenario bank's default output resolution is too slow against this phase's numpy
-kernel for a suite run meant to be exercised routinely (D031).
+kernel for a suite run meant to be exercised routinely (RES031).
 `tests/test_xigma_engine.py` and `tests/test_stage1_stage2.py` exercise it at a
 suite-appropriate scale instead.
 """
@@ -122,7 +122,7 @@ def identity_checks(scenarios: Sequence[Scenario]) -> list[Check]:
     independent brute-force path. All three agree on one.
 
     **The delta leg is the §9.1 tripwire.** It watches a ratio that must equal 1; before
-    §9.1 closed it read a derived ``2 pi`` instead (D026, D033) — this leg is what would
+    §9.1 closed it read a derived ``2 pi`` instead (RES026, RES033) — this leg is what would
     catch that factor coming back.
 
     The fourth leg (Phase 3a) is Stage 2's own table kernel against delta, at one
@@ -167,13 +167,13 @@ def identity_checks(scenarios: Sequence[Scenario]) -> list[Check]:
             detail=f"anchor ratio {normalization.anchor_ratio:.6f} (identity, up to binning)",
         ))
         checks.append(Check(
-            name=f"{scenario.name} delta/Stage 0 = 1 (\u00a79.1 closed, D033)",
+            name=f"{scenario.name} delta/Stage 0 = 1 (\u00a79.1 closed, RES033)",
             passed=abs(normalization.deviation) <= 2e-2,
             detail=normalization.summary(),
         ))
 
         # Fourth leg: Stage 2's table kernel against delta's particle-based histogram, at
-        # one observation point. Both carry the same normalization constant (D033), so this
+        # one observation point. Both carry the same normalization constant (RES033), so this
         # ratio is deliberately insensitive to it — it checks deposition and interpolation.
         # CIC, not the default `nearest`: evaluating exactly at the beam centre
         # aliases against a nearest-deposited table's own cell boundaries

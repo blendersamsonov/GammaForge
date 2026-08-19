@@ -21,16 +21,16 @@ Every decision has three axes, all encoded in its **path and filename**:
   - **`rejected/`** — considered and declined. Never deleted (see *Archiving* below) —
     only moved to `archived/` once its rationale stops being load-bearing.
 - **Class** (nested folder) is the *kind* of decision, from the closed set below.
-- **`DNNN`** is a permanent, sequential id — `D001`, `D002`, … — assigned once, in filename
+- **`DNNN`** is a permanent, sequential id — `RES001`, `RES002`, … — assigned once, in filename
   order across the whole tree regardless of lifecycle or class, and **never reused**, so
-  code comments can cite one bare (`D013`, not a path) and it stays resolvable even after
+  code comments can cite one bare (`RES013`, not a path) and it stays resolvable even after
   the file it names moves between folders. The slug after the id is a short, lowercase,
   hyphenated summary of the title — free to reword if the title changes, since the id, not
   the slug, is the permanent handle. Slugs are ASCII, letters/digits/hyphens only; a
   section number like "§9.1" in a title becomes `9-1` in the slug, not `9.1` — the
-  filename-format gate does not accept a literal period (`D026-9-1-resolved-missing-
-  factor-in-paper.md`, `D033-9-1-closed-both-transcriptions-1-over-2pi.md`,
-  `D027-phase2-5-review-round-corrections.md` are this repo's three examples).
+  filename-format gate does not accept a literal period (`RES026-9-1-resolved-missing-
+  factor-in-paper.md`, `RES033-9-1-closed-both-transcriptions-1-over-2pi.md`,
+  `RES027-phase2-5-review-round-corrections.md` are this repo's three examples).
 
 `docs/decisions/INDEX.md` is the map: `id | title | class | status | path`. Update it in
 the same change as any new decision or any lifecycle move — `test_decision_format.py`
@@ -56,8 +56,8 @@ Each decision belongs to one class from this closed set:
 
 Classify by what *kind* of change the decision produced, not by which domain motivated
 it — a missing factor caught by working through the underlying physics by hand
-(`D026`/`D033`/`D053`) is still a `bug-fix`, the same as one a unit test would have caught
-(`D007`/`D012`/`D014`/`D021`/`D022`).
+(`RES026`/`RES033`/`RES053`) is still a `bug-fix`, the same as one a unit test would have caught
+(`RES007`/`RES012`/`RES014`/`RES021`/`RES022`).
 
 ## When to write one
 
@@ -93,9 +93,9 @@ to avoid reintroducing a bug or breaking an invariant — a derivation needed to
 formula, a "do not do X here, that reintroduces Y" warning. That stays in the code, in
 the code's own voice, decision id attached, even where it overlaps with what the decision
 file also says. **Worked example in this repo:** `docs/decisions/implemented/architecture/
-D054-*.md`'s Decision/Rationale carries the full `<a^2> = C a0^2` derivation and offsetting
+RES054-*.md`'s Decision/Rationale carries the full `<a^2> = C a0^2` derivation and offsetting
 argument; `io/laser.py`'s and `stages.py`'s docstrings state the current facts in one or
-two clauses each and cite `(D054)`, not the derivation (D056).
+two clauses each and cite `(RES054)`, not the derivation (RES056).
 
 ## Archiving (and why nothing is ever deleted)
 
@@ -127,16 +127,16 @@ short pointer paragraph at the very top of its body, before `## Problem`:
 The rest of the archived file's body is untouched — it's still the historical record of
 what was decided and why, at the time it was decided.
 
-**Worked example in this repo:** `archived/architecture/D024-*.md` and
-`archived/testing/D025-*.md` are both fully superseded (by `D054` and `D033`
-respectively) and carry this pointer. `archived/architecture/D028-*.md` is superseded by
-`implemented/architecture/D032-*.md` within the same development session — the pointer
+**Worked example in this repo:** `archived/architecture/RES024-*.md` and
+`archived/testing/RES025-*.md` are both fully superseded (by `RES054` and `RES033`
+respectively) and carry this pointer. `archived/architecture/RES028-*.md` is superseded by
+`implemented/architecture/RES032-*.md` within the same development session — the pointer
 paragraph and the `Archived:` date (`2026-08-08`) were both traced from the commit that
 landed the superseding decision, not invented, since the original prose only said "within
 the same session."
 
-Not every supersession is a full replacement. `D041` and `D054` each supersede only *part*
-of an earlier decision (`D039`'s crossing-angle refusal, and `D053`'s cycle-average-constant
+Not every supersession is a full replacement. `RES041` and `RES054` each supersede only *part*
+of an earlier decision (`RES039`'s crossing-angle refusal, and `RES053`'s cycle-average-constant
 mechanism respectively) — the earlier decision is still substantially current, so it stays
 in `implemented/` rather than moving to `archived/`, with the partial correction noted
 inline in its own body rather than via the full archive-and-point mechanism above. Use
@@ -157,7 +157,7 @@ append a dated, quoted note under a trailing `## Amendments` section instead:
 ```
 
 This keeps the log honest about what was believed when, rather than quietly rewriting
-history to look right in hindsight. `implemented/bug-fix/D040-*.md` is this repo's worked
+history to look right in hindsight. `implemented/bug-fix/RES040-*.md` is this repo's worked
 example: two dated corrections, originally interleaved through the middle of the entry,
 consolidated into one trailing `## Amendments` section without changing their wording.
 
@@ -173,9 +173,9 @@ superseded-by pointer):
 resolve a collision with parallel work on `<branch>`.)*
 ```
 
-**Worked example in this repo:** `implemented/simplification/D052-*.md` was originally
-written as `D035` and renumbered on `2026-08-10` after a parallel Phase-4 branch had
-already claimed `D035`–`D051`. The note sits at the top of `D052`'s body, above `##
+**Worked example in this repo:** `implemented/simplification/RES052-*.md` was originally
+written as `RES035` and renumbered on `2026-08-10` after a parallel Phase-4 branch had
+already claimed `RES035`–`RES051`. The note sits at the top of `RES052`'s body, above `##
 Problem`, exactly as above.
 
 ## The file format

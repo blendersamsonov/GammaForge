@@ -2,7 +2,7 @@
 
 `base` defines the interface itself — the `Engine` protocol (§4.1) and the
 `RecomputeCost` tiers (§5). It exists ahead of the engines because the validation harness
-runs *an engine* and needs a name for what that is (D018); the `ENGINES`
+runs *an engine* and needs a name for what that is (RES018); the `ENGINES`
 registry does not, and arrives with the first engine to register.
 
 Will hold `xigma` (first-class), `analytical` (first-class), `kascade` (minimal port).

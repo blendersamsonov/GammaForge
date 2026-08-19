@@ -39,7 +39,7 @@ RECOMPUTE_COSTS: dict[str, RecomputeCost] = {
     "n_e": RecomputeCost.QUERY_ONLY,
     # Every quadrature knob re-runs the integrals. That is affordable — the default 1D
     # path is ~2 ms, keeping analytical the one real-time engine (§4.3). `n_quad_u > 1`
-    # is the exception: the exact 2D mode costs ~40-800 ms (D043).
+    # is the exception: the exact 2D mode costs ~40-800 ms (RES043).
     "n_quad": RecomputeCost.FULL_RERUN,
     "n_quad_overlap": RecomputeCost.FULL_RERUN,
     "n_quad_u": RecomputeCost.FULL_RERUN,
@@ -63,20 +63,20 @@ class AnalyticalEngine:
 
         # The general overlap integral (`overlap_yield`), not `formulas.estimate_yield`'s
         # round-beam closed form — the latter stays only as a reduction anchor and
-        # port-fidelity pin (D039/D040).
+        # port-fidelity pin (RES039/RES040).
         n_quad_overlap = params.get_int("n_quad_overlap")
         n_quad_u = params.get_int("n_quad_u")
         total_yield = overlap_yield(beam, metrics, interaction.N_e, n_quad_overlap, n_quad_u)
         # Target owns theta_x_col/theta_y_col separately; theta_col here is their
-        # geometric mean, matching `formulas.py`'s x/y-combining convention (D038).
+        # geometric mean, matching `formulas.py`'s x/y-combining convention (RES038).
         theta_col = math.sqrt(target.m("theta_x_col") * target.m("theta_y_col"))
         # The a0 the bunch actually samples (luminosity-weighted), not the pulse's own
-        # peak — the width's remaining foci-displacement gap (D042).
+        # peak — the width's remaining foci-displacement gap (RES042).
         mean_a0_sq = overlap_mean_a0_sq(beam, metrics, n_quad_overlap, n_quad_u)
         # The cycle-averaged normalized intensity `<a^2>`: `overlap_mean_a0_sq` returns a
         # mean of *peak*-amplitude-squared, so the cycle-average factor is applied here.
         # Read from the laser, not hardcoded, to stay pinned to xigma's own definition
-        # (D053/D054).
+        # (RES053/RES054).
         ahat = metrics.cycle_average_factor() * mean_a0_sq
         width = estimate_spectrum_width(beam, metrics, theta_col, mean_a0_sq)
 
@@ -157,7 +157,7 @@ class AnalyticalEngine:
             # scattering attempt per electron, not a photon count. SPECTRUM = total_yield
             # times that shape's normalized density, matched against the grid's own
             # discrete integral so PhasespaceSlice.integrate() reproduces total_yield
-            # exactly (D036).
+            # exactly (RES036).
             raw = angle_integrated_spectrum(beam.gamma0(), beam.sigma_gamma(), 1.0, s, n_quad, ahat)
             raw_dN_dE = raw / (4.0 * photon_energy)
             raw_integral = float(np.trapezoid(raw_dN_dE, values[Axis.ENERGY]))

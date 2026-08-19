@@ -32,8 +32,8 @@ paper's own prefactor of ``3``::
 
 That is ``2 pi`` times the photon count Stage 0 assigned the particle, not the count
 itself, and the two lines above are the whole proof that the paper's eq. *(xsec)* is short
-a ``1/(2 pi)`` (D026). :data:`DIFFERENTIAL_PREFACTOR` now carries that correction, so this
-module computes the *corrected* physics rather than the equation as typeset — see D033 for
+a ``1/(2 pi)`` (RES026). :data:`DIFFERENTIAL_PREFACTOR` now carries that correction, so this
+module computes the *corrected* physics rather than the equation as typeset — see RES033 for
 why a reference implementation follows the derivation and not the typo, and
 :func:`check_normalization`, which as of Phase 3b expects **one**.
 """
@@ -58,7 +58,7 @@ __all__ = [
     "DIFFERENTIAL_PREFACTOR",
 ]
 
-#: The bare differential cross-section's prefactor, ``3 / (2 pi)`` (§9.1, D026/D033).
+#: The bare differential cross-section's prefactor, ``3 / (2 pi)`` (§9.1, RES026/RES033).
 #: The paper's eq. *(xsec)* reads ``3`` and is short a factor ``1/(2 pi)``; the module
 #: docstring's two elementary integrals are the derivation. delta implements the corrected
 #: value so that its angle-integral is a photon count — the same number Stage 0 counts
@@ -184,7 +184,7 @@ class NormalizationCheck:
     ``ratio`` is delta's angle-integrated photon count divided by Stage 0's own total
     yield. It must be **one**, before truncation: two paths counting the same photons.
     Until Phase 3b it was ``2 pi``, which is the §9.1 story in a single number — see the
-    module docstring for the derivation and D033 for the closure.
+    module docstring for the derivation and RES033 for the closure.
 
     ``anchor_ratio`` is the same quotient for the closed-form
     :func:`single_electron_spectrum`, which is **exactly one** by construction. It is
@@ -247,8 +247,8 @@ def check_normalization(
     CGS reimplementation, so the predecessor's ~6.3 was not an artefact of its coordinate
     normalization.
 
-    **The factor is now applied at the source, not here** (D033). :data:`DIFFERENTIAL_PREFACTOR`
-    carries the ``1/(2 pi)`` D026 derived, so this ratio reads one and departures from one
+    **The factor is now applied at the source, not here** (RES033). :data:`DIFFERENTIAL_PREFACTOR`
+    carries the ``1/(2 pi)`` RES026 derived, so this ratio reads one and departures from one
     are what the harness watches — including a departure of ``2 pi``, which would mean a
     prefactor got reverted. P14's rule is intact: the constant was predicted from the
     derivation and then confirmed against this number, not tuned until this number

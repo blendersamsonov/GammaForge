@@ -1,5 +1,5 @@
 """Stage 1 (a0_shape deposition), the ahat retarget, and Stage 2 (spectrum queries),
-GRAND_PLAN.md §4.2, Phase 3a (D032).
+GRAND_PLAN.md §4.2, Phase 3a (RES032).
 
 Stage 1's job is conservation: every particle's weight lands somewhere in the shape
 table, and the table's own total agrees with Stage 0's regardless of resolution or scheme.
@@ -12,7 +12,7 @@ implementation of the same differential form — to within grid/interpolation er
 
 Most of those are ratios between two paths carrying the same normalization, which is what
 makes them robust and also what makes them blind: `test_the_table_kernel_angle_integrates_to_stage_0_total`
-is the one absolute check, and the one that pins §9.1's constant (D033).
+is the one absolute check, and the one that pins §9.1's constant (RES033).
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ def baseline():
 
 
 def _synthetic_samples(n=20_000, gamma0=2000.0, seed=0, a0_shape=1.0, intensity_peak=0.045):
-    """``intensity_peak`` is the peak cycle-averaged ``<a^2>`` (D054), so ``ahat`` is just
+    """``intensity_peak`` is the peak cycle-averaged ``<a^2>`` (RES054), so ``ahat`` is just
     ``intensity_peak * a0_shape``. The default reproduces the ``a0_peak=0.3`` linear pulse
     these fixtures used before the rename: ``0.5 * 0.3**2 = 0.045``."""
     rng = np.random.default_rng(seed)
@@ -139,9 +139,9 @@ def test_shape_table_rejects_a_shape_mismatched_H():
 
 
 def test_deposition_is_cheap_next_to_stage_0(baseline):
-    """The measurement D028/D032 rests on: deposit_shape_table's cost
+    """The measurement RES028/RES032 rests on: deposit_shape_table's cost
     against integrate_trajectories's, for the same particle count. If deposition were not
-    cheap, caching the shape table once per `Collision` (D032) rather than per particle
+    cheap, caching the shape table once per `Collision` (RES032) rather than per particle
     count would matter far less.
     """
     import time
@@ -199,7 +199,7 @@ def test_retarget_ahat_conserves_total_weight_exactly():
     for intensity_peak in (0.01, 0.045, 0.18, 0.4):
         table = retarget_ahat(shape_table, intensity_peak, ahat_min=0.0, ahat_max=0.5, n_bins=32, decades=1.0)
         # Linear, not quadratic: the retarget parameter is now an intensity, which is the
-        # already-squared quantity (D054).
+        # already-squared quantity (RES054).
         expected = shape_table.total_weight * (intensity_peak / samples.intensity_peak)
         assert table.total_weight == pytest.approx(expected, rel=1e-9)
 
@@ -211,16 +211,16 @@ def test_retarget_ahat_redistributes_mass_toward_higher_ahat_as_the_pulse_streng
     table_other = retarget_ahat(shape_table, 2.0 * samples.intensity_peak)
     # Both total_weight (exact identity above) and where that mass sits move: twice the
     # peak intensity is twice the yield *and* twice the ahat, so the populated range's own
-    # top edge (after truncation, §Truncation) reaches a higher ahat (D054).
+    # top edge (after truncation, §Truncation) reaches a higher ahat (RES054).
     assert table_other.total_weight == pytest.approx(2.0 * table_own.total_weight, rel=1e-9)
     assert table_other.ahat_edges[-1] > table_own.ahat_edges[-1]
 
 
 def test_retarget_ahat_folds_mass_below_ahat_min_into_the_floor_bin():
     """The floor-fold path — otherwise never exercised, since nothing in the default
-    ahat_min=0.0 configuration has any ahat to fold (D032).
+    ahat_min=0.0 configuration has any ahat to fold (RES032).
     """
-    samples = _synthetic_samples(a0_shape=1.0)  # ahat = 0.045 (D053: C = 1/2)
+    samples = _synthetic_samples(a0_shape=1.0)  # ahat = 0.045 (RES053: C = 1/2)
     shape_table = deposit_shape_table(samples, n_bins=(8, 8, 8, 16))
     # ahat_min well above the population's actual ahat (0.045): everything must fold into
     # bin 0, and total weight must still be exactly conserved.
@@ -234,7 +234,7 @@ def test_retarget_ahat_folds_mass_below_ahat_min_into_the_floor_bin():
 
 def test_retarget_ahat_truncates_unpopulated_bins():
     """Trailing target bins the rescaled source never reaches carry exactly zero mass
-    (D032) — `retarget_ahat` drops them rather than returning a table
+    (RES032) — `retarget_ahat` drops them rather than returning a table
     padded with zeros out to `ahat_max`.
     """
     samples = _synthetic_samples(a0_shape=1.0, intensity_peak=0.00125)  # ahat = 0.00125, tiny
@@ -294,12 +294,12 @@ def test_the_kernel_and_delta_agree_on_where_the_redshift_puts_the_photons():
     counts* — a sum over ``s``. The nonlinear redshift moves photons along ``s`` and
     conserves that sum exactly, so those checks are structurally blind to ``ahat``: the
     fourth identity leg reads 0.9996 whether ``ahat`` is right, doubled, or halved
-    (measured, D053). The **centroid** in ``s`` is the quantity ``ahat``
+    (measured, RES053). The **centroid** in ``s`` is the quantity ``ahat``
     controls, so that is what this compares.
 
     It cannot catch a wrong ``ahat`` *convention* — the two paths share
     `TrajectorySamples`, so a common-mode factor cancels here as it does everywhere else
-    (D053). What it does catch is the kernel losing the redshift to grid coarseness: the
+    (RES053). What it does catch is the kernel losing the redshift to grid coarseness: the
     ``ahat`` axis
     must actually resolve the population for the table to reproduce `delta`'s centroid, and
     at the production defaults ``NEAR_A0_MAX`` lands in two bins.
@@ -327,7 +327,7 @@ def test_the_kernel_and_delta_agree_on_where_the_redshift_puts_the_photons():
 
     # And the redshift is present, not merely consistent: four times the ahat pulls the
     # centroid down by several percent, on both paths independently. Four times the
-    # *intensity* now, where this used to double an amplitude for the same effect (D054).
+    # *intensity* now, where this used to double an amplitude for the same effect (RES054).
     bright = retarget_ahat(shape_table, 4.0 * samples.intensity_peak, ahat_max=0.4, n_bins=32)
     kernel_bright = angular_spectrum_from_table(bright, [0.0], [0.0], s_centers)[0, 0, :]
     reference_bright = resonance_spectrum(
@@ -348,17 +348,17 @@ def test_the_production_ahat_grid_under_resolves_the_bank_by_a_known_amount(
 
     The test above resolves the ``ahat`` axis deliberately (``ahat_max=0.1``) — but
     `Collision._table` builds the grid from the schema defaults, and nothing else here
-    exercises those on the quantity ``ahat`` controls. At D032's defaults
+    exercises those on the quantity ``ahat`` controls. At RES032's defaults
     (``ahat_max=0.5``, ``n_bins=32``, ``decades=1.0``) the first non-floor edge sits at
     0.035, so the whole scenario bank lands at or near the floor bin and the kernel uses
     that bin's own centre — 0.0174 — in place of population means of 0.0057, 0.00057 and
     0.028. The centroid it reports is biased low by the amounts below.
 
-    This is **not a regression from D053** and not something to fix by widening a tolerance:
+    This is **not a regression from RES053** and not something to fix by widening a tolerance:
     the bias is dominated by floor-bin coarseness and predates the cycle-average correction
     (``low_a0`` moved -1.59% -> -1.65% across it). It is pinned so that a future change to
     `_ahat_target_edges` or to the defaults has to move these numbers deliberately.
-    D053's last section records the measured alternative (``decades=0.3`` at the same
+    RES053's last section records the measured alternative (``decades=0.3`` at the same
     ``n_bins``/``ahat_max``), which is the author's call rather than this test's.
     """
     samples = _samples(scenario)
@@ -389,7 +389,7 @@ def test_spectrum_shifts_with_ahat_not_merely_rescales():
     never move where its edge falls; the nonlinear redshift must move the edge.
 
     a0_shape=0.05 and 4.0 at intensity_peak=0.045 give ahat = 0.00225 and 0.18 — bins 0 and 6 of
-    the production target grid (D053), still well apart.
+    the production target grid (RES053), still well apart.
     """
     low = _synthetic_samples(a0_shape=0.05)
     high = _synthetic_samples(a0_shape=4.0, seed=0)
@@ -438,7 +438,7 @@ def test_spectrum_in_angular_range_photon_count_matches_the_cube_integral():
 
 # ---------------------------------------------------------------------------
 # Stage 2 vs delta: an identity gate insensitive to §9.1 (both carry the same factor, so
-# their ratio was ~1 before D033 set it and is ~1 after). The absolute normalization the
+# their ratio was ~1 before RES033 set it and is ~1 after). The absolute normalization the
 # ratio cannot see gets its own test at the bottom of this section.
 # ---------------------------------------------------------------------------
 def test_stage2_kernel_agrees_with_delta_at_a_point():
@@ -466,7 +466,7 @@ def test_stage2_kernel_agrees_with_delta_at_a_point():
 
 
 def test_the_table_kernel_angle_integrates_to_stage_0_total(baseline):
-    """§9.1's closure, on the one quantity that can actually see it (D033).
+    """§9.1's closure, on the one quantity that can actually see it (RES033).
 
     Every other Stage-2 check in this file is a *ratio* between two paths that carry the
     same normalization constant, so all of them stayed green through a factor of ``2 pi``
@@ -474,12 +474,12 @@ def test_the_table_kernel_angle_integrates_to_stage_0_total(baseline):
     kernel over solid angle and over ``s``, and compare with Stage 0's elementary
     ``flux x cross-section x time`` photon count. It is the same arbitration
     `delta.check_normalization` performs for delta, applied to the kernel that actually
-    ships. D033 has the full derivation-then-measurement sequence that justified the fix.
+    ships. RES033 has the full derivation-then-measurement sequence that justified the fix.
 
     **The tolerance is resolution, not doubt.** Both integrals are midpoint sums over grids
     sized for a ten-second test: the angular one samples a ``1/gamma``-wide cone, and the
     ``s`` one a spectrum narrower still. Refining either walks the ratio straight toward 1
-    (D033 has the convergence sequence) — ±15% covers the grid this test can afford, and is
+    (RES033 has the convergence sequence) — ±15% covers the grid this test can afford, and is
     nowhere near wide enough to blur the only distinction it exists to make, which is
     between 1 and 6.28.
     """

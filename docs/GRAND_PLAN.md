@@ -6,7 +6,7 @@
 **Changelog**
 - **v0.25**: `ahat` **corrected** — the code was short the polarization cycle average and
   every `ahat` was twice the paper's, overstating the nonlinear red-shift by 2x
-  (`DECISIONS.md` D053). Raised as a §0 BLOCKING code/paper discrepancy and settled by the
+  (`DECISIONS.md` RES053). Raised as a §0 BLOCKING code/paper discrepancy and settled by the
   author: `a0` is the normalized **peak** field magnitude, so `<a²> = C a0²` with `C = 1/2`
   linear, `1` circular, and `a0_profile` is the linear peak envelope. §7 gains the two
   structural blind spots this exposed (shared inputs are common-mode; integrated
@@ -15,7 +15,7 @@
   `worktree-phase4-analytical-engine`; this entry deliberately numbers past them so the
   changelogs interleave rather than collide on merge.)*
 - **v0.24**: **arbitrary transverse and timing misalignment** between pulse and bunch
-  (`DECISIONS.md` D046, `docs/DERIVATIONS.md` §A.11). `GaussianParaxialLaser` gains
+  (`DECISIONS.md` RES046, `docs/DERIVATIONS.md` §A.11). `GaussianParaxialLaser` gains
   `x_off`/`y_off`/`t_off`, applied once in `_local_coordinates` so every field consumer —
   xigma included — inherits them, with `active_region` shifted to match so the cone
   prefilter cannot discard particles that do interact. Deliberately no `z_off`: for a pulse
@@ -25,7 +25,7 @@
   gap in "arbitrary foci displacement": longitudinal was already general per axis, the
   transverse and temporal directions had no representation at all. `PROGRESS.md` 2026-08-09.
 - **v0.23**: **flying focus covered for the analytical yield** (`docs/DERIVATIONS.md` §B,
-  `DECISIONS.md` D044) — `overlap_yield` no longer refuses `beta_ff`. The useful structural
+  `DECISIONS.md` RES044) — `overlap_yield` no longer refuses `beta_ff`. The useful structural
   result: a flying focus makes the widths depend on *two* linear functionals of
   `(x, y, z, ct)` instead of one, so two of four dimensions stay Gaussian and **an exact
   treatment of a crossing angle plus an arbitrary flying-focus velocity together is still
@@ -37,7 +37,7 @@
   synchronized derivation, which was not available. Two physics results fall out and are
   pinned: `beta_ff = 1` maximizes the yield (2.8× on a 30 µm bunch), and for a short bunch
   the yield is invariant under `beta_ff → 1/beta_ff`. `PROGRESS.md` 2026-08-09.
-- **v0.22**: analytical becomes explicitly **tiered** (`DECISIONS.md` D043) — closed form
+- **v0.22**: analytical becomes explicitly **tiered** (`DECISIONS.md` RES043) — closed form
   (~0.01 ms) / 1D quadrature (~1–2 ms, default) / exact 2D quadrature (~40–800 ms, opt-in
   via `n_quad_u`). The first two keep §4.3's "only real-time engine" claim true of
   something; the third makes the 1D path's error *measured* (1.9e-4 at 20 mrad, 1.6e-3 at
@@ -45,7 +45,7 @@
   quadrature knobs, before Phase 6 can wire a live panel to the slow tier.
   **The last growth item for the width closes**: `overlap_mean_a0_sq` computes the
   luminosity-weighted `<a0²>` — the same integral with the laser density squared — and the
-  nonlinearity term uses it instead of peak a0, a ~3x correction at the baseline (D042).
+  nonlinearity term uses it instead of peak a0, a ~3x correction at the baseline (RES042).
   New cheap previews `overlap_time_profile`/`overlap_transverse_profile` resolve the same
   integral in time and across the transverse plane, both satisfying exact
   integrate-back-to-the-yield identities (§7). `docs/DERIVATIONS.md` §A rewritten in
@@ -62,7 +62,7 @@
   angle, and a brute-force Monte Carlo over `GaussianParaxialLaser.photon_density` with
   real macroparticles to a few 1e-4. The effect is large — 20 mrad costs a factor 2.18 in
   baseline yield. **`SPECTRUM`'s shape remains head-on** while its integral is now correct,
-  so `AnalyticalEngine` reports that on `Results`. `DECISIONS.md` D041; `PROGRESS.md`
+  so `AnalyticalEngine` reports that on `Results`. `DECISIONS.md` RES041; `PROGRESS.md`
   2026-08-09.
 - **v0.20**: Two of §4.3's three "growth items" **closed** — non-round-beam yield and
   foci displacement — by deriving the Gaussian luminosity overlap integral in general
@@ -76,7 +76,7 @@
   collimated-spectrum construction remains open of the three. **The derivation also
   exposed a factor-4 laser-divergence convention error in `estimate_yield`, inherited
   from the predecessor and worth 3.3x in the baseline yield** — flagged, pinned by test,
-  deliberately not "fixed" (`DECISIONS.md` D039–D040). `PROGRESS.md` 2026-08-09.
+  deliberately not "fixed" (`DECISIONS.md` RES039–RES040). `PROGRESS.md` 2026-08-09.
 - **v0.19**: Phase 4 (`engines/analytical`, §4.3) **landed**, built concurrently with
   Phase 3b in an isolated worktree/branch (§11's "Phases 4–6 must not wait on physics
   derivations"). `estimate_yield`, `estimate_spectrum_width` (now returning its four
@@ -87,7 +87,7 @@
   "growth items" — foci displacement, non-round-beam total yield, collimated-spectrum
   construction — are **not** attempted in this landing and stay open (§11's Phase 4 row
   below states this explicitly rather than being marked fully closed). `DECISIONS.md`
-  D035–D038; `PROGRESS.md` 2026-08-09.
+  RES035–RES038; `PROGRESS.md` 2026-08-09.
 - **v0.18**: Stage 2's long-term production path is now stated explicitly (§4.2): once a
   ring/annulus-based importance-sampling kernel is built and validated against the
   existing brute-force grid quadrature, it becomes the **sole production path** for
@@ -95,7 +95,7 @@
   CPU included, not GPU-only** (mirrors Stage 0/1's numpy/cupy/numba backend set, §4.2).
   The current brute-force quadrature then demotes to a validation-only reference kernel,
   the role its own predecessor ancestor (*reference.py*) already had. This does not
-  supersede D029: D029 rejected porting the predecessor's *specific, already-audited*
+  supersede RES029: RES029 rejected porting the predecessor's *specific, already-audited*
   sampler (trust-level C, 3x-30x variance, no GPU to validate against at the time) as
   *this phase's* only implementation — it did not reject an importance-sampling kernel in
   general once it can be built and cross-checked against the working brute-force path.
@@ -106,10 +106,10 @@
   using an auto-ranged full radiation cone (~1/γ0) instead of the target's collimation
   window — but no experiment measures the untruncated cone, only the collimated emission,
   so the auto-ranged kind was never a real observable. `collimated_spectrum` is now the
-  sole 3D energy-angle output kind. `DECISIONS.md` D052.
+  sole 3D energy-angle output kind. `DECISIONS.md` RES052.
 - **v0.16**: §9.1 **closed**, and §9.3 given the marker §9.2 already had — Phase 3b's
   code-side work, which was always the only part of 3b that did not depend on a derivation
-  the paper lacks. The `1/(2π)` D026 derived is now applied at both places this repo
+  the paper lacks. The `1/(2π)` RES026 derived is now applied at both places this repo
   transcribes the paper's differential cross-section (Stage 2's kernel constant and delta's
   prefactor), and the identity harness's delta leg is gated at **1** instead of at a derived
   `2π`, which is §11's stated exit criterion for 3b. The constant was set from the derivation
@@ -118,7 +118,7 @@
   because every one of them is a ratio between two paths carrying the same factor.
   Separately, a nonzero crossing angle now warns that only the *geometry* is applied: the
   rotation is real, the emission physics is head-on, and §9.3's asymmetry with §9.2 (which
-  had a marker and a warning) was itself a P14c violation. `DECISIONS.md` D033, D034.
+  had a marker and a warning) was itself a P14c violation. `DECISIONS.md` RES033, RES034.
   §9.2 and §9.3's derivations remain the author's, unstarted, and non-blocking.
 - **v0.15**: Stage 1 restructured, within the same Phase 3a — supersedes v0.14's item (a).
   Direct deposit onto `ahat` (v0.14) is replaced by a two-step pipeline: `deposit_shape_table`
@@ -128,57 +128,57 @@
   matters where `ahat` is comparable to 1 (near a pulse's peak); a grid that just follows
   wherever the sampled data spans gives no more resolution there than anywhere else. This is
   the predecessor's `retarget_a0` regrid mechanism after all, with a different target-grid
-  law than its plain `linspace`, and D028's "nothing here needs it" conclusion is superseded
-  by D032 accordingly. `Table.bin_volume` (a single scalar, valid only for a uniform grid) is
+  law than its plain `linspace`, and RES028's "nothing here needs it" conclusion is superseded
+  by RES032 accordingly. `Table.bin_volume` (a single scalar, valid only for a uniform grid) is
   removed; `spectrum_from_table` now folds a per-bin `ahat_widths` array into its cell sum
   instead. Full reasoning, the target-grid formula, and how its defaults were tuned against
-  the actual scenario bank: `DECISIONS.md` D032.
+  the actual scenario bank: `DECISIONS.md` RES032.
 - **v0.14**: Phase 3a landed (Stage 1/2, `Collision`, `XigmaEngine`), four items restated
   against what was actually built rather than what §4.2/§5 anticipated.
   **(a) No `retarget_a0`/`a0_kind` rebin.** `deposit_table` computes
   `TrajectorySamples.retargeted_ahat` and re-deposits from cached Stage 0 samples instead
   — measured cheap relative to Stage 0, so the predecessor's conservative-regrid apparatus
-  buys nothing here (`DECISIONS.md` D028).
+  buys nothing here (`DECISIONS.md` RES028).
   **(b) Stage 2's numpy kernel is the predecessor's brute-force grid quadrature
   (`reference.py`'s), not its GPU importance sampler** — the sampler was the predecessor's
   own trust-level-C path (3x-30x variance in sparse configs), not something to import as
   this phase's only implementation. `cupy`/`numba` stay gated exactly like Stage 0's until
-  real kernels exist (D029).
+  real kernels exist (RES029).
   **(c) §5's illustrative recompute-cost row for pulse energy is walked back.** "Stage 1
   a0-axis retarget (no re-deposition)" assumed the ported mechanism (a); restated below as
   "Stage 1 re-deposit from cached Stage 0 samples". The tier (`REUSE_INTERMEDIATES`) is
   unchanged, but `XigmaEngine.recompute_costs` does not claim it yet — that needs a caller
-  that keeps one `Collision` alive across edits, which is Phase 6, not 3a (D030).
+  that keeps one `Collision` alive across edits, which is Phase 6, not 3a (RES030).
   **(d) `XigmaEngine` is not passed to `run_suite()` by `validation.run.main()`.** The
   scenario bank's default output resolution is sized for the predecessor's GPU kernel and
   costs tens of seconds per slice against this phase's numpy one — real Calculate cost
   (§12), not something a routine suite run should pay. A fourth identity-harness leg
   (Stage 2 kernel vs delta at one point, both carrying the identical pending §9.1 factor)
-  exercises Stage 1/2 in the suite instead (D031).
+  exercises Stage 1/2 in the suite instead (RES031).
 - **v0.13**: §9.1 rewritten — the ~2π is **traced, not open**. It is exactly `2π`, it is in
   the paper at `eq:xsec` (inherited by `eq:main`), and it is not a porting artefact; the
-  derivation and evidence are in `DECISIONS.md` D026 and the manuscript is annotated at
+  derivation and evidence are in `DECISIONS.md` RES026 and the manuscript is annotated at
   both equations. What remains is an authoring choice about where the factor belongs, not
   a computation, so the §11 exit criterion for Phase 3b and the §12 risk row are restated
   accordingly. The identity harness reports the ratio against its derived value until the
-  choice lands (D025).
+  choice lands (RES025).
 - **v0.12**: Phase 2 implementation feedback, three items.
   **(a) `engines/base.py` lands in Phase 2, not 3a.** The §4.1 `Engine` protocol and the
   §5 `RecomputeCost` enum are what a "runners skeleton" is a skeleton *of*: without an
   engine type there is no stub engine either, so the invariance machinery could be written
   but never exercised. The `ENGINES` registry stays in 3a, where there will be something
-  to register (`DECISIONS.md` D018).
+  to register (`DECISIONS.md` RES018).
   **(b) The §3.2 prefilter's active region is a cone, not a cylinder.** Found by the
   Phase-2 harness, not by review: the region's radius came from the spot near focus, so a
   bunch longer than the Rayleigh range met the *diverged* pulse and had particles
   discarded that it still reached — a discarded macroparticle measured six times the `a0`
   the threshold was meant to bound. The region now carries a radius slope, and
   over-inclusiveness — the property that makes the prefilter a pure optimization — holds
-  at any distance from focus (D021).
+  at any distance from focus (RES021).
   **(c) The golden-reference boundary is a subprocess.** Both repos install a package
   named `gammaforge`, so `make_references` runs the predecessor under its own interpreter
   and translates results at this side of the boundary; §7's "runs the old repo's models"
-  is unchanged in intent, and this pins how (D019).
+  is unchanged in intent, and this pins how (RES019).
 - **v0.11**: two units decisions, both author-directed after a Phase-1 review.
   **(a) Dimensioned types at the engine boundary.** §2.1's "kernels never see pint
   quantities" constrained *kernels*; it was over-read during Phase 1 as "the shared layer
@@ -191,9 +191,9 @@
   nothing below sees a `Quantity`. Bulk per-particle arrays (`Bunch`,
   `PhotonMacroparticles`) stay raw ndarrays with **declared** units, the pattern `Axis`
   already used, because a 6D beam covariance is dimensionally heterogeneous and cannot be
-  a single quantified array in any units library (`DECISIONS.md` D013). The `light_time`
+  a single quantified array in any units library (`DECISIONS.md` RES013). The `light_time`
   context is now opt-in per field rather than global, so a *transverse* size can no longer
-  be given in femtoseconds (D014).
+  be given in femtoseconds (RES014).
   **(b) k0_las normalization is dropped entirely** (§2.1, §4.2, open question 7). An audit
   of the predecessor found it is not physics: the `k0**2` in Stage 0's `contribution` is
   exactly what replaces `c` when coordinates are normalized, `a0_shape` is k0-free by
@@ -201,15 +201,15 @@
   scale at all, and the only other appearances are `/k0_las` and `/omega_las` *un*-normalizing
   the diagnostics. With the laser owning lab-frame CGS sampling (P15) and the bunch owning
   CGS trajectories, Stage 0 in CGS needs no normalization — and normalizing would actively
-  fight P15, since an arbitrary `LaserField` knows nothing about `k0_las` (D015).
+  fight P15, since an arbitrary `LaserField` knows nothing about `k0_las` (RES015).
 - **v0.10**: §3.2's beam correlation set gains the **angle**-energy pair
   (`rho_thx_gamma`/`rho_thy_gamma`, the dispersion derivative), because without it the
   `drift`/`propagate` promise that the attached description is carried "analytically in
   lockstep, no refit" is only true for a *single* drift — two consecutive drifts silently
   disagreed with one of the combined length. They are independent parameters, not
-  derivable from `alpha` and the position-energy correlation (`DECISIONS.md` D012).
+  derivable from `alpha` and the position-energy correlation (`DECISIONS.md` RES012).
 - **v0.9**: Phase 1 implementation feedback — details the plan's sketches left open, now
-  pinned by working code (`DECISIONS.md` D004–D010 carry the rejected alternatives).
+  pinned by working code (`DECISIONS.md` RES004–RES010 carry the rejected alternatives).
   `FieldSpec` gains `choices` (a `CHOICE` field needs its closed set) and `integer` (bin
   and particle counts are not floats); both are orthogonal additions to the §3.1 sketch,
   not changes to it — `FieldKind` stays the four-member convention-semantics vocabulary.
@@ -747,7 +747,7 @@ class Engine(Protocol):
 - A small registry (*ENGINES*) with lazy optional-dependency registration is anticipated —
   xigma needs cupy/numba, everything else is pure — but still not built as of Phase 3a:
   `run_suite`/`XigmaEngine` are both usable without one, and a registry holding exactly one
-  entry is the speculative machinery P10 rejects (D018). Reconsider once a second engine
+  entry is the speculative machinery P10 rejects (RES018). Reconsider once a second engine
   or the GUI needs to enumerate them.
 
 ### 4.2 xigma engine (`engines/xigma/`) — first-class
@@ -777,14 +777,14 @@ The tabulated-overlap pipeline, restructured into composable stages:
   bin — because the redshift correction `ahat` drives is only significant near a pulse's
   peak, and a grid that just follows wherever the data spans gives no more resolution there
   than anywhere else. This *is* the predecessor's `retarget_a0`/`a0_kind` regrid, with a
-  different target-grid law than its plain `linspace` (`DECISIONS.md` D032, superseding
-  D028's decision not to port it). Cheap and independent of `n_particles`, so `Collision`
+  different target-grid law than its plain `linspace` (`DECISIONS.md` RES032, superseding
+  RES028's decision not to port it). Cheap and independent of `n_particles`, so `Collision`
   caches the shape deposit once and retargets many peak-a0 values from it.
 - **Stage 2 — spectrum queries** (`stages.py::spectrum_from_table`,
   `angular_spectrum_from_table`, `spectrum_in_angular_range`): pure functions. The numpy
   path ports the predecessor's brute-force grid quadrature (its validation-only
   `reference.py`), not its GPU importance sampler — trust-level C in the predecessor's own
-  audit, not something to import as this phase's only implementation (D029). `cupy`/
+  audit, not something to import as this phase's only implementation (RES029). `cupy`/
   `numba` are gated like Stage 0's until real kernels exist. **Target shape (v0.18,
   unscheduled):** the eventual production kernel is a ring/annulus-based importance
   sampler, built and cross-checked against this brute-force quadrature rather than ported
@@ -796,7 +796,7 @@ The tabulated-overlap pipeline, restructured into composable stages:
   (`stages.KERNEL_NORMALIZATION_CONSTANT`) and arbitrated against delta (§9.1) — the
   constant itself is pi-free and unchanged from the predecessor's kernel math; the ~2π
   question is which side of the table-free/table-based split the missing factor belongs
-  to, still open (D029, §9.1).
+  to, still open (RES029, §9.1).
 - **`Collision` facade** (`collision.py`): the one stateful object. Owns one fixed
   (`InteractionParameters`, xigma `Parameters`) pair and memoizes what its stages produce
   from them. Methods are thin wrappers: `build_overlap()`, `spectrum(s)`,
@@ -804,17 +804,17 @@ The tabulated-overlap pipeline, restructured into composable stages:
   `run(output_requirements) -> Results`. Caching is **per-instance memoization**, not
   cross-call hash-keyed staleness detection — the latter needs a live consumer that keeps
   one `Collision` across edits and decides what to keep, which is Phase 6's GUI grey-out
-  mechanism, not built here (D030). Notebooks use the facade; validation uses the pure
+  mechanism, not built here (RES030). Notebooks use the facade; validation uses the pure
   functions directly.
 - **`Engine` wrapper** (`engine.py`): the thin `run()` used by the GUI — builds one
   `Collision` per call, returns `Results`. Opaque by contract (P3).
   `recompute_costs` declares only bunch charge (`n_e`) as cheap — handled at the `io`
   level (`InteractionParameters.with_charge`/`Results.scaled`), no engine run at all —
   since the collimation-window/pulse-energy cheap paths §5 illustrates need a caller that
-  reuses one `Collision`, which nothing does yet (D030). `XigmaEngine` is not passed to
+  reuses one `Collision`, which nothing does yet (RES030). `XigmaEngine` is not passed to
   `validation.run.main()`'s default `run_suite()` call: the scenario bank's default output
   resolution costs tens of seconds per slice against this phase's numpy kernel — real
-  Calculate cost (§12), not a routine-suite cost (D031). The validation identity harness
+  Calculate cost (§12), not a routine-suite cost (RES031). The validation identity harness
   exercises Stage 1/2 at a suite-appropriate scale instead (§9.1).
 - **Geometry note:** `theta_xz`/`theta_yz`/`psi_focus`/`psi_pol` are first-class schema
   parameters from day one, but the *physics* of non-head-on geometry is wired as an
@@ -827,16 +827,16 @@ Closed-form estimates, no per-particle Monte Carlo:
 - `overlap_yield(beam, laser, N_e, n_quad)`: total yield from the **general** Gaussian
   luminosity overlap integral — non-round beams, per-axis focusing, displaced/astigmatic
   foci, rotated laser ellipse. One longitudinal quadrature; everything else is analytic
-  (`docs/DERIVATIONS.md` §A). This is what the engine uses. `N_e` is explicit
+  (DER001). This is what the engine uses. `N_e` is explicit
   (`InteractionParameters.N_e`) rather than derived from `beam`, so the io-level cheap
-  charge-only rescale path (§5) stays correct. Handles a **crossing angle** too (§A.6) —
-  for the yield; the spectrum's shape stays head-on pending §9.3, and the engine says so.
-  Handles a **flying focus** too (§B) — on a 2D `(z, ct)` grid, since a time-dependent spot
-  size is exactly what forbids doing the time integral first.
+  charge-only rescale path (§5) stays correct. Handles a **crossing angle** too (DER001
+  §A.6) — for the yield; the spectrum's shape stays head-on pending §9.3, and the engine
+  says so. Handles a **flying focus** too (DER002) — on a 2D `(z, ct)` grid, since a
+  time-dependent spot size is exactly what forbids doing the time integral first.
 - `estimate_yield(beam, laser, N_e)`: the predecessor's round-beam closed form. Retained
   as the analytic limit `overlap_yield` reduces to (a regression anchor) and as the
   port-fidelity pin — **not** for use: it carries a laser-divergence convention error
-  worth 3.3x on the baseline scenario (D040).
+  worth 3.3x on the baseline scenario (RES040).
 - `overlap_mean_a0_sq(beam, laser, n_quad, n_quad_u)`: the luminosity-weighted `<a0²>` —
   the a0 the bunch actually samples, not the pulse's peak. Same overlap integral with the
   laser density squared (§A.8). Feeds the width breakdown's nonlinearity term.
@@ -914,14 +914,14 @@ single-stage MC would not fit it. The mechanism is now **generic + engine-declar
 declares `n_e` alone, because it is handled at the `io` level without an engine run at
 all regardless of which engine is active. The rest describe what would be cheap *if* a
 caller kept one `Collision` alive across edits, which is Phase 6's grey-out mechanism,
-not Phase 3a's — `DECISIONS.md` D030):
+not Phase 3a's — `DECISIONS.md` RES030):
 
 | Field group (examples) | Cost tier | Why |
 |------------------------|-----------|-----|
 | beam sizes, emittances, Twiss, drift | FULL_RERUN | feeds Stage 0 + Stage 1 |
 | γ0, energy spread, chirp, dispersion | REUSE_INTERMEDIATES | Stage 1 re-deposition; Stage 0 hash unchanged |
 | laser spot, duration, beta_ff, geometry angles | FULL_RERUN | feeds Stage 0 + Stage 1 |
-| pulse energy → a0, ellipticity | REUSE_INTERMEDIATES | Stage 1 re-deposit from cached Stage 0 samples (measured cheap, D028 — not the predecessor's a0-axis retarget) |
+| pulse energy → a0, ellipticity | REUSE_INTERMEDIATES | Stage 1 re-deposit from cached Stage 0 samples (measured cheap, RES028 — not the predecessor's a0-axis retarget) |
 | bunch charge (N_e) | QUERY_ONLY | outputs are exactly linear in N_e (§3.5) — instant rescale, no stage rerun |
 | collimation window | QUERY_ONLY | Stage 2 requery against cached table |
 | output grid (bins per output) | QUERY_ONLY | Stage 2 requery |
@@ -1036,13 +1036,13 @@ assumption was broken" test zoo.
   absolute bounds. kascade only counts once its own Thomson-limit sanity check passes
   (§4.4).
   - **Two structural blind spots, both demonstrated rather than hypothetical** (found by
-    D053's factor-of-2 in `ahat`, which the entire suite passed through unnoticed). A
+    RES053's factor-of-2 in `ahat`, which the entire suite passed through unnoticed). A
     cross-check is only as independent as its *inputs* and as sensitive as its *observable*:
     1. **Shared inputs are common-mode.** xigma and delta both read `ahat` from the same
        `TrajectorySamples`, so an error in it cancels in every xigma-vs-delta comparison.
        Legs that share a stage do not cross-validate that stage — they cross-validate what
        comes after it. delta is an independent *kernel*, not an independent *Stage 0*, and
-       the leg that finally exposed D053 was analytical, which computes `ahat` from its
+       the leg that finally exposed RES053 was analytical, which computes `ahat` from its
        own overlap integral. When adding a leg, state explicitly which upstream quantities
        it shares.
     2. **Integrated observables hide redistribution.** The nonlinear red-shift moves photons
@@ -1092,7 +1092,7 @@ assumption was broken" test zoo.
 **Resolved as an investigation.** The factor is exactly `2π`, it is in the **paper**, and
 it is not a porting artefact. `eq:xsec` is missing `1/(2π)`, and `eq:main`/`eq:Fmatrix`
 inherit it — one error, not two, since the second is the first times the `eq:jacobian`
-Jacobian. Full derivation and evidence: `DECISIONS.md` **D026**; the manuscript is
+Jacobian. Full derivation and evidence: `DECISIONS.md` **RES026**; the manuscript is
 annotated at both equations.
 
 - The check is two lines. `eq:collision` yields a photon count only if the frequency- and
@@ -1106,10 +1106,10 @@ annotated at both equations.
   rescales (both labelled *QUICK FIX*), and its headline `total_yield` came from the
   luminosity sum — a path that never touches the kernel. That is why only *delta* ever
   showed it.
-- **Applied in Phase 3b (`DECISIONS.md` D033).** Stage 2's constant is `1.5/(2π)` and
+- **Applied in Phase 3b (`DECISIONS.md` RES033).** Stage 2's constant is `1.5/(2π)` and
   delta's prefactor is `3/(2π)` — one correction at the two places this repo transcribes
   eq. `xsec`. The identity harness's delta leg is gated at **1**, not at a derived `2π`,
-  which supersedes D025's "report, don't correct" stance: the factor is no longer
+  which supersedes RES025's "report, don't correct" stance: the factor is no longer
   unexplained, so reporting it no longer tells anyone anything.
 - **Order, because P14 turns on it:** the constant came from the derivation above, and was
   *then* confirmed against an absolute measurement — the table kernel's own angle-integrated
@@ -1119,7 +1119,7 @@ annotated at both equations.
 - **The one authoring choice left changes no number.** Where the `1/(2π)` belongs in the
   manuscript — the prefactor, the normalization of `R`, or the definition of `Û` — is still
   the author's; all three placements fix the same `d³N/(dω d²Ω)`, which is why the code did
-  not wait on it. The manuscript stays annotated rather than edited (D026), so the repo
+  not wait on it. The manuscript stays annotated rather than edited (RES026), so the repo
   knowingly computes corrected physics against an uncorrected typeset equation.
 
 ### 9.2 Laser energy→a0 with ellipticity (net-new derivation, parallel track)
@@ -1132,7 +1132,7 @@ annotated at both equations.
 - Rebuild: carry `ellipticity`, `psi_pol`, focusing axes as first-class schema parameters
   now; wire the energy→a0 derivation as an **explicit no-op/identity** (documented)
   until the derivation lands. Never gating engineering milestones (P14c).
-- **Narrowed as of D053.** Fixing `ahat`'s missing cycle average gave this item a concrete
+- **Narrowed as of RES053.** Fixing `ahat`'s missing cycle average gave this item a concrete
   shape it did not have before. `a0` is the normalized **peak** field magnitude, so the
   cycle-averaged normalized intensity is `<a²> = C a0²` — `C = 1/2` for linear (`<cos²>`),
   `C = 1` for circular (constant magnitude); equivalently, at fixed pulse energy circular
@@ -1154,7 +1154,7 @@ annotated at both equations.
   derivation lands. Derivation proceeds with the author in parallel; validate against
   kascade's arbitrary-angle MC at intermediate angles; the angle enters the Stage-2
   kernels in one place. Never silently approximate (P14c).
-- **Marked as of Phase 3b (D034).** The trap here is subtler than §9.2's, because the
+- **Marked as of Phase 3b (RES034).** The trap here is subtler than §9.2's, because the
   crossing angle is *partly* implemented: `rotation_matrix` is applied wherever the pulse is
   sampled, so overlap, timing and the sampled a0 all respond to a tilt, while
   `RELATIVE_VELOCITY` and the Stage-2 kernel's angles do not. A caller who tilts the beam
@@ -1186,7 +1186,7 @@ annotated at both equations.
 6. Crossing-angle formula details (§9.3) — with the author, parallel track.
 7. **RESOLVED (v0.11):** there is no k0_las normalization — xigma works in CGS directly.
    Superseded the earlier "stays purely internal" answer, which satisfied the no-leakage
-   requirement but kept bookkeeping that buys nothing (§4.2, `DECISIONS.md` D015).
+   requirement but kept bookkeeping that buys nothing (§4.2, `DECISIONS.md` RES015).
 8. **Final-electron macroparticle typing** (§3.6): whether `Results.electrons` reuses
    `Bunch` as-is or gets its own `ElectronMacroparticles` type (symmetric with
    `PhotonMacroparticles`; `Bunch` as specified has no emission-time field) is open —
@@ -1203,9 +1203,9 @@ annotated at both equations.
 | **1. Core** | `io/`: schema, units/conventions (CGS), constants; bunch (`Bunch` + `GaussianElectronBeam`); laser (incl. `LaserField` protocol + `GaussianParaxialLaser` as its sole implementation, `fit_gaussian_paraxial`, elliptical+astigmatic model, geometry angles — §3.3/P15); target (auto-ranges + `OutputKind` vocabulary §3.4); interaction (incl. `N_e` scalar + `SamplingSpec` §3.5); sampling + prefilter (§3.2); results contract (incl. `PhotonMacroparticles` §3.6); YAML + `.ele` I/O; HDF5 results writer | Round-trip tests; schema validation tests; CGS conversion tests vs known values; `LaserField` protocol conformance test for `GaussianParaxialLaser` (period-averaged + period-resolved at arbitrary points); `fit_gaussian_paraxial` identity test on a `GaussianParaxialLaser` input; geometry round-trip test (R⁻¹ recovers head-on angles, §2.2) |
 | **2. Validation harness** | scenarios, runners skeleton, `make_references.py` + first golden snapshots from old repo; invariance-test scaffolding (chunk, prefilter, backend, seed — §7) | Golden generation runs; new-vs-golden comparisons execute |
 | **2.5. Stage 0 + minimal delta** | **Stage 0** (`integrate_trajectories`) and the **shared auto-chunk + OOM-retry utility** (§4.2), pulled forward from 3a because delta needs both; delta itself scoped to Stage-2 normalization arbitration, built on top of Stage 0 (§4.5) | Stage 0 tests green; chunk-invariance holds; delta produces independent spectra on baseline scenarios; identity harness (`kernel` vs `reference` vs `direct binning` vs delta) executable |
-| **3a. xigma engineering** — **landed 2026-08-08** | Stage 1/2 pure functions; Collision facade + stage cache; Engine wrapper; numpy kernel for Stages 1/2, cupy/numba gated like Stage 0 until real kernels exist (**Stage 0 and the chunking utility already built in 2.5**; D029); geometry/a0/ellipticity parameters wired as explicit identity/no-op placeholders (P14c) | Stage architecture tests green; placeholders documented |
-| **3b. Physics closure** — **§9.1 landed 2026-08-08; §9.2/§9.3 open, non-blocking** | ~2π resolution (§9.1 — **closed**: traced in 2.5, applied in 3b, D033), crossing-angle derivation (§9.3), ellipticity→a0 (§9.2) — **runs concurrently with Phases 4 and 5, not serially** | §9.1's constant set in Stage 2 and the identity harness re-gated against 1.0 rather than 2π — **met**; §9.2/§9.3 derivations landed if author completes them in parallel (never blocking 4–6) — **outstanding, and the paper contains no formula for either**, so both stay wired as documented no-ops with `validate()` warnings (D034) |
-| **4. analytical engine** — **landed 2026-08-09; one growth item open** | estimates + component breakdown; quadrature spectrum; general overlap-integral yield (non-round + displaced foci); remaining growth item (collimated spectrum) | Closed-form limits match — **met** (Thomson-limit anchor *and* the analytic reduction of `overlap_yield` to the round-beam closed form, §7); validation anchor ready — **met** for `TOTAL_YIELD`/`SPECTRUM`; foci displacement + non-round beam — **met** via `docs/DERIVATIONS.md` §A (`DECISIONS.md` D039); crossing-angle geometry — **met** for the yield via §A.6 (D041), validated against a brute-force Monte Carlo; the width's nonlinearity term — **met** via the luminosity-weighted `<a0²>` (§A.8, D042); resolved time/transverse previews — **met** (§A.9). Outstanding: collimated-spectrum construction, angle-resolved previews (deferred), and `SPECTRUM`'s shape under a crossing angle, which is §9.3's emission kernel rather than overlap geometry |
+| **3a. xigma engineering** — **landed 2026-08-08** | Stage 1/2 pure functions; Collision facade + stage cache; Engine wrapper; numpy kernel for Stages 1/2, cupy/numba gated like Stage 0 until real kernels exist (**Stage 0 and the chunking utility already built in 2.5**; RES029); geometry/a0/ellipticity parameters wired as explicit identity/no-op placeholders (P14c) | Stage architecture tests green; placeholders documented |
+| **3b. Physics closure** — **§9.1 landed 2026-08-08; §9.2/§9.3 open, non-blocking** | ~2π resolution (§9.1 — **closed**: traced in 2.5, applied in 3b, RES033), crossing-angle derivation (§9.3), ellipticity→a0 (§9.2) — **runs concurrently with Phases 4 and 5, not serially** | §9.1's constant set in Stage 2 and the identity harness re-gated against 1.0 rather than 2π — **met**; §9.2/§9.3 derivations landed if author completes them in parallel (never blocking 4–6) — **outstanding, and the paper contains no formula for either**, so both stay wired as documented no-ops with `validate()` warnings (RES034) |
+| **4. analytical engine** — **landed 2026-08-09; one growth item open** | estimates + component breakdown; quadrature spectrum; general overlap-integral yield (non-round + displaced foci); remaining growth item (collimated spectrum) | Closed-form limits match — **met** (Thomson-limit anchor *and* the analytic reduction of `overlap_yield` to the round-beam closed form, §7); validation anchor ready — **met** for `TOTAL_YIELD`/`SPECTRUM`; foci displacement + non-round beam — **met** via DER001 (RES039); crossing-angle geometry — **met** for the yield via DER001 §A.6 (RES041), validated against a brute-force Monte Carlo; the width's nonlinearity term — **met** via the luminosity-weighted `<a0²>` (DER001 §A.8, RES042); resolved time/transverse previews — **met** (DER001 §A.9). Outstanding: collimated-spectrum construction, angle-resolved previews (deferred), and `SPECTRUM`'s shape under a crossing angle, which is §9.3's emission kernel rather than overlap geometry |
 | **5. kascade port + delta full role** | minimal kascade behind interface **+ its Thomson-limit sanity check (B4)**; delta full cross-validation role | 4-method cross-validation runs; kascade sanity check passes |
 | **6. GUI** | schema-driven two-tab app; overlays + per-engine show/hide; save plots/HDF5; grey-out/release; sketch panel (headless module first); **import-boundary check enforced in CI (B3)** | GUI runs headless-smoke; all planned interactions work; boundary check green |
 | **7. Validation completion** | full scenario bank, convergence, chunk-invariance, closed-form identities, golden cross-checks | Full suite green; results reproducible; 3b closures integrated |
@@ -1224,7 +1224,7 @@ duplicated (C4).
 
 | Risk | Mitigation |
 |------|-----------|
-| ~2π normalization turns out to be a paper-level issue | **It did** (Phase 2.5, D026): `eq:xsec` is missing `1/(2π)`. The mitigation worked as designed — delta arbitrated independently, the paper formula was treated as necessary-not-sufficient, and the constant was isolated to one location, so applying it in Phase 3b was the one-line change it was meant to be (D033). Residual: the manuscript is annotated, not corrected, so the repo and the typeset equation knowingly differ |
+| ~2π normalization turns out to be a paper-level issue | **It did** (Phase 2.5, RES026): `eq:xsec` is missing `1/(2π)`. The mitigation worked as designed — delta arbitrated independently, the paper formula was treated as necessary-not-sufficient, and the constant was isolated to one location, so applying it in Phase 3b was the one-line change it was meant to be (RES033). Residual: the manuscript is annotated, not corrected, so the repo and the typeset equation knowingly differ |
 | Crossing-angle and ellipticity→a0 have **no existing derivation** in the paper (confirmed by audit, not just undocumented) | Open-ended research tasks, not consult-and-implement: parameters are first-class in schema/architecture now; physics wired as explicit identity/no-op until derivations land; derivation runs in parallel (P14c, §9.2/§9.3); never blocks Phases 3a–6 |
 | Old-repo golden data encodes bugs | Goldens are transitional; closed-form identities + delta reference are the real anchors; goldens regenerated deliberately |
 | Chunking regressions (OOM class) | Chunk-invariance property tests from Phase 2 on; single shared auto-chunk + OOM-retry utility (porting algorithm + constants, not the old triplicated code) |

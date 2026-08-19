@@ -13,13 +13,13 @@ throughout there, CGS-Gaussian ``GaussianElectronBeam``/``GaussianParaxialLaser`
 **Two yield functions, and which to use.** :func:`overlap_yield` evaluates the general
 Gaussian luminosity overlap integral: non-round beams, per-axis focusing, displaced and
 astigmatic foci, and a rotated laser ellipse, all exactly. It is what `AnalyticalEngine`
-calls, and the derivation behind it is written out in `docs/DERIVATIONS.md` §A.
+calls, and the derivation behind it is written out in DER001.
 :func:`estimate_yield` is the predecessor's round-beam closed form, kept because the
 general integral reduces to it analytically — which makes it a real regression anchor —
 and because it pins port fidelity. It carries an approximation *and* a laser-divergence
 convention error; its own docstring says so. Prefer :func:`overlap_yield`.
 
-**Three cost tiers** (D043), because §4.3 calls analytical the only real-time engine:
+**Three cost tiers** (RES043), because §4.3 calls analytical the only real-time engine:
 
 ======================================  ==========  ===================================
 tier                                    cost        what it assumes
@@ -30,12 +30,12 @@ tier                                    cost        what it assumes
 ======================================  ==========  ===================================
 
 The first two are real-time at any interaction rate; the third is an opt-in exact check,
-not something a caller reaches for by default (D043).
+not something a caller reaches for by default (RES043).
 
-**What this closes, precisely.** All three of D035's growth items for the
+**What this closes, precisely.** All three of RES035's growth items for the
 **total yield**: non-round beams, foci displacement, and (with :func:`overlap_mean_a0_sq`
 feeding :func:`estimate_spectrum_width`) the a0 the bunch actually samples. A crossing
-angle is covered too (D041), for the yield. Still open: constructing the collimated
+angle is covered too (RES041), for the yield. Still open: constructing the collimated
 spectrum, and the emitted *spectrum's shape* under a crossing angle, which is
 `GRAND_PLAN.md` §9.3's emission-kernel question rather than an overlap-geometry one.
 
@@ -81,7 +81,7 @@ def _erfcx(nu: float) -> float:
     """``exp(nu**2) * erfc(nu)``, the scaled complementary error function.
 
     Hand-rolled from `math.erfc` rather than `scipy.special.erfcx`, to keep the dependency
-    surface at just `numpy` (D037). Direct evaluation is exact (to `math.erfc`'s own
+    surface at just `numpy` (RES037). Direct evaluation is exact (to `math.erfc`'s own
     precision) below the overflow threshold; above it, the standard asymptotic expansion
     ``erfcx(x) ~ (1/(x*sqrt(pi))) * (1 - 1/(2x^2) + 3/(4x^4) - 15/(8x^6))`` takes over.
 
@@ -117,7 +117,7 @@ def estimate_yield(beam: GaussianElectronBeam, laser: GaussianParaxialLaser, N_e
        Rayleigh-range convention by a factor of 4 in the angle**, and it is kept only as
        a port-fidelity anchor — a faithfully-ported predecessor bug, not introduced here.
        :func:`overlap_yield` is the one to use. On the baseline scenario the discrepancy
-       is a factor of 3.3 in the yield (D040).
+       is a factor of 3.3 in the yield (RES040).
     """
     sigma_ex = beam.m("sigma_x")
     sigma_ey = beam.m("sigma_y")
@@ -172,7 +172,7 @@ def _laser_covariance(laser: GaussianParaxialLaser, z):
     axes within the transverse plane, so the pulse's variance ellipse is generally **not**
     diagonal in the bunch's own x/y. Carrying the full 2x2 covariance rather than a pair
     of widths is what lets `overlap_yield` handle a rotated elliptical spot exactly
-    instead of approximating it (D039).
+    instead of approximating it (RES039).
     """
     s1, s2 = laser.spot_sizes(-np.asarray(z, dtype=float))
     psi = laser.m("psi_focus")
@@ -207,7 +207,7 @@ def _overlap_quadratic_form(
     Returns ``(S, det_A, sigma_ex, sigma_ey, s1, s2, h)`` where the longitudinal weight is
     ``exp(-S z^2 / 2)``, the transverse integrals have contributed ``1 / sqrt(det_A)``, and
     ``h`` is the (z-independent) time-integration coefficient the caller needs for the
-    overall prefactor. See `docs/DERIVATIONS.md` §A.6; in outline, at fixed ``t`` the
+    overall prefactor. See DER001 §A.6; in outline, at fixed ``t`` the
     combined exponent is a quadratic form ``r^T M r / 2`` in lab coordinates with
 
         M_e = xx^T/sigma_ex^2(z) + yy^T/sigma_ey^2(z) + zz^T/sigma_ez^2
@@ -280,7 +280,7 @@ class _FormPieces:
 
 
 def _form_pieces(beam, laser, z, u_shift=0.0, laser_power: float = 1.0) -> _FormPieces:
-    """Assemble the quadratic form at lab positions ``z`` (see `docs/DERIVATIONS.md` §A.6).
+    """Assemble the quadratic form at lab positions ``z`` (see DER001 §A.6).
 
     ``laser_power`` is the power the *normalized* laser density enters at: 1 for the
     luminosity itself, 2 for an ``a0^2``-weighted average (`overlap_mean_a0_sq`), since
@@ -474,7 +474,7 @@ def _reduced_integral_flying_focus(beam, laser, n_quad: int, laser_power: float,
     ``(x, y, z, ct)`` — ``z`` and ``u_spot`` — rather than one. Two of the four dimensions
     therefore stay Gaussian and two must be quadratured: here ``(x, y)`` are integrated
     analytically at fixed ``(z, ct)`` and the remaining plane is gridded
-    (`docs/DERIVATIONS.md` §B).
+    (DER002).
 
     The result is normalized to the same convention as :func:`_reduced_integral` — the
     caller's prefactor already carries ``sqrt(2 pi / h)``, so that factor is divided out
@@ -602,7 +602,7 @@ def overlap_yield(
     ranges, astigmatic ``z_fx``/``z_fy`` focal offsets, the ``psi_focus`` rotation between
     the two transverse ellipses, **and a crossing angle** (``theta_xz``/``theta_yz``).
 
-    Derivation in `docs/DERIVATIONS.md` §A. In outline: the yield is
+    Derivation in DER001. In outline: the yield is
     ``sigma_T (1 + beta_0) c`` times the space-time overlap of the two densities, whose
     combined exponent is a quadratic form in ``(x, y, z, t)``. The time integral and the
     two transverse integrals are Gaussian and close analytically
@@ -668,7 +668,7 @@ def overlap_mean_a0_sq(
     arrive off-focus or off-peak contribute photons at a lower intensity, and this weights
     each by exactly the rate at which it scatters. It is what
     :func:`estimate_spectrum_width`'s nonlinearity term wants, and computing it closes the
-    last part of the foci-displacement growth item (D042).
+    last part of the foci-displacement growth item (RES042).
 
     No new integral is needed. ``a0^2`` is exactly proportional to the *normalized* photon
     density (`GaussianParaxialLaser._a0_from_density` is a square root of it), so
@@ -700,7 +700,7 @@ def overlap_mean_a0_sq(
     numerically: agreement is within xigma's own particle-sampling noise.
 
     The **spread** of ``ahat`` across the beam does *not* follow the same way — see
-    :data:`NONLINEAR_BROADENING_RANGE` and D049 for why, and for what is
+    :data:`NONLINEAR_BROADENING_RANGE` and RES049 for why, and for what is
     reported instead.
     """
     k_const = laser.a0_profile(0.0, 0.0, 0.0, 0.0) ** 2 / laser.photon_density(0.0, 0.0, 0.0, 0.0)
@@ -839,7 +839,7 @@ class SpectrumWidthBreakdown:
     energy_spread: float  #: from beam energy spread, ``sigma_gamma / gamma``
     nonlinearity: float  #: ponderomotive, at the predecessor's implicit ``std = mean``
     #: The nonlinear term is the one quantity here that cannot be pinned exactly — it is
-    #: set by the *spread* of ``ahat`` across the beam, not analytically available (D049),
+    #: set by the *spread* of ``ahat`` across the beam, not analytically available (RES049),
     #: and is bracketed instead by :data:`NONLINEAR_BROADENING_RANGE`. ``nonlinearity``
     #: above sits at a factor of 1 — near the top of that bracket, so it over-estimates
     #: broadening for most geometries.
@@ -872,7 +872,7 @@ def estimate_spectrum_width(
 
     ``theta_col``: collimation half-angle (rad) — a single scalar; a caller combining
     `gammaforge.io.target.Target`'s separate ``theta_x_col``/``theta_y_col`` should use
-    their geometric mean (D038), the same x/y-combining convention this
+    their geometric mean (RES038), the same x/y-combining convention this
     module already uses for the laser waist (``sigma_lr0``) and the emittance term below.
 
     ``laser`` is the fitted `GaussianParaxialLaser` (see :func:`estimate_yield`);
@@ -880,7 +880,7 @@ def estimate_spectrum_width(
     pulse's own maximum a0, not the a0 at the electron bunch's actual position.
 
     ``a0_sq`` is the mean square a0 the bunch actually samples. Pass
-    :func:`overlap_mean_a0_sq` (D042), the luminosity-weighted average, rather than the
+    :func:`overlap_mean_a0_sq` (RES042), the luminosity-weighted average, rather than the
     pulse's own peak. It **defaults to** ``laser.a0_peak()**2`` deliberately: this
     function's other job is reproducing the predecessor's worked example, and changing the
     default would break the `_PREDECESSOR_WIDTH_TOTAL` pin that exists to detect exactly
@@ -892,7 +892,7 @@ def estimate_spectrum_width(
     mean_a0_sq = laser.a0_peak() ** 2 if a0_sq is None else a0_sq
     prefactor = 0.5 * 2.355
     # <ahat>: the cycle-averaged intensity (see the note below). Asked of the laser rather
-    # than written as 0.5, so this and xigma share one definition of C (D053/D054).
+    # than written as 0.5, so this and xigma share one definition of C (RES053/RES054).
     mean_shift = laser.cycle_average_factor() * mean_a0_sq
     lo, hi = NONLINEAR_BROADENING_RANGE
     return SpectrumWidthBreakdown(
@@ -947,7 +947,7 @@ def angle_integrated_spectrum(
 
     Only the *mean* ``ahat`` is applied. Electrons sample different intensities, so the edge
     is also smeared; that spread is not analytically available and is bracketed instead
-    (:data:`NONLINEAR_BROADENING_RANGE`, D049).
+    (:data:`NONLINEAR_BROADENING_RANGE`, RES049).
 
     Raises ``ValueError`` for ``sigma_gamma <= 0``: `gammaforge.io.bunch.validate` permits
     a beam with exactly zero energy spread (only rejects negative), but the quadrature

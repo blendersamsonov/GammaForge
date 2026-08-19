@@ -116,7 +116,7 @@ def test_estimate_yield_matches_the_thomson_limit_closed_form():
 
 
 # ---------------------------------------------------------------------------
-# overlap_yield — the general luminosity overlap integral (docs/DERIVATIONS.md §A)
+# overlap_yield — the general luminosity overlap integral (DER001)
 # ---------------------------------------------------------------------------
 def _round_scenario():
     """Round in every sense the closed form needs: equal sizes *and* equal emittances
@@ -130,7 +130,7 @@ def _round_scenario():
 def _closed_form_round(beam, laser, N_e):
     """The round-beam closed form, evaluated independently of `formulas.estimate_yield`
     and using this repo's own `rayleigh_x()` — the analytic limit `overlap_yield` must
-    reproduce, with ``nu = L (1 + beta_0) / (sqrt(2) D)`` (docs/DERIVATIONS.md §A.4)."""
+    reproduce, with ``nu = L (1 + beta_0) / (sqrt(2) D)`` (DER001 §A.4)."""
     beta_0 = beam.beta0()
     D = math.hypot(beam.m("sigma_z"), beta_0 * laser.m("duration") * C_CGS)
     sigma0_sq = beam.m("sigma_x") ** 2 + laser.m("sigma_x") ** 2
@@ -247,7 +247,7 @@ def test_transverse_profile_refuses_a_flying_focus():
 
 
 # ---------------------------------------------------------------------------
-# Crossing angle (docs/DERIVATIONS.md §A.6)
+# Crossing angle (DER001 §A.6)
 # ---------------------------------------------------------------------------
 def _constant_width_closed_form(beam, laser, N_e, theta_xz, theta_yz=0.0):
     """Exact yield when both hourglasses are switched off, at any crossing angle::
@@ -365,7 +365,7 @@ def test_schema_default_n_quad_resolves_a_crossed_collision(theta):
 
 
 def test_crossing_angle_suppression_at_the_baseline_is_what_the_docs_quote():
-    """`docs/DERIVATIONS.md` §A.6 and `PROGRESS.md` quote 1.07x / 2.18x / 5.77x at 5 / 20 /
+    """DER001 §A.6 and `PROGRESS.md` quote 1.07x / 2.18x / 5.77x at 5 / 20 /
     50 mrad. Those are properties of `scenarios.BASELINE`, not constants, so pin them here —
     otherwise the prose goes stale silently when the scenario moves (the same reasoning that
     put a pin under the 3.285 figure)."""
@@ -378,7 +378,7 @@ def test_crossing_angle_suppression_at_the_baseline_is_what_the_docs_quote():
 
 
 # ---------------------------------------------------------------------------
-# The exact 2D mode, <a0^2>, and the resolved profiles (docs/DERIVATIONS.md §A.7-§A.8)
+# The exact 2D mode, <a0^2>, and the resolved profiles (DER001 §A.7-§A.8)
 # ---------------------------------------------------------------------------
 def _full_geometry():
     """Everything the integral claims to handle, at once."""
@@ -441,7 +441,7 @@ def test_exact_2d_mode_converges_toward_the_1d_path_at_a_small_crossing_angle():
 
 
 def test_nonlinear_broadening_is_reported_as_a_bracket_not_a_number():
-    """The spread of `ahat` across the beam is not analytically available (D049), so the
+    """The spread of `ahat` across the beam is not analytically available (RES049), so the
     width breakdown brackets it rather than inventing a value; the legacy `nonlinearity`
     scalar sits inside that bracket, near its top."""
     beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
@@ -473,7 +473,7 @@ def test_mean_a0_sq_is_the_beam_averaged_ahat_that_xigma_computes_per_particle()
 
     `overlap_mean_a0_sq` reaches `ahat` through this engine's own overlap integral, never
     through `TrajectorySamples` — so unlike every xigma-vs-`delta` comparison, an error in
-    xigma's `ahat` is *not* common-mode here, which is what let this test catch D053."""
+    xigma's `ahat` is *not* common-mode here, which is what let this test catch RES053."""
     from gammaforge.engines.xigma.stages import integrate_trajectories
 
     beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
@@ -482,7 +482,7 @@ def test_mean_a0_sq_is_the_beam_averaged_ahat_that_xigma_computes_per_particle()
     live = samples.luminosity > 0
     reference = float(np.average(samples.ahat()[live], weights=samples.luminosity[live]))
     # `overlap_mean_a0_sq` is the bare <a0^2>; `ahat` is its cycle average. Asked of the
-    # laser so both engines share one definition (D053/D054).
+    # laser so both engines share one definition (RES053/RES054).
     mean_ahat = laser.cycle_average_factor() * overlap_mean_a0_sq(beam, laser, n_quad=8001)
     assert mean_ahat == pytest.approx(reference, rel=1e-2)
 
@@ -588,7 +588,7 @@ def test_time_profile_is_centred_and_positive():
 
 def test_engine_uses_the_overlap_weighted_a0_for_the_nonlinearity_term():
     """The engine must pass `<a0^2>`, not `a0_peak**2` — otherwise the width's nonlinearity
-    component keeps the approximation D035 named while the yield beside it does not."""
+    component keeps the approximation RES035 named while the yield beside it does not."""
     interaction = _interaction(outputs=(OutputRequest(OutputKind.TOTAL_YIELD),))
     engine = AnalyticalEngine()
     results = engine.run(interaction, engine.schema)
@@ -608,7 +608,7 @@ def test_estimate_spectrum_width_default_still_uses_peak_a0():
 
 
 # ---------------------------------------------------------------------------
-# Transverse and timing misalignment (docs/DERIVATIONS.md §A.11)
+# Transverse and timing misalignment (DER001 §A.11)
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("dx_um, dy_um", [(5.0, 0.0), (0.0, 5.0), (12.0, -8.0), (25.0, 20.0)])
 def test_transverse_offset_falls_off_as_the_exact_gaussian(dx_um, dy_um):
@@ -729,7 +729,7 @@ def test_offsets_reach_the_engine_and_reduce_its_yield():
 
 
 # ---------------------------------------------------------------------------
-# Flying focus (docs/DERIVATIONS.md §B)
+# Flying focus (DER002)
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("beta_ff", [0.5, 1.0, 2.0, -0.5])
 def test_flying_focus_yield_matches_a_brute_force_monte_carlo(beta_ff):
@@ -872,7 +872,7 @@ def test_overlap_yield_matches_a_brute_force_monte_carlo(name):
 
 
 def test_overlap_yield_differs_from_the_legacy_closed_form_by_the_rayleigh_convention():
-    """Pins the size of the `estimate_yield` laser-divergence discrepancy (D040) so it stays
+    """Pins the size of the `estimate_yield` laser-divergence discrepancy (RES040) so it stays
     visible and cannot drift silently. The baseline's hourglass is almost entirely
     laser-driven (laser divergence 3e-2 rad against the bunch's 5e-6), so the factor-4 error
     in `lambda / (pi sigma)` vs `sigma / z_R = lambda / (4 pi sigma)` shows up nearly in
@@ -1097,7 +1097,7 @@ def test_engine_reports_the_shifted_edge_and_uses_the_cycle_average():
 
 def test_spectrum_integral_equals_total_yield_exactly():
     """§7: "Total yield: integral spectrum = total_yield -- exact identities, not
-    tolerances, where the contract guarantees them." D036 makes this exact
+    tolerances, where the contract guarantees them." RES036 makes this exact
     by construction for analytical."""
     interaction = _interaction(
         outputs=(OutputRequest(OutputKind.TOTAL_YIELD), OutputRequest(OutputKind.SPECTRUM, resolution=(200,)))
@@ -1109,7 +1109,7 @@ def test_spectrum_integral_equals_total_yield_exactly():
 
 
 def test_spectrum_grid_integral_correction_factor_is_near_one():
-    """The rescale in D036 always makes the integral exact; this guards that the factor
+    """The rescale in RES036 always makes the integral exact; this guards that the factor
     it applies stays close to 1, i.e. the auto-derived energy range is not truncating
     real spectral weight (a distortion the rescale would otherwise mask silently)."""
     from gammaforge.engines.analytical.formulas import angle_integrated_spectrum as ais

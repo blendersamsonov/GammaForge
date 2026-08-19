@@ -30,7 +30,7 @@ SUPPORTED_OUTPUTS: tuple[OutputKind, ...] = (
 #: (`InteractionParameters.with_charge`/`Results.scaled`) without an engine run at all, so
 #: it costs nothing regardless of which engine is active. Everything else defaults to
 #: `FULL_RERUN` (base.py) — including pulse energy, not claimed cheap despite being
-#: analytically a pure rescale (D030).
+#: analytically a pure rescale (RES030).
 RECOMPUTE_COSTS: dict[str, RecomputeCost] = {
     "n_e": RecomputeCost.QUERY_ONLY,
 }

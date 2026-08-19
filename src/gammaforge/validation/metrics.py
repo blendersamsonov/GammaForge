@@ -73,7 +73,7 @@ def resample_to(x_ref, x_src, y_src):
 #: not move when the binning is refined. And deliberately small: this number is the
 #: metric's *sensitivity*, so raising it buys quiet at the cost of blindness. At 1e-3 —
 #: where this briefly sat — a candidate that dropped a real feature worth 0.07% of the
-#: yield scored exactly zero on both reported numbers, which is the failure D023 was
+#: yield scored exactly zero on both reported numbers, which is the failure RES023 was
 #: written to remove, reintroduced on the reference side.
 SIGNIFICANT_FLUX_FRACTION = 1e-4
 
