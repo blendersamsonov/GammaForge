@@ -25,7 +25,7 @@ The exact implementation uses the paper's recommended numerical approach
 
 import sys
 import subprocess
-import importlib.util
+from pathlib import Path
 
 def run_verification(script_name, description):
     """Run a verification script and return success status."""
@@ -56,11 +56,12 @@ def run_verification(script_name, description):
 
 def main():
     # Map of derivation to verification script
+    script_dir = Path(__file__).parent
     verifications = [
-        ("verify_der004.py", "DER004: Ellipticity in polarization factor"),
-        ("verify_der005.py", "DER005: Crossing angle (3 parts)"),
-        ("verify_der006.py", "DER006: Combined polarization matrix"),
-        ("verify_der007_headon.py", "DER007: Stokes parameters (head-on limit)"),
+        (script_dir / "verify_der004.py", "DER004: Ellipticity in polarization factor"),
+        (script_dir / "verify_der005.py", "DER005: Crossing angle (3 parts)"),
+        (script_dir / "verify_der006.py", "DER006: Combined polarization matrix"),
+        (script_dir / "verify_der007_headon.py", "DER007: Stokes parameters (head-on limit)"),
     ]
 
     # If specific derivation requested
