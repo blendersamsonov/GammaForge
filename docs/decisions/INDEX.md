@@ -63,3 +63,4 @@ cross-checks this table against the files on disk.
 | RES055 | Doc-staleness guard scope: every `proposed`/`implemented`/`rejected` decision file, not `archived/`; supersedes RES002 | testing | implemented | implemented/testing/RES055-doc-staleness-guard-scope-decisions-tree.md |
 | RES056 | Code comments citing a decision are trimmed to a pointer; the rationale lives only in the decision file | process | implemented | implemented/process/RES056-code-comments-citing-a-decision-are-pointers.md |
 | RES057 | *docs/DERIVATIONS.md* is split into `docs/derivations/`, one file per result on a confidence pipeline instead of a lifecycle | process | implemented | implemented/process/RES057-derivations-migrated-to-per-file-confidence-pipeline.md |
+| RES058 | NiceGUI local browser UI with a separate calculation runner | architecture | implemented | implemented/architecture/RES058-nicegui-local-browser-execution-boundary.md |

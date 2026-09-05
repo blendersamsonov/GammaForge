@@ -34,3 +34,10 @@ either, so the chunk/backend/prefilter invariance machinery could only be *writt
 The registry is a different matter. A lazy optional-dependency import table over zero
 engines is exactly the speculative machinery P10 warns about, and it is three lines to add
 when xigma exists.
+
+## Amendments
+
+> **2026-09-05 — Deferred engine enumeration implemented (RES058).** The local browser
+> UI now obtains concrete calculation engines from `LocalRunner`, using a small
+> dictionary rather than a separate global registry. This closes the deferred registry
+> question; the Phase 2 protocol and recompute-cost decision remains in force.

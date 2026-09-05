@@ -17,6 +17,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+gui = ["nicegui>=3.16,<4", "plotly>=6,<7"]
 gpu = ["cupy-cuda12x"]
 jit = ["numba>=0.59"]
 dev = ["pytest>=8.0"]

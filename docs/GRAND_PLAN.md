@@ -1,9 +1,19 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.25 — 2026-08-10
+**Status:** draft v0.26 — 2026-09-05
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 **Changelog**
+- **v0.26**: author-directed NiceGUI browser frontend replaces the planned Tkinter
+  frontend. A local loopback server hosts Inputs and Results tabs, with an optional
+  resizable split view. Inputs use equal-height Electron/Laser/Geometry columns,
+  followed by Target/Outputs, analytical estimates, and engine settings rows.
+  `docs/UI_SPEC.md` specifies layout and acceptance criteria. A concrete calculation
+  request and local runner separate execution from widgets, preserving a future LAN
+  execution boundary without implementing networking. The GUI may import this public
+  runner, but never engine implementations or kernels. Existing recompute declarations
+  remain honest: cross-run xigma stage reuse is a separate unfinished task, not a GUI
+  feature implicitly promised by adopting NiceGUI.
 - **v0.25**: `ahat` **corrected** — the code was short the polarization cycle average and
   every `ahat` was twice the paper's, overstating the nonlinear red-shift by 2x
   (`DECISIONS.md` RES053). Raised as a §0 BLOCKING code/paper discrepancy and settled by the
@@ -326,7 +336,7 @@ Goals, in priority order:
    cross-validation method (a better Monte-Carlo will eventually replace it — do not
    invest in it). `delta` is a validation-only reference, never a production model.
 3. **Headless-first framework** (library usable from Jupyter/scripts) with a **thin,
-   schema-driven Tkinter GUI** as a first-class but non-physics layer.
+   schema-driven NiceGUI browser GUI** as a first-class but non-physics layer.
 4. **One internal unit system: CGS-Gaussian**, with engines converting at their own
    boundaries.
 5. **Composable, cacheable pipeline stages** with engine-declared recompute-cost
@@ -961,8 +971,26 @@ wired as a no-op.*
 
 ## 6. GUI architecture (`gammaforge.gui`)
 
-Thin, schema-driven, two global tabs. No physics, no engine branching (P12, enforced by
-the import-boundary check).
+Thin, schema-driven NiceGUI application hosted by a local loopback server and viewed
+in a browser. Two global tabs: Inputs and Results. A built-in splitter optionally
+shows two panes with independent tab selections over the same session state.
+`docs/UI_SPEC.md` is the detailed author-approved layout specification. No physics,
+no engine branching (P12, enforced by the import-boundary check).
+
+The Inputs tab has three equal-height columns: Electrons (including sampling), Laser
+(pulse properties), and Geometry (all four angle inputs plus a 2D/3D sketch).
+Below them are full-width rows in this order: Target and requested outputs; analytical
+estimates; engine subtabs and one Calculate action for checked engines. This supersedes
+the older placement of geometry angles within the Laser panel below.
+
+Calculation execution uses a concrete request in the shared layer and a public local
+runner in the engines package. The GUI imports the runner and engine interface only;
+engine discovery, analytical evaluation, and calls to engine implementations live
+behind that boundary. Requests carry physical inputs and typed engine parameters,
+never widgets, callbacks, browser state, or file handles. Future LAN execution can
+replace this local execution boundary; network transport, authentication, remote job
+storage, and discovery are not implemented in Phase 6. Existing YAML/HDF5 formats are
+the future transport starting point, not an invitation to send arbitrary Python objects.
 
 **Tab 1 — Input & Calculate**
 - Electrons panel, Laser panel (fields rendered from `FieldSpec`, unit dropdowns per
@@ -1006,8 +1034,11 @@ the import-boundary check).
 - MC macroparticle output (when produced): statistics + "save particles" button.
 - Save plots (PNG/PDF) and Save results (HDF5, §8) buttons.
 
-GUI visual design details are deliberately left open for later refinement; the
-data/architecture contract above is what the framework guarantees.
+Layout and first-version interaction details are specified in `docs/UI_SPEC.md`.
+Long-running engine work stays on a worker thread; sampling runs there too. Per-engine
+status is available at the existing opaque run boundary, without invented percentage
+progress or cancellation guarantees. Browser sessions own independent input/results
+state. Plot projections and the geometry sketch remain available headlessly.
 
 ---
 

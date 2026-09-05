@@ -26,7 +26,7 @@ unfinished or waiting on someone*.
 | 7. Validation completion | ⚪ not started |
 | 8. Polish | ⚪ not started |
 
-**Suite:** `pytest` green (458); `python -m gammaforge.validation.run` all checks pass.
+**Suite:** `pytest` green; `python -m gammaforge.validation.run` all checks pass.
 
 ---
 
