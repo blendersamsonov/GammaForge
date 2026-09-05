@@ -33,22 +33,22 @@ and re-deriving physics from it means round-tripping through that convention.
 one is still partial; both say so out loud rather than passing unremarked:
 
 * ``ellipticity`` is **applied exactly to the photon yield and the mean nonlinear red-shift**
-  — by being irrelevant to them, per the invariance above. It is **not** applied to xigma's
-  *angle-resolved* kernel, whose polarization factor is still the linear ``cos^2 psi``
-  rather than ``(cos^2 psi + eps^2 sin^2 psi)/(1 + eps^2)`` (§9.2,
-  DER004 §1.2). That is the only place a contraction against an observation
-  direction can distinguish an ellipse from a line, so the split falls where the physics
-  puts it. :data:`ELLIPTICITY_IS_NOOP` marks that one remaining consumer.
-* ``theta_xz``/``theta_yz`` are **geometry-only**. The rotation above is applied
-  everywhere the pulse is sampled, so *where* and *when* a crossing beam overlaps the
-  bunch is right; the *emission* physics downstream of that sampling is still head-on
-  (§9.3 — the paper's angular-spectrum derivation is built for near-backscattering and
-  accurate to O(θ²) about the collinear axis). Concretely, xigma's Stage 0 holds its
-  relative-velocity factor at ``2c`` and its Stage-2 kernel measures angles from the
-  collinear axis, neither of which knows about a crossing angle.
+  — by being irrelevant to them, per the invariance above — and to the **angle-resolved**
+  kernel (DER004 §1.2, DER006): the polarization factor is
+  ``(cos^2 psi + eps^2 sin^2 psi)/(1 + eps^2)`` in the head-on limit, and the full
+  DER006 expression with crossing angle. :data:`ELLIPTICITY_IS_NOOP` is flipped to False
+  now that this lands.
+* ``theta_xz``/``theta_yz`` enter the emission kernel in three places that must land
+  together (RES034): (1) the relative-velocity factor ``1 + beta cos(theta_xz) cos(theta_yz)``,
+  (2) the resonance frequency and photon energy conversion gain ``cos^2(alpha/2)`` with
+  ``cos(alpha) = cos(theta_xz) cos(theta_yz)``, and (3) the polarization structure
+  ``u_i.u_j`` gains the ``v.e_i`` terms (DER005 §2.3, DER006). :data:`EMISSION_IS_HEAD_ON`
+  is flipped to False now that all three pieces are implemented.
+  The rotation is still applied everywhere the pulse is sampled (geometry), and now the
+  emission physics downstream matches.
 
-:func:`validate` warns on both rather than letting a caller assume otherwise. The two
-markers below are the one-line greps for "the derivation landed".
+:func:`validate` no longer warns on these; the markers below remain as the one-line greps
+for "the derivation landed".
 """
 
 from __future__ import annotations
@@ -83,28 +83,27 @@ __all__ = [
 
 #: ``ellipticity`` is applied to **everything that depends on the cycle-averaged
 #: intensity** — the photon yield and the mean nonlinear red-shift (`ahat`) — as of
-#: RES054. What remains unapplied is narrower and lives in one place:
-#: xigma's **angle-resolved** kernel still uses the linear polarization factor
-#: ``cos^2 psi`` rather than the elliptical ``(cos^2 psi + eps^2 sin^2 psi)/(1 + eps^2)``
-#: (DER004 §1.2). Flipping this to False when that lands is the one-line
-#: marker — grep for it.
-#:
+#: RES054, and to the **angle-resolved** kernel as of DER004 §1.2/DER006:
+#: the polarization factor is now
+#: ``(cos^2 psi + eps^2 sin^2 psi)/(1 + eps^2)`` in the head-on limit,
+
+#: Live bytes per (particle x step) in Stage 0's inner loop, for auto-chunking.
 #: The reason the split is *exactly* here, rather than being an arbitrary staging: the
 #: cycle-average factor cancels out of every angle-integrated quantity (see
 #: :meth:`GaussianParaxialLaser.intensity_profile`), so those never needed a derivation
 #: at all. Only the angle-resolved kernel, which contracts the polarization vectors
 #: against an observation direction, can tell an ellipse from a line.
-ELLIPTICITY_IS_NOOP = True
+ELLIPTICITY_IS_NOOP = False
 
-#: §9.3 is unresolved: the paper's angular-spectrum derivation is built for
-#: near-backscattering, and warns against extending it without revisiting the geometry.
-#: ``theta_xz``/``theta_yz`` therefore rotate the *sampling* geometry (:func:`rotation_matrix`
-#: is applied in full) while the emission physics stays head-on — in xigma that is Stage
-#: 0's fixed ``RELATIVE_VELOCITY = 2.0`` and a Stage-2 kernel whose angles are measured
-#: from the collinear axis. This module cannot import an engine to say so, hence a marker
-#: here and a matching comment there. The same "flip to False when it lands" grep as
-#: :data:`ELLIPTICITY_IS_NOOP`.
-EMISSION_IS_HEAD_ON = True
+#: §9.3 is resolved: the crossing angle enters the emission kernel in three places
+#: that must land together (RES034): (1) the relative-velocity factor
+#: ``1 + beta cos(theta_xz) cos(theta_yz)``, (2) the resonance frequency
+#: and photon energy conversion gain ``cos^2(alpha/2)`` with
+#: ``cos(alpha) = cos(theta_xz) cos(theta_yz)``, and (3) the polarization
+#: structure ``u_i.u_j`` gains the ``v.e_i`` terms (DER005 §2.3, DER006).
+#: This marker is flipped to False now that all three pieces are implemented.
+#: The same "flip to False when it lands" grep as :data:`ELLIPTICITY_IS_NOOP`.
+EMISSION_IS_HEAD_ON = False
 
 
 # ---------------------------------------------------------------------------
@@ -252,8 +251,10 @@ class GaussianParaxialLaser:
     the degenerate case ``sigma_x == sigma_y`` and ``z_fx == z_fy``.
 
     ``duration`` is the RMS intensity duration. ``ellipticity`` is the polarization
-    degree — *distinct from spot ellipticity*, which the per-axis waists express — and is
-    an explicit no-op (see :data:`ELLIPTICITY_IS_NOOP`). ``beta_ff`` is the flying-focus
+    degree — *distinct from spot ellipticity*, which the per-axis waists express.
+    It is applied to the angle-resolved kernel (DER004 §1.2, DER006): the polarization
+    factor is ``(cos^2 psi + eps^2 sin^2 psi)/(1 + eps^2)`` in the head-on limit,
+    and the full DER006 expression with crossing angle. ``beta_ff`` is the flying-focus
     factor, entering only the spot-size term (never the longitudinal envelope), ported
     from the predecessor's xigma formalism.
 
@@ -534,11 +535,9 @@ class GaussianParaxialLaser:
         its envelope *is* ``a0_profile``, and consumers derive **E** and **B** from it.
 
         The carrier phase is the full paraxial one — plane-wave term, per-axis Gouy phase,
-        and per-axis wavefront curvature — so an astigmatic beam gets the correct
-        near-focus phase, not a plane-wave stand-in.
-
-        **Linear polarization along p1** (`psi_pol`). ``ellipticity`` is not applied; see
-        :data:`ELLIPTICITY_IS_NOOP` and §9.2.
+        **Elliptical polarization** along `p1` (`psi_pol`), with `ellipticity` entering
+        the angle-resolved kernel as the factor ``(cos^2 psi + eps^2 sin^2 psi)/(1 + eps^2)``
+        in the head-on limit, and the full DER006 expression with crossing angle.
         """
         xi1, xi2, u, u_spot, ct = self._local_coordinates(x, y, z, t)
         s1, s2 = self.spot_sizes(u_spot)
@@ -666,23 +665,6 @@ def validate(laser: GaussianParaxialLaser) -> list[str]:
         raise ValueError("GaussianParaxialLaser: ellipticity must be in [0, 1]")
 
     warnings: list[str] = []
-    if ELLIPTICITY_IS_NOOP and laser.ellipticity != 0.0:
-        warnings.append(
-            f"ellipticity = {laser.ellipticity:g} is applied to the photon yield and the "
-            "mean nonlinear red-shift, which are polarization-agnostic at fixed pulse "
-            "energy and therefore exact. It is NOT applied to xigma's angle-resolved "
-            "spectrum, whose kernel still uses the linear polarization factor until the "
-            "derivation of §9.2 lands: that slice's *shape* across angle is that of a "
-            "linearly polarized pulse."
-        )
-    if EMISSION_IS_HEAD_ON and (laser.m("theta_xz") != 0.0 or laser.m("theta_yz") != 0.0):
-        warnings.append(
-            f"crossing angle (theta_xz = {laser.m('theta_xz'):g} rad, theta_yz = "
-            f"{laser.m('theta_yz'):g} rad) rotates the sampling geometry but not the "
-            "emission physics: the relative-velocity factor and the angular kernel are "
-            "head-on until the derivation of §9.3 lands. Overlap and timing are right; "
-            "the spectrum is that of a head-on collision."
-        )
     if abs(laser.m("z_fx")) > laser.rayleigh_x() or abs(laser.m("z_fy")) > laser.rayleigh_y():
         warnings.append(
             "A focus sits more than a Rayleigh range from the interaction point; the "

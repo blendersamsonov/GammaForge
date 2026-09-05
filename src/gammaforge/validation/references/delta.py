@@ -41,12 +41,12 @@ why a reference implementation follows the derivation and not the typo, and
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
-
 import numpy as np
-
-from ...engines.xigma.stages import TrajectorySamples
-
+from dataclasses import dataclass
+from ...engines.xigma.stages import (
+    TrajectorySamples,
+    polarization_factor,
+)
 __all__ = [
     "resonance_spectrum",
     "angle_integrated_spectrum",
@@ -82,6 +82,10 @@ def resonance_spectrum(
     theta_x: float,
     theta_y: float,
     psi_pol: float = 0.0,
+    ellipticity: float = 0.0,
+    theta_xz: float = 0.0,
+    theta_yz: float = 0.0,
+    beta: float = 1.0,
 ) -> np.ndarray:
     """``d3N / (ds dOmega)`` seen from the direction ``(theta_x, theta_y)``.
 
@@ -102,6 +106,9 @@ def resonance_spectrum(
     solid angle gives a photon count directly comparable with Stage 0's own total — and
     since Phase 3b, equal to it, because :data:`DIFFERENTIAL_PREFACTOR` carries §9.1's
     ``1/(2 pi)``. Before that correction this integrated to ``2 pi`` times the count.
+
+    The polarization factor now includes ellipticity and crossing angle effects per DER006,
+    replacing the head-on linear factor ``cos^2 psi``.
     """
     gamma = samples.gamma
     ahat = samples.ahat()
@@ -113,10 +120,14 @@ def resonance_spectrum(
     s_res = gamma_squared / (1.0 + ahat + gamma_squared * r_squared)
 
     lorentz = 1.0 / (1.0 + r_squared * gamma_squared) ** 2
-    cos_polarization = np.cos(psi_pol - np.arctan2(delta_y, delta_x)) ** 2
-    polarization = 1.0 - 4.0 * cos_polarization * r_squared * gamma_squared * lorentz
 
-    weights = DIFFERENTIAL_PREFACTOR * samples.luminosity * polarization * gamma_squared * lorentz
+    # New polarization factor from DER006 (replaces 1.0 - 4.0 * cos_pol^2 * r^2 * gamma^2 * lorentz)
+    pol_factor = polarization_factor(
+        gamma, delta_x, delta_y, theta_x, theta_y,
+        ellipticity, psi_pol, theta_xz, theta_yz, beta
+    )
+
+    weights = DIFFERENTIAL_PREFACTOR * samples.luminosity * pol_factor * gamma_squared * lorentz
 
     s_edges = np.asarray(s_edges, dtype=float)
     histogram, _ = np.histogram(s_res, bins=s_edges, weights=weights)
@@ -130,6 +141,10 @@ def angle_integrated_spectrum(
     n_angles: int = 33,
     cone_factor: float = DEFAULT_CONE_FACTOR,
     psi_pol: float = 0.0,
+    ellipticity: float = 0.0,
+    theta_xz: float = 0.0,
+    theta_yz: float = 0.0,
+    beta: float = 1.0,
 ) -> np.ndarray:
     """``dN/ds``: :func:`resonance_spectrum` summed over a grid of viewing directions.
 
@@ -151,7 +166,9 @@ def angle_integrated_spectrum(
     for dx in offsets:
         for dy in offsets:
             total += resonance_spectrum(
-                samples, s_edges, centre_x + dx, centre_y + dy, psi_pol
+                samples, s_edges, centre_x + dx, centre_y + dy,
+                psi_pol=psi_pol, ellipticity=ellipticity,
+                theta_xz=theta_xz, theta_yz=theta_yz, beta=beta
             )
     return total * step * step
 

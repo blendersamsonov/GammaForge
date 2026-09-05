@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import math
 import numpy as np
-
 from ...io.interaction import InteractionParameters
 from ...io.laser import fit_gaussian_paraxial
 from ...io.results import Axis, PhasespaceSlice, Results
@@ -116,16 +116,43 @@ class Collision:
         """``dN/ds``, table-free (§4.3-adjacent — this is Stage 0's own closed form)."""
         return angle_integrated_spectrum(self.build_overlap(), s)
 
-    def angular_spectrum(self, s, theta_x, theta_y, *, psi_pol: float = 0.0) -> np.ndarray:
+    def angular_spectrum(
+        self,
+        s,
+        theta_x,
+        theta_y,
+        *,
+        psi_pol: float = 0.0,
+        ellipticity: float = 0.0,
+        theta_xz: float = 0.0,
+        theta_yz: float = 0.0,
+    ) -> np.ndarray:
         """Stage 2, at the pulse's own peak a0: ``d3N / (ds dtheta_x dtheta_y)``."""
-        return angular_spectrum_from_table(self._table(), theta_x, theta_y, s, psi_pol=psi_pol)
+        return angular_spectrum_from_table(
+            self._table(), theta_x, theta_y, s,
+            psi_pol=psi_pol, ellipticity=ellipticity,
+            theta_xz=theta_xz, theta_yz=theta_yz
+        )
 
     def spectrum_in_angular_range(
-        self, theta_x_range, theta_y_range, s_edges, *, resolution=(33, 33), psi_pol: float = 0.0
+        self,
+        theta_x_range,
+        theta_y_range,
+        s_edges,
+        *,
+        resolution=(33, 33),
+        psi_pol: float = 0.0,
+        ellipticity: float = 0.0,
+        theta_xz: float = 0.0,
+        theta_yz: float = 0.0,
     ):
         """The windowed on-demand query (§4.2) — cheap once `build_overlap`/`_table` ran."""
         return _spectrum_in_angular_range(
-            self._table(), theta_x_range, theta_y_range, s_edges, resolution=resolution, psi_pol=psi_pol
+            self._table(),
+            theta_x_range, theta_y_range, s_edges,
+            resolution=resolution,
+            psi_pol=psi_pol, ellipticity=ellipticity,
+            theta_xz=theta_xz, theta_yz=theta_yz
         )
 
     # -- Results assembly -------------------------------------------------
@@ -134,21 +161,39 @@ class Collision:
         target = self.interaction.target
         ranges = auto_ranges(target, self.interaction.beam, self.interaction.laser, self.interaction.bunch)
         metrics = fit_gaussian_paraxial(self.interaction.laser)
+        # Photon energy with crossing angle factor cos²(α/2) per DER005 §2.2
         photon_energy = metrics.photon_energy()
-        # `psi_pol` is a `GaussianParaxialLaser` field, not part of the `LaserField`
+        theta_xz = metrics.m("theta_xz")
+        theta_yz = metrics.m("theta_yz")
+        cos_alpha = math.cos(theta_xz) * math.cos(theta_yz)
+        cos_alpha_half_sq = (1.0 + cos_alpha) * 0.5  # cos²(α/2) = (1 + cos α)/2
+        photon_energy *= cos_alpha_half_sq
+        # `psi_pol` and `ellipticity` are `GaussianParaxialLaser` fields, not part of the `LaserField`
         # protocol (P15) — read through the descriptive fit, same as every other laser
         # metric this facade uses, rather than assuming the concrete implementation.
         psi_pol = metrics.m("psi_pol")
+        ellipticity = metrics.ellipticity
 
         slices: dict[OutputKind, PhasespaceSlice] = {}
         for request in requests:
             if request.kind not in _SUPPORTED:
                 continue
-            slices[request.kind] = self._fill(request, ranges[request.kind], photon_energy, psi_pol)
+            slices[request.kind] = self._fill(
+                request, ranges[request.kind], photon_energy, psi_pol, ellipticity,
+                theta_xz, theta_yz
+            )
         return Results(photon_slices=slices)
 
+
     def _fill(
-        self, request: OutputRequest, ranges: dict[Axis, tuple[float, float]], photon_energy: float, psi_pol: float
+        self,
+        request: OutputRequest,
+        ranges: dict[Axis, tuple[float, float]],
+        photon_energy: float,
+        psi_pol: float,
+        ellipticity: float,
+        theta_xz: float,
+        theta_yz: float,
     ) -> PhasespaceSlice:
         kind = request.kind
         if kind is OutputKind.TOTAL_YIELD:
@@ -163,14 +208,22 @@ class Collision:
         if kind is OutputKind.ANGULAR_DISTRIBUTION:
             values = slice_axis_values(request, ranges)
             s = self._energy_quadrature_grid()
-            cube = self.angular_spectrum(s, values[Axis.THETA_X], values[Axis.THETA_Y], psi_pol=psi_pol)
+            cube = self.angular_spectrum(
+                s, values[Axis.THETA_X], values[Axis.THETA_Y],
+                psi_pol=psi_pol, ellipticity=ellipticity,
+                theta_xz=theta_xz, theta_yz=theta_yz
+            )
             distr = np.trapezoid(cube, s, axis=-1)
             return PhasespaceSlice(axes=values, distr=distr)
 
         if kind is OutputKind.COLLIMATED_SPECTRUM:
             values = slice_axis_values(request, ranges)
             s = values[Axis.ENERGY] / (4.0 * photon_energy)
-            cube = self.angular_spectrum(s, values[Axis.THETA_X], values[Axis.THETA_Y], psi_pol=psi_pol)
+            cube = self.angular_spectrum(
+                s, values[Axis.THETA_X], values[Axis.THETA_Y],
+                psi_pol=psi_pol, ellipticity=ellipticity,
+                theta_xz=theta_xz, theta_yz=theta_yz
+            )
             # angular_spectrum_from_table returns (theta_x, theta_y, s); §3.4/`SLICE_AXES`
             # orders this output (energy, theta_x, theta_y).
             distr = np.moveaxis(cube, 2, 0) / (4.0 * photon_energy)

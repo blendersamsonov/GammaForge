@@ -406,7 +406,7 @@ This term:
 | **Fast path (opt-in)** | Factorized form above, **only when**: $\alpha < 10$ mrad **and** $\gamma\theta < 0.5$ **and** user acknowledges approximation |
 
 **Implementation guardrails** (following project pattern `ELLIPTICITY_IS_NOOP` / `EMISSION_IS_HEAD_ON`):
-- Add `SMALL_ANGLE_FACTORIZATION` flag (default `False`)
+- Add *SMALL_ANGLE_FACTORIZATION* flag (default `False`)
 - `validate()` warns if flag is `True` but $\alpha \ge 10$ mrad or $\gamma\theta \ge 0.5$
 - Benchmark: expect 2–3× speedup from avoiding per-point vector projections
 - Unit test: compare full vs. factorized at $\alpha=5$ mrad (should agree to $<10^{-3}$) and $\alpha=50$ mrad (should diverge)
@@ -449,7 +449,7 @@ This term:
   - Rank-1 for pure incident state.
 - **Dipole null at $\alpha=90^\circ$:** Verified numerically — $I \to 0$ as $\theta \to 0$ when $\mathbf{e}_0 \parallel \mathbf{n}$.
 
-**Numerically verified with exact vectors** (`verify_der007_numerical.py`):
+**Numerically verified with exact vectors** (*verify_der007_numerical.py*):
 
 - $I$ matches DER006 exactly (ratio = 1.000000).
 - $P = 1$ exactly for all parameters (pure state preservation).

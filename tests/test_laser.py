@@ -421,31 +421,32 @@ def test_validate_rejects_impossible_values():
             validate(make_laser(**bad))
 
 
-def test_ellipticity_is_a_documented_no_op_not_a_silent_one():
-    # §9.2/P14c: the derivation does not exist, so the parameter is carried, ignored, and
-    # *said* to be ignored — never silently approximated.
-    assert ELLIPTICITY_IS_NOOP
+def test_ellipticity_is_applied_to_angle_resolved_kernel():
+    # §9.2/DER004: ellipticity is now applied to the angle-resolved kernel.
+    # The total yield and mean red-shift (ahat) are polarization-agnostic by invariance,
+    # but the angle-resolved spectrum shape depends on ellipticity.
+    assert not ELLIPTICITY_IS_NOOP
+    # a0_peak is still linear-equivalent by convention (RES054) — no change there
     assert make_laser(ellipticity=0.5).a0_peak() == pytest.approx(make_laser().a0_peak())
+    # validate no longer warns about ellipticity being unapplied
     warnings = validate(make_laser(ellipticity=0.5))
-    assert any("ellipticity" in warning for warning in warnings)
-    assert not any("ellipticity" in warning for warning in validate(make_laser()))
+    assert not any("ellipticity" in warning for warning in warnings)
+    # Linear polarization should also not warn
+    warnings = validate(make_laser())
+    assert not any("ellipticity" in warning for warning in warnings)
 
-
-def test_a_crossing_angle_warns_that_only_the_geometry_is_applied():
-    """§9.3/P14c, the sibling of the ellipticity no-op — and the harder one to notice.
-
-    A crossing angle is not ignored: `rotation_matrix` carries it into every sampling
-    position, so overlap and timing genuinely change. What does not change is the
-    *emission* — xigma holds `RELATIVE_VELOCITY` at 2 and measures kernel angles from the
-    collinear axis. A caller who sees the geometry respond has every reason to assume the
-    physics did too, which is exactly why this one has to be said rather than inferred.
+def test_crossing_angle_is_applied_to_emission_physics():
+    """§9.3/DER005/DER006: crossing angle now enters emission physics in three places:
+    (1) relative-velocity factor, (2) resonance/energy conversion cos²(α/2),
+    (3) polarization structure v·e_i terms.
     """
-    assert EMISSION_IS_HEAD_ON
+    assert not EMISSION_IS_HEAD_ON
     tilted = make_laser(theta_xz=Q(0.2, "rad"))
+    # validate no longer warns about crossing angle physics being unapplied
     warnings = validate(tilted)
-    assert any("crossing angle" in warning for warning in warnings)
-    assert any("crossing angle" in warning for warning in validate(make_laser(theta_yz=Q(0.2, "rad"))))
-    assert not any("crossing angle" in warning for warning in validate(make_laser()))
-    # The geometry really is applied — this is a warning about the physics, not about a
-    # parameter that does nothing.
+    assert not any("crossing angle" in warning for warning in warnings)
+    # Geometry is still applied (rotation matrix)
     assert not np.allclose(lab_frame_axes(0.2, 0.0, 0.0)[0], lab_frame_axes(0.0, 0.0, 0.0)[0])
+    # Head-on should also not warn
+    warnings = validate(make_laser())
+    assert not any("crossing angle" in warning for warning in warnings)

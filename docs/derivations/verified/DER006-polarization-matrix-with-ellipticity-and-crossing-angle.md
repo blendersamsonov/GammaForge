@@ -6,7 +6,7 @@ Status: verified
 
 This derivation combines **DER004** (ellipticity in the emission kernel's polarization factor) and **DER005** (crossing angle in the emission kernel) to obtain the full polarization matrix for scattered Compton photons when the incident laser has arbitrary ellipticity *and* an arbitrary crossing angle relative to the electron bunch.
 
-The paper's emission kernel (eq. `xsec` / eq. `Fmatrix`) contains the factor
+The paper's emission kernel (eq. *xsec* / eq. *Fmatrix*) contains the factor
 
 $$
 \operatorname{Tr}\!\left(\hat U^{T}\hat\Xi\hat U\right)

@@ -64,12 +64,261 @@ __all__ = [
 ]
 
 #: Relative-velocity factor for the near-backscattering geometry: electron and photon
-#: approach at ``2c``, so the flux an electron sees is twice what its own speed implies.
-#: Head-on is the only geometry whose physics is wired (§9.3 is an open derivation), and
-#: this constant is where a crossing angle will enter when it lands. The user-facing half
-#: of that statement is `io.laser.EMISSION_IS_HEAD_ON`, which warns when a nonzero
-#: ``theta_xz``/``theta_yz`` is configured; the two are flipped together.
+#: approach at ``c(1 - v.n0_hat)`` where n0_hat is the laser propagation direction.
+#: Head-on (n0_hat = -z_hat, v = beta z_hat) gives ``c(1+beta) -> 2c``.
+#: With crossing angles theta_xz, theta_yz: n0_hat = (-sin(theta_xz)cos(theta_yz), sin(theta_yz), -cos(theta_xz)cos(theta_yz))
+#: so 1 - v.n0_hat = 1 + beta cos(theta_xz)cos(theta_yz) -> 2 cos^2(alpha/2) where cos(alpha) = cos(theta_xz)cos(theta_yz).
+def relative_velocity(beta: float, theta_xz: float = 0.0, theta_yz: float = 0.0) -> float:
+    """Relative-velocity factor ``1 - v.n0_hat = 1 + beta cos(theta_xz) cos(theta_yz)``.
+
+    Parameters
+    ----------
+    beta : float
+        Electron velocity / c (typically ~1 for ultra-relativistic beams).
+    theta_xz : float
+        Crossing angle in x-z plane (radians).
+    theta_yz : float
+        Crossing angle in y-z plane (radians).
+
+    Returns
+    -------
+    float
+        The factor multiplying ``c`` for the relative velocity. Head-on limit (theta_xz=theta_yz=0)
+        gives ``1 + beta`` (-> 2 for beta=1).
+    """
+    return 1.0 + beta * math.cos(theta_xz) * math.cos(theta_yz)
+
+
+#: Backward-compatible alias for code/docs that still reference the constant name.
+#: ``RELATIVE_VELOCITY = relative_velocity(1.0) == 2.0``
 RELATIVE_VELOCITY = 2.0
+
+
+def polarization_factor(
+    gamma: float,
+    theta_x: float,
+    theta_y: float,
+    theta_x_obs: float,
+    theta_y_obs: float,
+    ellipticity: float,
+    psi_pol: float,
+    theta_xz: float = 0.0,
+    theta_yz: float = 0.0,
+    beta: float = 1.0,
+) -> float:
+    """Full polarization factor from DER006: ``Tr(U^T Xi U)`` with ellipticity and crossing angle.
+
+    This replaces the head-on linear factor ``1 - 4 gamma^2 theta^2 cos^2(psi) / (1 + gamma^2 theta^2)^2``
+    with the general expression including:
+    - Ellipticity: ``eps`` modifies the angular dependence from ``cos^2 psi`` to
+      ``(cos^2 psi + eps^2 sin^2 psi) / (1 + eps^2)`` in the head-on limit.
+    - Crossing angle: the polarization basis vectors ``e_0, e_1`` are rotated by
+      ``R = R_y(theta_xz) R_x(theta_yz)``, and the ``v.e_i`` terms enter.
+
+    Parameters
+    ----------
+    gamma : float
+        Electron Lorentz factor.
+    theta_x : float
+        Electron trajectory angle x-component (rad).
+    theta_y : float
+        Electron trajectory angle y-component (rad).
+    theta_x_obs : float
+        Observation angle x-component (rad).
+    theta_y_obs : float
+        Observation angle y-component (rad).
+    ellipticity : float
+        Laser ellipticity in [0, 1] (0 = linear, 1 = circular).
+    psi_pol : float
+        Polarization angle in head-on frame (rad), major axis azimuth.
+    theta_xz : float
+        Laser crossing angle in x-z plane (rad).
+    theta_yz : float
+        Laser crossing angle in y-z plane (rad).
+    beta : float
+        Electron velocity / c (default 1.0 for ultra-relativistic).
+
+    Returns
+    -------
+    float
+        The polarization factor ``Tr(U^T Xi U)``.
+    """
+    # Observation direction n (small-angle approx: n = z_hat + (theta_x_obs, theta_y_obs, 0))
+    # Electron velocity v = beta * z_hat
+    # Laser propagation direction n0 = R(-z_hat) where R = R_y(theta_xz) R_x(theta_yz)
+    # n0 = (-sin(theta_xz)cos(theta_yz), sin(theta_yz), -cos(theta_xz)cos(theta_yz))
+    #
+    # Polarization basis in head-on frame: e0^(0) = (cos psi_pol, sin psi_pol, 0), e1^(0) = (-sin psi_pol, cos psi_pol, 0)
+    # Rotated basis: e_i = R e_i^(0)
+    #
+    # Need: a_i = n·e_i, b_i = v·e_i = beta * z_hat·e_i
+    # 1 - v·n = 1 - beta * n_z ≈ 1 - beta + beta * (theta_x_obs^2 + theta_y_obs^2)/2
+    #         ≈ (1 + gamma^2 theta^2) / (2 gamma^2) for beta=1, where theta^2 = theta_x_obs^2 + theta_y_obs^2
+
+    cos_xz = math.cos(theta_xz)
+    cos_yz = math.cos(theta_yz)
+    sin_xz = math.sin(theta_xz)
+    sin_yz = math.sin(theta_yz)
+
+    # Rotation matrix R = R_y(theta_xz) @ R_x(theta_yz)
+    # R_y(theta_xz) = [[cos, 0, sin], [0, 1, 0], [-sin, 0, cos]]
+    # R_x(theta_yz) = [[1, 0, 0], [0, cos, -sin], [0, sin, cos]]
+    # R = R_y @ R_x =
+    # [[cos_xz,  sin_xz*sin_yz,  sin_xz*cos_yz],
+    #  [0,       cos_yz,        -sin_yz],
+    #  [-sin_xz, cos_xz*sin_yz,  cos_xz*cos_yz]]
+    R = np.array([
+        [cos_xz, sin_xz * sin_yz, sin_xz * cos_yz],
+        [0.0,    cos_yz,         -sin_yz],
+        [-sin_xz, cos_xz * sin_yz, cos_xz * cos_yz]
+    ], dtype=float)
+
+    # Head-on polarization basis vectors
+    cp = math.cos(psi_pol)
+    sp = math.sin(psi_pol)
+    e0_headon = np.array([cp, sp, 0.0])
+    e1_headon = np.array([-sp, cp, 0.0])
+
+    # Rotated basis vectors
+    e0 = R @ e0_headon
+    e1 = R @ e1_headon
+
+    # Observation direction n (small-angle approx)
+    n = np.array([theta_x_obs, theta_y_obs, 1.0])
+    n_norm = np.linalg.norm(n)
+    n = n / n_norm
+
+    # For ultra-relativistic electrons (beta ≈ 1), use the small-angle approximation:
+    # 1 - v·n = 1 - beta * n_z ≈ (1 + gamma^2 * theta^2) / (2 * gamma^2)
+    # This is exact for beta=1 in the small-angle limit and avoids 1-v·n = 0 at theta=0
+    theta_sq = theta_x_obs**2 + theta_y_obs**2
+    one_minus_vn = (1.0 + gamma * gamma * theta_sq) / (2.0 * gamma * gamma)
+
+    # Electron velocity
+    v = np.array([0.0, 0.0, beta])
+
+    # a_i = n·e_i, b_i = v·e_i
+    a0 = np.dot(n, e0)
+    a1 = np.dot(n, e1)
+    b0 = np.dot(v, e0)
+    b1 = np.dot(v, e1)
+
+    # xi matrix elements
+    eps2 = ellipticity * ellipticity
+    denom = 1.0 + eps2
+    xi00 = 1.0 / denom
+    xi11 = eps2 / denom
+
+    # Polarization factor: sum_i xi_ii * [1 - a_i^2 / (gamma^2 (1-v·n)^2) + 2 a_i b_i / (1-v·n)]
+    # Cross terms vanish because xi01 is purely imaginary and a_i b_j + a_j b_i is real symmetric
+    vn_term = one_minus_vn
+    gamma2_vn2 = gamma * gamma * vn_term * vn_term
+
+    term0 = 1.0 - (a0 * a0) / gamma2_vn2 + 2.0 * a0 * b0 / vn_term
+    term1 = 1.0 - (a1 * a1) / gamma2_vn2 + 2.0 * a1 * b1 / vn_term
+
+    return xi00 * term0 + xi11 * term1
+
+
+def polarization_factor_vectorized(
+    gamma: np.ndarray,
+    theta_x_obs: float,
+    theta_y_obs: float,
+    ellipticity: float,
+    psi_pol: float,
+    theta_xz: float = 0.0,
+    theta_yz: float = 0.0,
+    beta: float = 1.0,
+) -> np.ndarray:
+    """Vectorized polarization factor from DER006 for an array of gamma values.
+
+    Computes ``Tr(U^T Xi U)`` for each gamma value, with common observation geometry
+    and laser parameters.
+
+    Parameters
+    ----------
+    gamma : np.ndarray
+        Array of electron Lorentz factors (any shape).
+    theta_x_obs : float
+        Observation angle x-component (rad).
+    theta_y_obs : float
+        Observation angle y-component (rad).
+    ellipticity : float
+        Laser ellipticity in [0, 1] (0 = linear, 1 = circular).
+    psi_pol : float
+        Polarization angle in head-on frame (rad), major axis azimuth.
+    theta_xz : float
+        Laser crossing angle in x-z plane (rad).
+    theta_yz : float
+        Laser crossing angle in y-z plane (rad).
+    beta : float
+        Electron velocity / c (default 1.0 for ultra-relativistic).
+
+    Returns
+    -------
+    np.ndarray
+        Polarization factor array with same shape as ``gamma``.
+    """
+    # Common factors (independent of gamma)
+    cos_xz = math.cos(theta_xz)
+    cos_yz = math.cos(theta_yz)
+    sin_xz = math.sin(theta_xz)
+    sin_yz = math.sin(theta_yz)
+
+    # Rotation matrix R = R_y(theta_xz) @ R_x(theta_yz)
+    R = np.array([
+        [cos_xz, sin_xz * sin_yz, sin_xz * cos_yz],
+        [0.0,    cos_yz,         -sin_yz],
+        [-sin_xz, cos_xz * sin_yz, cos_xz * cos_yz]
+    ], dtype=float)
+
+    # Head-on polarization basis vectors
+    cp = math.cos(psi_pol)
+    sp = math.sin(psi_pol)
+    e0_headon = np.array([cp, sp, 0.0])
+    e1_headon = np.array([-sp, cp, 0.0])
+
+    # Rotated basis vectors
+    e0 = R @ e0_headon
+    e1 = R @ e1_headon
+
+    # Observation direction n (small-angle approx)
+    n = np.array([theta_x_obs, theta_y_obs, 1.0])
+    n_norm = np.linalg.norm(n)
+    n = n / n_norm
+
+    # For ultra-relativistic electrons (beta ≈ 1), use the small-angle approximation:
+    # 1 - v·n = 1 - beta * n_z ≈ (1 + gamma^2 * theta^2) / (2 * gamma^2)
+    # This is exact for beta=1 in the small-angle limit and avoids 1-v·n = 0 at theta=0
+    theta_sq = theta_x_obs**2 + theta_y_obs**2
+    one_minus_vn = (1.0 + gamma * gamma * theta_sq) / (2.0 * gamma * gamma)
+
+    # Electron velocity
+    v = np.array([0.0, 0.0, beta])
+
+    # a_i = n·e_i, b_i = v·e_i (scalars, same for all gamma)
+    a0 = float(np.dot(n, e0))
+    a1 = float(np.dot(n, e1))
+    b0 = float(np.dot(v, e0))
+    b1 = float(np.dot(v, e1))
+
+    # xi matrix elements
+    eps2 = ellipticity * ellipticity
+    denom = 1.0 + eps2
+    xi00 = 1.0 / denom
+    xi11 = eps2 / denom
+
+    # Polarization factor: sum_i xi_ii * [1 - a_i^2 / (gamma^2 (1-v·n)^2) + 2 a_i b_i / (1-v·n)]
+    # Cross terms vanish because xi01 is purely imaginary and a_i b_j + a_j b_i is real symmetric
+    vn_term = one_minus_vn
+    gamma2 = gamma * gamma
+    gamma2_vn2 = gamma2 * vn_term * vn_term
+
+    term0 = 1.0 - (a0 * a0) / gamma2_vn2 + 2.0 * a0 * b0 / vn_term
+    term1 = 1.0 - (a1 * a1) / gamma2_vn2 + 2.0 * a1 * b1 / vn_term
+
+    return xi00 * term0 + xi11 * term1
+
 
 #: Live bytes per (particle x step) in Stage 0's inner loop, for auto-chunking.
 #: Calibrated on the predecessor's equivalent kernel on a GTX 1660 Ti (6 GB): 400,000
@@ -261,6 +510,8 @@ def integrate_trajectories(
 
     norm = np.sqrt(1.0 + bunch.thx**2 + bunch.thy**2)
     velocity = (C_CGS * bunch.thx / norm, C_CGS * bunch.thy / norm, C_CGS / norm)
+    beta = 1.0  # ultra-relativistic: v = c exactly
+    rel_vel = relative_velocity(beta, metrics.m("theta_xz"), metrics.m("theta_yz"))
 
     def integrate(first_index: int, last_index: int):
         sl = slice(first_index, last_index)
@@ -280,7 +531,7 @@ def integrate_trajectories(
         # In CGS this is simply flux x cross-section x time; the predecessor's k0**2 was
         # the Jacobian of its coordinate normalization and has no counterpart here (RES015).
         dt = span[sl] / n_steps
-        rate = RELATIVE_VELOCITY * density_scale * C_CGS * SIGMA_T_CGS
+        rate = rel_vel * density_scale * C_CGS * SIGMA_T_CGS
         luminosity = rate * weight[sl] * dt * np.sum(intensity, axis=1)
 
         # `ratio` is the local intensity as a fraction of the pulse's peak. a0_shape is its
@@ -723,7 +974,18 @@ def _interp_gamma(table: Table, g: np.ndarray) -> np.ndarray:
     return np.where(in_range, lo * (1.0 - frac) + hi * frac, 0.0)
 
 
-def spectrum_from_table(table: Table, theta_x: float, theta_y: float, s, *, psi_pol: float = 0.0) -> np.ndarray:
+def spectrum_from_table(
+    table: Table,
+    theta_x: float,
+    theta_y: float,
+    s,
+    *,
+    psi_pol: float = 0.0,
+    ellipticity: float = 0.0,
+    theta_xz: float = 0.0,
+    theta_yz: float = 0.0,
+    beta: float = 1.0,
+) -> np.ndarray:
     """Stage 2: ``d2N / (ds dOmega)`` at one observation direction, over an array of ``s``.
 
     A direct grid quadrature over Stage 1's table, not the predecessor's GPU importance
@@ -735,6 +997,9 @@ def spectrum_from_table(table: Table, theta_x: float, theta_y: float, s, *, psi_
     ``g``/``prefac`` are recomputed inside the ahat loop implicitly — this function never
     factors ahat out of the resonance condition — because the resonance shifts with ahat
     (the nonlinear redshift); an ahat-independent shortcut is wrong, not just slower.
+
+    The polarization factor now includes ellipticity and crossing angle effects per DER006,
+    replacing the head-on linear factor ``cos^2 psi``.
     """
     s_arr = np.atleast_1d(np.asarray(s, dtype=float))
     tx_c = table.theta_x_centers[:, None, None]
@@ -742,7 +1007,6 @@ def spectrum_from_table(table: Table, theta_x: float, theta_y: float, s, *, psi_
     a_c = table.ahat_centers[None, None, :]
 
     r_sq = (tx_c - theta_x) ** 2 + (ty_c - theta_y) ** 2
-    cos_pol_sq = np.cos(psi_pol - np.arctan2(ty_c - theta_y, tx_c - theta_x)) ** 2
     theta_cell_area = table.gamma_theta_cell_area
     # ahat is generally non-uniform (§4.2, RES032), so its width is a per-bin array — folded
     # into the sum below rather than factored out as a scalar the way theta's still is.
@@ -764,8 +1028,12 @@ def spectrum_from_table(table: Table, theta_x: float, theta_y: float, s, *, psi_
         g_sq = (1.0 + a_c) / np.where(valid, inv_base, 1.0)
         g = np.where(valid, np.sqrt(g_sq), 0.0)
         gth_sq_inv = 1.0 / (1.0 + r_sq * g_sq) ** 2
-        a_fac = 1.0 - 4.0 * cos_pol_sq * r_sq * g_sq * gth_sq_inv
-        prefac = np.where(valid, a_fac * g**5 * gth_sq_inv / (1.0 + a_c), 0.0)
+
+        # New polarization factor from DER006 (replaces a_fac = 1 - 4*cos^2(psi)*r^2*g^2*gth_sq_inv)
+        pol_factor = polarization_factor_vectorized(
+            g, theta_x, theta_y, ellipticity, psi_pol, theta_xz, theta_yz, beta
+        )
+        prefac = np.where(valid, pol_factor * g**5 * gth_sq_inv / (1.0 + a_c), 0.0)
         H_val = _interp_gamma(table, g)
         out[k] = (
             KERNEL_NORMALIZATION_CONSTANT
@@ -777,7 +1045,16 @@ def spectrum_from_table(table: Table, theta_x: float, theta_y: float, s, *, psi_
 
 
 def angular_spectrum_from_table(
-    table: Table, theta_x_grid, theta_y_grid, s, *, psi_pol: float = 0.0
+    table: Table,
+    theta_x_grid,
+    theta_y_grid,
+    s,
+    *,
+    psi_pol: float = 0.0,
+    ellipticity: float = 0.0,
+    theta_xz: float = 0.0,
+    theta_yz: float = 0.0,
+    beta: float = 1.0,
 ) -> np.ndarray:
     """Stage 2: :func:`spectrum_from_table` evaluated over a grid of observation points.
 
@@ -790,7 +1067,11 @@ def angular_spectrum_from_table(
     out = np.empty((tx.size, ty.size, s_arr.size))
     for i, x in enumerate(tx):
         for j, y in enumerate(ty):
-            out[i, j, :] = spectrum_from_table(table, float(x), float(y), s_arr, psi_pol=psi_pol)
+            out[i, j, :] = spectrum_from_table(
+                table, float(x), float(y), s_arr,
+                psi_pol=psi_pol, ellipticity=ellipticity,
+                theta_xz=theta_xz, theta_yz=theta_yz, beta=beta
+            )
     return out
 
 
@@ -825,6 +1106,10 @@ def spectrum_in_angular_range(
     *,
     resolution: tuple[int, int] = (33, 33),
     psi_pol: float = 0.0,
+    ellipticity: float = 0.0,
+    theta_xz: float = 0.0,
+    theta_yz: float = 0.0,
+    beta: float = 1.0,
 ) -> tuple[np.ndarray, np.ndarray, float]:
     """Stage 2: the windowed on-demand query the `Collision` facade wraps.
 
@@ -838,7 +1123,11 @@ def spectrum_in_angular_range(
     s_edges = np.asarray(s_edges, dtype=float)
     s_centers = 0.5 * (s_edges[:-1] + s_edges[1:])
 
-    cube = angular_spectrum_from_table(table, tx, ty, s_centers, psi_pol=psi_pol)
+    cube = angular_spectrum_from_table(
+        table, tx, ty, s_centers,
+        psi_pol=psi_pol, ellipticity=ellipticity,
+        theta_xz=theta_xz, theta_yz=theta_yz, beta=beta
+    )
     dN_ds = np.trapezoid(np.trapezoid(cube, ty, axis=1), tx, axis=0)
     n_photons = float(np.trapezoid(dN_ds, s_centers))
     return cube, dN_ds, n_photons

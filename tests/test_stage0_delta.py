@@ -18,7 +18,7 @@ import pytest
 
 from gammaforge.engines.xigma import chunking
 from gammaforge.engines.xigma.stages import (
-    RELATIVE_VELOCITY,
+    relative_velocity,
     TrajectorySamples,
     ahat_from_shape,
     integrate_trajectories,
@@ -319,7 +319,7 @@ def test_an_unbuilt_backend_says_so_rather_than_running_on_the_host():
 
 
 def test_the_relative_velocity_factor_is_the_head_on_one():
-    assert RELATIVE_VELOCITY == 2.0
+    assert relative_velocity(beta=1.0) == 2.0
 
 
 # ---------------------------------------------------------------------------
