@@ -19,14 +19,14 @@ unfinished or waiting on someone*.
 | 2. Validation harness | 🟢 done |
 | 2.5. Stage 0 + minimal delta | 🟢 done |
 | 3a. xigma engineering | 🟢 done — Stage 0/1/2, `Collision`, `XigmaEngine` |
-| 3b. Physics closure | 🟡 §9.1 closed (RES033); §9.2 closed for yield/red-shift (RES054), open for the angle-resolved kernel; §9.3 open — see *Open threads* |
+| 3b. Physics closure | 🟢 §9.1 closed (RES033); §9.2 closed (DER004/DER006); §9.3 closed (DER005/DER006) |
 | 4. analytical engine | 🟢 landed and merged to `main`; general overlap-integral yield, width breakdown, quadrature spectrum, flying focus, crossing angle for the yield. Open: collimated-spectrum construction |
 | 5. kascade port + delta full role | ⚪ not started — `engines/kascade/` is an empty package |
-| 6. GUI | ⚪ not started — `gammaforge/gui/` is an empty package |
+| 6. GUI | 🟡 NiceGUI local browser UI implemented (RES058, `docs/UI_SPEC.md`): Inputs/Results, split panes, schema forms, preview, worker execution, plots/exports. Cross-run xigma stage reuse remains open; no LAN executor yet. |
 | 7. Validation completion | ⚪ not started |
 | 8. Polish | ⚪ not started |
 
-**Suite:** `pytest` green (424); `python -m gammaforge.validation.run` all checks pass.
+**Suite:** `pytest` green (458); `python -m gammaforge.validation.run` all checks pass.
 
 ---
 
@@ -36,17 +36,6 @@ Ordered by who is blocked. Each names the file that carries the detail.
 
 ### Waiting on the author (physics)
 
-- **§9.2's angle-resolved kernel.** `ELLIPTICITY_IS_NOOP` is `True` for exactly one
-  consumer: xigma's Stage 2 polarization factor, still linear `cos^2 psi` rather than
-  `(cos^2 psi + eps^2 sin^2 psi)/(1 + eps^2)`. The yield and mean red-shift are already
-  exact for any polarization (RES054). Blocking question: is the quadrature convention in
-  DER004 §1.2 (`Xi_01` purely imaginary ⟺ ellipse axes along `psi_pol`) the intended
-  reading?
-- **§9.3's crossing angle.** `EMISSION_IS_HEAD_ON` is `True`; the rotation is applied to
-  sampling geometry but not to emission. DER005 has all three pieces
-  derived and numerically checked against the paper's own equations. §2.1/§2.2 need only
-  agreement; §2.3 also needs an independent check that does not exist yet (kascade's
-  arbitrary-angle MC, Phase 5). Partial application is forbidden — see RES034.
 - **`ahat_decades`.** RES032's grid defaults were tuned against `ahat` values that RES053 later
   halved, so the bank now sits in the grid's coarse floor. Measured centroid bias ~1%,
   pre-existing rather than introduced; `decades = 1.0 -> 0.3` removes most of it. Pinned by
@@ -55,7 +44,6 @@ Ordered by who is blocked. Each names the file that carries the detail.
 - **`estimate_yield`'s future.** Kept only for port fidelity to the predecessor's worked
   example (RES040). If those published results no longer need reproducing, it and its three
   tests are a one-commit deletion.
-
 ### Available to pick up (no external dependency)
 
 - **Phase 5, kascade.** The largest unblocked item, and the leg §9.3's §2.3 needs. Would
@@ -64,8 +52,10 @@ Ordered by who is blocked. Each names the file that carries the detail.
 - **Wire engines into `run_suite()`.** `validation.run.main()` still passes none (RES031), so
   the suite's green never exercises the cross-engine comparison; the xigma-vs-analytical
   agreement (0.31% on `ahat`, 0.32% on yield) has to be measured by hand.
-- **The `ENGINES` registry** (RES018) — deferred until a second engine existed, which is now
-  the case.
+- **Cross-run xigma stage reuse.** The GUI uses the public `LocalRunner`, which enumerates
+  available engines and reuses the sampled bunch, but xigma still creates one `Collision`
+  per run (RES030). Only charge is currently declared cheap; engine-side stage caching
+  remains a separate task.
 - **Phase 4's collimated-spectrum construction**, the last growth item in §4.3.
 
 ---
