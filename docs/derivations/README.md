@@ -63,6 +63,62 @@ counter-propagation, matching `theta_xz`/`theta_yz`.
 Math is MathJax (`$…$` / `$$…$$`), so it renders in Obsidian and pastes into
 `~/Work/Papers/2026/Compton-Numerics/xigma.tex` with only environment changes.
 
+## Symbolic verification with sympy
+
+**Use sympy (or equivalent CAS) to formally verify derivations wherever possible.**
+
+The derivations in this repository are pure symbolic algebra — vector dot products,
+matrix traces, trigonometric identities, complex arithmetic, and rotation matrices.
+They contain no integrals, asymptotic series, or numerical methods. This makes them
+ideal candidates for formal verification with a computer algebra system.
+
+### Verification workflow
+
+1. **Translate the derivation to sympy** — Define symbols with assumptions
+   (`positive=True`, `real=True`), set up vectors/matrices, and express the
+   boxed formulas as sympy expressions.
+
+2. **Verify the boxed formula** — Compute the trace/determinant/limit symbolically
+   and confirm it matches the stated result exactly (`difference == 0`).
+
+3. **Check special cases** — Verify limits (ε=0, ε=1, head-on, α=90°) match
+   known physics.
+
+4. **Verify mathematical structure** — Confirm Hermiticity, positive semidefiniteness,
+   rank properties, and conservation laws (P=1 for pure states).
+
+5. **Document the verification** — In the `## Verification` section of a `verified/`
+   derivation, state:
+   - Which parts were verified symbolically
+   - Which parts required numerical verification (e.g., exact vectors with square roots)
+   - Any basis-convention differences from analytic formulas
+
+### Current verification status
+
+| Derivation | Method | Status |
+|------------|--------|--------|
+| DER001–DER003 | Symbolic (sympy) | ✅ Verified |
+| DER004 | Symbolic (sympy) | ✅ Verified |
+| DER005 | Symbolic (sympy) | ✅ Verified |
+| DER006 | Symbolic (sympy) | ✅ Verified |
+| DER007 | Symbolic (head-on) + Numerical (exact vectors) | ✅ Verified |
+
+DER007's full crossing-angle expressions involve square roots from exact basis vectors
+(`f₀ = (v - (v·n)n)/|v - (v·n)n|`) that cause expression explosion in sympy. The
+head-on limit (θ→0) is verified symbolically for all basis-invariant physics
+(P=1, I=1, |V/I|=2ε/(1+ε²), dipole null). The exact implementation uses the paper's
+recommended numerical approach (§8) with exact vectors, verified numerically.
+
+### Running verifications
+
+```bash
+python verify_all.py          # Run all verifications
+python verify_all.py der004   # Run specific derivation
+```
+
+Verification scripts live in the repo root: `verify_der004.py`, `verify_der005.py`,
+`verify_der006.py`, `verify_der007_headon.py`.
+
 ## The file format
 
 ```markdown
