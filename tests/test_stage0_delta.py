@@ -23,6 +23,8 @@ from gammaforge.engines.xigma.stages import (
     ahat_from_shape,
     integrate_trajectories,
     photon_density_scale,
+    polarization_factor,
+    polarization_factor_vectorized,
 )
 from gammaforge.io.interaction import PREFILTER_OFF
 from gammaforge.io.target import OutputKind
@@ -32,6 +34,32 @@ from gammaforge.validation.golden import load_golden
 from gammaforge.validation.references import delta
 
 N_STEPS = 64
+
+
+def _polarization_factor_from_udef(
+    gamma, theta_x, theta_y, theta_x_obs, theta_y_obs,
+    ellipticity, psi_pol, theta_xz=0.0, theta_yz=0.0,
+):
+    """Direct lab-frame evaluation of manuscript Eq. (udef), independent of the kernel."""
+    cos_xz, cos_yz = math.cos(theta_xz), math.cos(theta_yz)
+    sin_xz, sin_yz = math.sin(theta_xz), math.sin(theta_yz)
+    rotation = np.array([
+        [cos_xz, sin_xz * sin_yz, sin_xz * cos_yz],
+        [0.0, cos_yz, -sin_yz],
+        [-sin_xz, cos_xz * sin_yz, cos_xz * cos_yz],
+    ])
+    e0 = rotation @ np.array([math.cos(psi_pol), math.sin(psi_pol), 0.0])
+    e1 = rotation @ np.array([-math.sin(psi_pol), math.cos(psi_pol), 0.0])
+    n = np.array([theta_x_obs, theta_y_obs, 1.0])
+    n /= np.linalg.norm(n)
+    beta = math.sqrt(1.0 - gamma**-2)
+    v = beta * np.array([theta_x, theta_y, 1.0])
+    v /= math.sqrt(1.0 + theta_x**2 + theta_y**2)
+    one_minus_vn = 1.0 - np.dot(v, n)
+    u0 = (n - v) * np.dot(n, e0) / one_minus_vn - e0
+    u1 = (n - v) * np.dot(n, e1) / one_minus_vn - e1
+    eps2 = ellipticity**2
+    return (np.dot(u0, u0) + eps2 * np.dot(u1, u1)) / (1.0 + eps2)
 
 
 def _samples(scenario, n_particles=2000, **kwargs):
@@ -412,6 +440,57 @@ def test_the_capture_correction_accounts_for_the_polarization_factor():
     assert delta.captured_fraction(1e4) == pytest.approx(1.0, abs=1e-6)
 
 
+def test_polarization_uses_the_particle_lab_velocity_from_manuscript_udef():
+    """A tilted electron changes the projection while observer and basis stay lab-frame."""
+    args = dict(
+        gamma=2000.0, theta_x=0.0011, theta_y=-0.0007,
+        theta_x_obs=0.0003, theta_y_obs=-0.0002,
+        ellipticity=0.35, psi_pol=0.6, theta_xz=0.04, theta_yz=-0.03,
+    )
+    expected = _polarization_factor_from_udef(**args)
+    actual = polarization_factor(**args)
+    assert actual == pytest.approx(expected, rel=1e-9)
+    assert actual != pytest.approx(polarization_factor(
+        args["gamma"], 0.0, 0.0, args["theta_x_obs"], args["theta_y_obs"],
+        args["ellipticity"], args["psi_pol"], args["theta_xz"], args["theta_yz"],
+    ), rel=1e-3)
+
+
+def test_vectorized_polarization_accepts_each_particle_direction():
+    gamma = np.array([1800.0, 2200.0])
+    theta_x = np.array([-0.0008, 0.0011])
+    theta_y = np.array([0.0005, -0.0007])
+    kwargs = dict(theta_x_obs=0.0003, theta_y_obs=-0.0002,
+                  ellipticity=0.35, psi_pol=0.6, theta_xz=0.04, theta_yz=-0.03)
+    expected = np.array([
+        _polarization_factor_from_udef(g, tx, ty, **kwargs)
+        for g, tx, ty in zip(gamma, theta_x, theta_y)
+    ])
+    assert np.allclose(
+        polarization_factor_vectorized(gamma, theta_x, theta_y, **kwargs), expected, rtol=1e-9
+    )
+
+
+def test_delta_passes_each_particle_direction_to_the_polarization_projection():
+    samples = TrajectorySamples(
+        gamma=np.array([2000.0]), theta_x=np.array([0.0011]), theta_y=np.array([-0.0007]),
+        a0_shape=np.array([1.0]), luminosity=np.array([7.0]), intensity_peak=0.02, n_steps=1,
+    )
+    theta_x_obs, theta_y_obs = 0.0003, -0.0002
+    kwargs = dict(ellipticity=0.35, psi_pol=0.6, theta_xz=0.04, theta_yz=-0.03)
+    r_squared = (samples.theta_x[0] - theta_x_obs)**2 + (samples.theta_y[0] - theta_y_obs)**2
+    s_res = samples.gamma[0] ** 2 / (1.0 + samples.ahat()[0] + samples.gamma[0] ** 2 * r_squared)
+    s_edges = np.array([s_res * 0.999, s_res * 1.001])
+    expected_weight = (
+        delta.DIFFERENTIAL_PREFACTOR * samples.luminosity[0]
+        * _polarization_factor_from_udef(samples.gamma[0], samples.theta_x[0], samples.theta_y[0],
+                                          theta_x_obs, theta_y_obs, **kwargs)
+        * samples.gamma[0] ** 2 / (1.0 + r_squared * samples.gamma[0] ** 2) ** 2
+    )
+    density = delta.resonance_spectrum(samples, s_edges, theta_x_obs, theta_y_obs, **kwargs)
+    assert density[0] * np.diff(s_edges)[0] == pytest.approx(expected_weight, rel=1e-9)
+
+
 def test_the_closed_form_anchor_really_is_one(baseline):
     """It is an identity, so it should read as one — a trapezoid over bin centres did not.
 
@@ -445,8 +524,14 @@ def test_widening_the_cone_captures_more_and_moves_towards_one(baseline):
     square grid's corners reaching past it. Asserting against a bare 1.0 would leave a 2%
     margin that anyone retuning the cone or angle count would trip over for no reason.
     """
+    # ``captured_fraction`` is the closed-form zero-divergence result.  The production
+    # reference now correctly uses each particle direction, so retain the analytical
+    # comparison on the configuration to which that closed form applies.
+    collinear = replace(
+        baseline, theta_x=np.zeros_like(baseline.theta_x), theta_y=np.zeros_like(baseline.theta_y)
+    )
     settings = ((4.0, 33), (8.0, 65))
-    checks = [delta.check_normalization(baseline, n_angles=n, cone_factor=c) for c, n in settings]
+    checks = [delta.check_normalization(collinear, n_angles=n, cone_factor=c) for c, n in settings]
     assert checks[0].ratio < checks[1].ratio
     for check, (cone, _) in zip(checks, settings):
         assert check.ratio == pytest.approx(delta.captured_fraction(cone), rel=2e-2)

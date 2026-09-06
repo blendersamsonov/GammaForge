@@ -135,10 +135,9 @@ print("   ✓ Rank-1 for pure incident state")
 
 # ─── Dipole null at α=90° ──────────────────────────────────────────────────
 print("\n" + "="*70)
-print("DIPOLE NULL AT α=90° (verified numerically)")
+print("DIPOLE NULL AT α=90°")
 print("="*70)
-print("   See verify_der007_numerical.py for numerical verification")
-print("   ✓ I → 0 as θ → 0 when e₀ ∥ n")
+print("   Not checked by this head-on symbolic verifier; no numerical verifier is present.")
 
 # ─── Summary ───────────────────────────────────────────────────────────────
 print("\n" + "="*70)

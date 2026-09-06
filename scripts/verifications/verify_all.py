@@ -16,25 +16,24 @@ Derivations verified:
 - DER006: Polarization matrix with ellipticity and crossing angle
 - DER007: Stokes parameters (head-on limit, basis-invariant physics)
 
-Note: DER007's full crossing-angle expressions are too complex for symbolic
-simplification. The head-on limit (θ→0) is verified symbolically for all
-basis-invariant physics (P=1, I=1, |V/I|=2ε/(1+ε²), dipole null).
-The exact implementation uses the paper's recommended numerical approach
-(§8) with exact vectors, verified numerically in verify_der007_numerical.py.
+DER005's full crossing-angle polarization numerical verifier is not present. DER006's
+lab-frame convention is author-approved and covered by its direct Eq. `udef` pytest
+reference; this wrapper verifies DER006's restricted symbolic algebra separately.
+The wrapper reports a blocked derivation separately from a passed executable check.
 """
 
 import sys
 import subprocess
 from pathlib import Path
 
-def run_verification(script_name, description):
+def run_verification(script_path: Path, description: str) -> bool:
     """Run a verification script and return success status."""
     print(f"\n{'='*70}")
     print(f"Running {description}")
     print(f"{'='*70}")
     try:
         result = subprocess.run(
-            [sys.executable, script_name],
+            [sys.executable, str(script_path)],
             capture_output=True,
             text=True,
             timeout=60
@@ -54,23 +53,32 @@ def run_verification(script_name, description):
         print(f"ERROR: {e}")
         return False
 
-def main():
+def main(argv: list[str] | None = None) -> int:
     # Map of derivation to verification script
     script_dir = Path(__file__).parent
     verifications = [
-        (script_dir / "verify_der004.py", "DER004: Ellipticity in polarization factor"),
-        (script_dir / "verify_der005.py", "DER005: Crossing angle (3 parts)"),
-        (script_dir / "verify_der006.py", "DER006: Combined polarization matrix"),
-        (script_dir / "verify_der007_headon.py", "DER007: Stokes parameters (head-on limit)"),
+        (script_dir / "verify_der004.py", "DER004: Ellipticity in polarization factor", None),
+        (script_dir / "verify_der005.py", "DER005: Crossing angle (3 parts)",
+         "the full crossing-angle numerical verifier is absent"),
+        (script_dir / "verify_der006.py", "DER006: Combined polarization matrix", None),
+        (script_dir / "verify_der007_headon.py", "DER007: Stokes parameters (head-on limit)", None),
     ]
 
     # If specific derivation requested
-    if len(sys.argv) > 1:
-        target = sys.argv[1]
-        verifications = [(s, d) for s, d in verifications if target in s]
+    argv = sys.argv[1:] if argv is None else argv
+    if len(argv) > 1:
+        print("usage: verify_all.py [der004|der005|der006|der007]")
+        return 2
+    if argv:
+        target = argv[0].casefold()
+        verifications = [
+            (script, description, complete)
+            for script, description, complete in verifications
+            if script.stem.casefold() == f"verify_{target}"
+        ]
         if not verifications:
             print(f"Unknown derivation: {target}")
-            print(f"Available: {[s for s, _ in verifications]}")
+            print("Available: der004, der005, der006, der007")
             return 1
 
     print("GammaForge Derivation Verification Suite")
@@ -78,27 +86,33 @@ def main():
     print()
 
     results = []
-    for script, desc in verifications:
+    for script, desc, blocker in verifications:
         success = run_verification(script, desc)
-        results.append((desc, success))
+        results.append((desc, success, blocker))
 
     # Summary
     print("\n" + "="*70)
     print("VERIFICATION SUMMARY")
     print("="*70)
     all_passed = True
-    for desc, success in results:
-        status = "✓ PASS" if success else "✗ FAIL"
-        print(f"  {status}: {desc}")
+    all_complete = True
+    for desc, success, blocker in results:
+        status = "✓ PASS" if success and blocker is None else ("! BLOCKED" if success else "✗ FAIL")
+        suffix = f" — {blocker}" if blocker is not None else ""
+        print(f"  {status}: {desc}{suffix}")
         if not success:
             all_passed = False
+        if blocker is not None:
+            all_complete = False
 
-    if all_passed:
+    if all_passed and all_complete:
         print("\n✓ All verifications passed!")
         return 0
-    else:
+    if not all_passed:
         print("\n✗ Some verifications failed!")
-        return 1
+    else:
+        print("\n! Some derivations are not fully executable in this checkout.")
+    return 1
 
 if __name__ == "__main__":
     sys.exit(main())

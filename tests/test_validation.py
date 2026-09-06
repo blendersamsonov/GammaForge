@@ -26,7 +26,7 @@ from gammaforge.io.schema import DIMENSIONLESS, FieldKind, FieldSpec, Parameters
 from gammaforge.io.target import OutputKind, compton_edge_energy
 from gammaforge.io.units import Quantity
 from gammaforge.validation import golden as golden_module
-from gammaforge.validation import invariance, metrics, scenarios
+from gammaforge.validation import invariance, metrics, run as validation_run, scenarios
 from gammaforge.validation.golden import (
     Provenance,
     available_goldens,
@@ -40,7 +40,7 @@ from gammaforge.validation.make_references import (
     _SCALAR_TRANSLATION,
     _scenario_payload,
 )
-from gammaforge.validation.run import run_suite
+from gammaforge.validation.run import main, run_suite
 from gammaforge.validation.runners import derived_scalars, run_bank, run_engine
 
 # ---------------------------------------------------------------------------
@@ -556,6 +556,8 @@ def test_the_suite_runs_green_with_no_engines(small_scenario):
     text = str(report)
     assert report.failures == 0, text
     assert "no engines passed to run_suite()" in text
+    assert "production engine validation (opt-in)" in text
+    assert "not run" in text
     assert "ALL CHECKS PASS" in text
 
 
@@ -563,3 +565,25 @@ def test_the_suite_reports_engine_failures(prefilter_scenario):
     report = run_suite(engines=[ParticleCountEngine()], scenarios=[prefilter_scenario])
     assert report.failures > 0
     assert "CHECK(S) FAILED" in str(report)
+
+
+def test_main_returns_nonzero_for_a_supported_engine_that_fails(prefilter_scenario):
+    """A report failure must be observable by a caller running the suite as a command."""
+    assert main([], engines=[ParticleCountEngine()], scenarios=[prefilter_scenario]) == 1
+
+
+def test_main_rejects_an_unknown_validation_selector():
+    assert main(["--not-a-mode"], scenarios=[]) == 2
+
+
+def test_production_coverage_blockers_prevent_a_full_pass(monkeypatch, small_scenario):
+    monkeypatch.setattr(
+        validation_run,
+        "production_checks",
+        lambda scenarios: ([], ["completed gate"], ["angular measure is unresolved"]),
+    )
+    report = validation_run.run_suite(scenarios=[small_scenario], production=True)
+    assert report.failures == 0
+    assert report.blockers == 1
+    assert "ALL EXECUTED CHECKS PASS; 1 COVERAGE BLOCKER(S)" in str(report)
+    assert validation_run.main(["--production"], scenarios=[small_scenario]) == 1

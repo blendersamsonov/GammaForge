@@ -46,8 +46,10 @@ from .invariance import Check, core_checks, engine_checks
 from .runners import derived_scalars, run_engine
 from .scenarios import SCENARIOS, Scenario
 
-__all__ = ["Report", "run_suite", "golden_scalar_checks", "identity_checks", "main",
-           "SCALAR_TOLERANCE", "IDENTITY_PARTICLES"]
+__all__ = [
+    "Report", "run_suite", "golden_scalar_checks", "identity_checks", "production_checks", "main",
+    "SCALAR_TOLERANCE", "IDENTITY_PARTICLES", "PRODUCTION_PARTICLES",
+]
 
 
 class Report:
@@ -56,6 +58,7 @@ class Report:
     def __init__(self) -> None:
         self.lines: list[str] = []
         self.failures = 0
+        self.blockers = 0
 
     def section(self, title: str) -> None:
         self.lines.append("")
@@ -68,8 +71,17 @@ class Report:
     def note(self, text: str) -> None:
         self.lines.append(text)
 
+    def blocked(self, text: str) -> None:
+        """Record coverage that prevents this invocation being a full validation pass."""
+        self.lines.append(f"[blocked] {text}")
+        self.blockers += 1
+
     def verdict(self) -> str:
-        return "ALL CHECKS PASS" if self.failures == 0 else f"{self.failures} CHECK(S) FAILED"
+        if self.failures:
+            return f"{self.failures} CHECK(S) FAILED"
+        if self.blockers:
+            return f"ALL EXECUTED CHECKS PASS; {self.blockers} COVERAGE BLOCKER(S)"
+        return "ALL CHECKS PASS"
 
     def __str__(self) -> str:
         return "\n".join([*self.lines, "", "=" * 62, self.verdict(), "=" * 62])
@@ -111,6 +123,121 @@ def golden_scalar_checks(scenarios: Sequence[Scenario]) -> list[Check]:
 #: Macroparticles the identity harness runs on. It is a normalization check, not a
 #: production run — the ratios it reports converge long before the statistics do.
 IDENTITY_PARTICLES = 2000
+
+
+#: The opt-in production tier uses the scenario bank's physics inputs with a smaller
+#: sampling/output request so its Stage-2 checks are runnable on numpy. The ordinary bank
+#: remains the production request; this is a named validation measurement, not a default.
+PRODUCTION_PARTICLES = 4_000
+_PRODUCTION_OUTPUTS = (
+    ("total_yield", ()),
+    ("spectrum", (96,)),
+)
+_PRODUCTION_XIGMA_PARAMS = {
+    "n_steps": 64,
+    "n_bins_gamma": 48,
+    "n_bins_theta_x": 32,
+    "n_bins_theta_y": 32,
+    "n_bins_ahat": 24,
+    "ahat_decades": 0.3,
+}
+
+
+def _production_scenario(scenario: Scenario) -> Scenario:
+    """A reduced request over one scenario-bank physical configuration."""
+    from ..io.target import OutputKind, OutputRequest
+
+    outputs = tuple(
+        OutputRequest(getattr(OutputKind, name.upper()), resolution)
+        for name, resolution in _PRODUCTION_OUTPUTS
+    )
+    return replace(scenario, target=replace(scenario.target, outputs=outputs))
+
+
+def _spectrum_moments(slice_) -> tuple[float, float]:
+    """Return the spectral centroid and 99%-contained-energy edge."""
+    from ..io.results import Axis
+
+    energy = slice_.axes[Axis.ENERGY]
+    density = slice_.distr
+    total = float(np.trapezoid(density, energy))
+    if not np.isfinite(total) or total <= 0.0:
+        return math.nan, math.nan
+    centroid = float(np.trapezoid(density * energy, energy) / total)
+    cumulative = np.concatenate(
+        ([0.0], np.cumsum(0.5 * (density[1:] + density[:-1]) * np.diff(energy)))
+    )
+    return centroid, float(np.interp(0.99 * total, cumulative, energy))
+
+
+def _relative_deviation(value: float, reference: float) -> float:
+    if not (np.isfinite(value) and np.isfinite(reference)) or reference == 0.0:
+        return math.inf
+    return abs(value / reference - 1.0)
+
+
+def production_checks(scenarios: Sequence[Scenario]) -> tuple[list[Check], list[str], list[str]]:
+    """Opt-in distribution checks over the shared bank's real engine implementations.
+
+    Analytical and xigma agree only in their documented head-on, weakly nonlinear common
+    regime. Those yield and spectrum checks are gates. Angular checks are deliberately
+    absent: `PhasespaceSlice` has no histogram-integration contract yet, so values at bin
+    centres cannot support a scientific comparison (handoff 02). Kascade is also absent
+    until that contract supports the Phase-5 four-method comparison.
+    """
+    from ..engines.analytical.engine import AnalyticalEngine
+    from ..engines.xigma.engine import XigmaEngine
+    from ..io.target import OutputKind
+
+    checks: list[Check] = []
+    notes: list[str] = []
+    blockers = [
+        "angular xigma/delta validation was not run: histogram-centre integration has no "
+        "measure contract (handoff 02)",
+        "kascade is not part of this tier: its independent histogram comparison awaits "
+        "the same measure contract",
+        "arbitrary-angle emission is not independently validated: the approved per-particle "
+        "lab-frame polarization projection has only its direct Eq. udef implementation check",
+    ]
+    xigma = XigmaEngine()
+    analytical = AnalyticalEngine()
+    xigma_params = xigma.schema.with_values(**_PRODUCTION_XIGMA_PARAMS)
+    for source in scenarios:
+        scenario = _production_scenario(source)
+        sampling = replace(source.sampling, n_particles=PRODUCTION_PARTICLES)
+        xigma_results = run_engine(xigma, scenario, xigma_params, sampling).results
+        analytical_results = run_engine(analytical, scenario, sampling=sampling).results
+
+        xigma_yield = float(xigma_results.photon_slices[OutputKind.TOTAL_YIELD].distr)
+        analytical_yield = float(analytical_results.photon_slices[OutputKind.TOTAL_YIELD].distr)
+        yield_deviation = _relative_deviation(xigma_yield, analytical_yield)
+        checks.append(Check(
+            f"{source.name} xigma/analytical total yield", yield_deviation <= 0.01,
+            f"relative deviation {yield_deviation:.2%} (1% reduced-grid agreement gate)",
+        ))
+
+        xigma_centroid, xigma_edge = _spectrum_moments(
+            xigma_results.photon_slices[OutputKind.SPECTRUM]
+        )
+        analytical_centroid, analytical_edge = _spectrum_moments(
+            analytical_results.photon_slices[OutputKind.SPECTRUM]
+        )
+        centroid_deviation = _relative_deviation(xigma_centroid, analytical_centroid)
+        edge_deviation = _relative_deviation(xigma_edge, analytical_edge)
+        checks.append(Check(
+            f"{source.name} xigma/analytical spectrum centroid", centroid_deviation <= 0.035,
+            f"relative deviation {centroid_deviation:.2%} (3.5% distribution gate)",
+        ))
+        checks.append(Check(
+            f"{source.name} xigma/analytical 99% spectral edge", edge_deviation <= 0.035,
+            f"relative deviation {edge_deviation:.2%} (3.5% distribution gate)",
+        ))
+    notes.append(
+        "The xigma/analytical gates share scenario inputs and the head-on regime, but use "
+        "separate overlap/intensity and spectrum constructions. They do not independently "
+        "validate Stage 0, the polarization factor, or a crossing-angle emission formula."
+    )
+    return checks, notes, blockers
 
 
 def identity_checks(scenarios: Sequence[Scenario]) -> list[Check]:
@@ -195,7 +322,12 @@ def identity_checks(scenarios: Sequence[Scenario]) -> list[Check]:
     return checks
 
 
-def run_suite(engines: Iterable[Engine] = (), scenarios: Sequence[Scenario] = SCENARIOS) -> Report:
+def run_suite(
+    engines: Iterable[Engine] = (),
+    scenarios: Sequence[Scenario] = SCENARIOS,
+    *,
+    production: bool = False,
+) -> Report:
     report = Report()
     engines = list(engines)
 
@@ -213,6 +345,22 @@ def run_suite(engines: Iterable[Engine] = (), scenarios: Sequence[Scenario] = SC
         report.note("no goldens committed — run `python -m gammaforge.validation.make_references`")
     for check in scalar_checks:
         report.check(check)
+
+    report.section("production engine validation (opt-in)")
+    if production:
+        checks, notes, blockers = production_checks(scenarios)
+        for check in checks:
+            report.check(check)
+        for note in notes:
+            report.note(note)
+        for blocker in blockers:
+            report.blocked(blocker)
+    else:
+        report.note(
+            "not run — use `python -m gammaforge.validation.run --production`; this opt-in "
+            "tier runs xigma and analytical over every scenario, with delta only as a "
+            "shared-input Stage-2 angular reference. Kascade/four-method coverage remains open."
+        )
 
     report.section("engines")
     if not engines:
@@ -243,10 +391,14 @@ def run_suite(engines: Iterable[Engine] = (), scenarios: Sequence[Scenario] = SC
     return report
 
 
-def main(argv=None) -> int:
-    report = run_suite()
+def main(argv=None, *, engines: Iterable[Engine] = (), scenarios: Sequence[Scenario] = SCENARIOS) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if set(argv) - {"--production"}:
+        print("usage: python -m gammaforge.validation.run [--production]", file=sys.stderr)
+        return 2
+    report = run_suite(engines, scenarios, production="--production" in argv)
     print(report)
-    return 0 if report.failures == 0 else 1
+    return 0 if report.failures == 0 and report.blockers == 0 else 1
 
 
 if __name__ == "__main__":

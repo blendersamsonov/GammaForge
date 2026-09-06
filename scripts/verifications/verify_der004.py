@@ -81,6 +81,7 @@ cross_terms = sp.simplify(Xi_01 * u0_dot_u1 + Xi_10 * u1_dot_u0)
 print("Cross terms (should be 0):")
 sp.pprint(cross_terms)
 print()
+assert cross_terms == 0, "DER004 polarization cross terms do not vanish"
 
 # So only diagonal terms survive:
 trace_diag = sp.simplify(Xi_00 * u0_dot_u0 + Xi_11 * u1_dot_u1)
@@ -121,6 +122,7 @@ else:
     diff_trig = sp.trigsimp(difference)
     print("After trigsimp:")
     sp.pprint(diff_trig)
+    raise AssertionError("DER004 trace does not match its boxed formula")
 
 # ─── Special cases ─────────────────────────────────────────────────────────
 print("\n" + "="*60)
@@ -134,6 +136,7 @@ print(f"\nε = 0 (linear):")
 print(f"  Derived: {trace_linear}")
 print(f"  Target:  {target_linear}")
 print(f"  Match: {sp.simplify(trace_linear - target_linear) == 0}")
+assert sp.simplify(trace_linear - target_linear) == 0, "DER004 linear limit does not match"
 
 # ε = 1 (circular polarization)
 trace_circular = sp.simplify(trace_final.subs(ε, 1))
@@ -142,6 +145,7 @@ print(f"\nε = 1 (circular):")
 print(f"  Derived: {trace_circular}")
 print(f"  Target:  {target_circular}")
 print(f"  Match: {sp.simplify(trace_circular - target_circular) == 0}")
+assert sp.simplify(trace_circular - target_circular) == 0, "DER004 circular limit does not match"
 
 # Verify azimuth independence for circular
 print(f"\n  Circular case depends on ψ? {trace_circular.free_symbols}")

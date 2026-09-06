@@ -19,14 +19,17 @@ unfinished or waiting on someone*.
 | 2. Validation harness | 🟢 done |
 | 2.5. Stage 0 + minimal delta | 🟢 done |
 | 3a. xigma engineering | 🟢 done — Stage 0/1/2, `Collision`, `XigmaEngine` |
-| 3b. Physics closure | 🟢 §9.1 closed (RES033); §9.2 closed (DER004/DER006); §9.3 closed (DER005/DER006) |
+| 3b. Physics closure | 🟡 §9.1 closed (RES033). The author-approved per-particle lab-frame polarization projection is implemented (RES060); independent arbitrary-angle emission validation remains open. |
 | 4. analytical engine | 🟢 landed and merged to `main`; general overlap-integral yield, width breakdown, quadrature spectrum, flying focus, crossing angle for the yield. Open: collimated-spectrum construction |
 | 5. kascade port + delta full role | 🟡 minimal `KascadeEngine`, Thomson sanity anchor, and opt-in GUI integration landed (RES059); four-method validation wiring remains open |
 | 6. GUI | 🟡 NiceGUI local browser UI implemented (RES058, `docs/UI_SPEC.md`): Inputs/Results, split panes, schema forms, preview, worker execution, plots/exports. Cross-run xigma stage reuse remains open; no LAN executor yet. |
 | 7. Validation completion | ⚪ not started |
 | 8. Polish | ⚪ not started |
 
-**Suite:** `pytest` green; `python -m gammaforge.validation.run` all checks pass.
+**Suite:** `pytest` green; `python -m gammaforge.validation.run` passes its runnable
+core/identity/golden checks. `python -m gammaforge.validation.run --production` runs the
+reduced xigma/analytical yield and spectral gates over the shared bank, then exits nonzero
+for its explicit angular, kascade, and arbitrary-angle-emission coverage blockers.
 
 ---
 
@@ -45,6 +48,11 @@ Ordered by who is blocked. Each names the file that carries the detail.
   example (RES040). If those published results no longer need reproducing, it and its three
   tests are a one-commit deletion.
 ### Available to pick up (no external dependency)
+
+- **Independently validate arbitrary-angle emission.** RES060 implements the author-approved
+  lab-frame polarization projection and checks it directly against Eq. `udef`, but the
+  angular histogram has no integration measure contract and no independent arbitrary-angle
+  emission method has yet checked the resulting observables.
 
 - **Finish Phase 5 validation wiring.** `KascadeEngine` supplies the independent
   overlap/emission leg and passes its Thomson-limit anchor. Delta's full role and the

@@ -6,6 +6,10 @@ Combines DER004 (ellipticity) + DER005 (crossing angle) to verify:
 Tr(U^T Ξ U) = Σ_i Ξ_ii [1 - a_i²/(γ²(1-v·n)²) + 2 a_i b_i/(1-v·n)]
 
 where a_i = n·e_i, b_i = v·e_i, Ξ_00 = 1/(1+ε²), Ξ_11 = ε²/(1+ε²)
+
+This verifies the stated algebra under this script's explicit particle-aligned
+``v = z_hat`` simplification. The author-approved production lab-frame mapping is checked
+separately by the direct Eq. `udef` reference in ``tests/test_stage0_delta.py``.
 """
 
 import sympy as sp
@@ -73,6 +77,7 @@ print()
 cross = sp.simplify(Xi_01 * u01 + Xi_10 * u01)
 print(f"Cross terms (Ξ_01 + Ξ_10) * u01 = {cross}")
 print(f"  (Ξ_01 + Ξ_10) = {sp.simplify(Xi_01 + Xi_10)} = 0 ✓")
+assert cross == 0, "DER006 polarization cross terms do not vanish"
 print()
 
 # So only diagonal terms survive:
@@ -94,6 +99,7 @@ print()
 diff = sp.simplify(trace_diag - target)
 print(f"Difference: {diff}")
 print(f"✓ DER006 boxed formula verified: {diff == 0}")
+assert diff == 0, "DER006 trace does not match its boxed formula"
 print()
 
 # ─── Limit checks ──────────────────────────────────────────────────────────
@@ -111,6 +117,7 @@ print(f"  Trace = {trace_headon}")
 target_headon = 1 - 4*γ**2*θ**2/(1 + γ**2*θ**2)**2 * (sp.cos(ψ)**2 + ε**2*sp.sin(ψ)**2) / (1 + ε**2)
 print(f"  DER004 target = {target_headon}")
 print(f"  Match: {sp.simplify(trace_headon.subs(ψ_pol, 0) - target_headon) == 0}")
+assert sp.simplify(trace_headon.subs(ψ_pol, 0) - target_headon) == 0, "DER006 head-on limit does not match DER004"
 print()
 
 # 2. Linear polarization (ε=0)
@@ -121,6 +128,7 @@ print(f"  Trace = {trace_linear}")
 target_linear = 1 - a0**2/denom + 2*a0*b0/one_minus_v_dot_n
 print(f"  Target = {target_linear}")
 print(f"  Match: {sp.simplify(trace_linear - target_linear) == 0}")
+assert sp.simplify(trace_linear - target_linear) == 0, "DER006 linear limit does not match"
 print()
 
 # 3. Circular polarization (ε=1)
@@ -132,11 +140,12 @@ target_circular = sp.simplify((1 - a0**2/denom + 2*a0*b0/one_minus_v_dot_n +
                                 1 - a1**2/denom + 2*a1*b1/one_minus_v_dot_n) / 2)
 print(f"  Target = {target_circular}")
 print(f"  Match: {sp.simplify(trace_circular - target_circular) == 0}")
+assert sp.simplify(trace_circular - target_circular) == 0, "DER006 circular limit does not match"
 print()
 
 # 4. α=90° dipole check (from DER005)
 print("4. α=90° dipole check:")
-print("  (Requires exact 1-β, not small-angle approx - verified in DER005 script)")
+print("  (Requires exact 1-β, not exercised by this symbolic verifier)")
 print("  The boxed formula gives u_0·u_0 = 0 when e_0 ∥ n")
 print()
 
@@ -162,5 +171,5 @@ print("✓ Cross terms vanish (Ξ_01 purely imaginary, u_01 real)")
 print("✓ Head-on limit recovers DER004 exactly")
 print("✓ ε=0 reduces to single diagonal term (linear polarization)")
 print("✓ ε=1 gives average of two diagonal terms (circular polarization)")
-print("✓ α=90° dipole null inherited from DER005")
-print("\nDER006 fully verified!")
+print("! α=90° dipole null has no executable verifier in this checkout")
+print("\nDER006's particle-aligned algebraic checks passed.")

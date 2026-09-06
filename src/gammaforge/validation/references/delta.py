@@ -85,7 +85,6 @@ def resonance_spectrum(
     ellipticity: float = 0.0,
     theta_xz: float = 0.0,
     theta_yz: float = 0.0,
-    beta: float = 1.0,
 ) -> np.ndarray:
     """``d3N / (ds dOmega)`` seen from the direction ``(theta_x, theta_y)``.
 
@@ -123,8 +122,8 @@ def resonance_spectrum(
 
     # New polarization factor from DER006 (replaces 1.0 - 4.0 * cos_pol^2 * r^2 * gamma^2 * lorentz)
     pol_factor = polarization_factor(
-        gamma, delta_x, delta_y, theta_x, theta_y,
-        ellipticity, psi_pol, theta_xz, theta_yz, beta
+        gamma, samples.theta_x, samples.theta_y, theta_x, theta_y,
+        ellipticity, psi_pol, theta_xz, theta_yz,
     )
 
     weights = DIFFERENTIAL_PREFACTOR * samples.luminosity * pol_factor * gamma_squared * lorentz
@@ -144,7 +143,6 @@ def angle_integrated_spectrum(
     ellipticity: float = 0.0,
     theta_xz: float = 0.0,
     theta_yz: float = 0.0,
-    beta: float = 1.0,
 ) -> np.ndarray:
     """``dN/ds``: :func:`resonance_spectrum` summed over a grid of viewing directions.
 
@@ -168,7 +166,7 @@ def angle_integrated_spectrum(
             total += resonance_spectrum(
                 samples, s_edges, centre_x + dx, centre_y + dy,
                 psi_pol=psi_pol, ellipticity=ellipticity,
-                theta_xz=theta_xz, theta_yz=theta_yz, beta=beta
+                theta_xz=theta_xz, theta_yz=theta_yz
             )
     return total * step * step
 

@@ -1,9 +1,15 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.27 — 2026-09-06
+**Status:** draft v0.28 — 2026-09-06
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 **Changelog**
+- **v0.28**: The author resolved the pending Stage-2 electron-direction convention:
+  polarization uses the field-free, per-particle lab-frame velocity
+  `β (θ_x, θ_y, 1) / √(1 + θ_x² + θ_y²)`. The observer direction and laser
+  polarization basis remain in the shared lab frame; there are no per-particle
+  coordinate rotations. This corrects only the polarization projection in §9.3;
+  independent arbitrary-angle emission validation remains open.
 - **v0.27**: Phase 5's minimal kascade port retains the independently useful
   sequential emission chain in a pure-array solver rather than copying the predecessor's
   configuration, result, and automatic-file-output framework. `KascadeEngine` owns the
@@ -1185,23 +1191,20 @@ annotated at both equations.
   above (does a scalar `ellipticity` map cleanly onto `Ξ̂`?) still the thing that gates it.
   `ELLIPTICITY_IS_NOOP` remains `True` and remains the marker for both places.
 
-### 9.3 Crossing angle (net-new derivation, parallel track)
+### 9.3 Crossing angle and electron direction
 
-- Paper status: **genuinely absent.** The angular-spectrum derivation is built for
-  near-backscattering geometry, accurate to O(θ²) around the collinear axis; the paper
-  warns against extending it without revisiting the geometry.
-- Rebuild: `theta_xz`/`theta_yz`/`psi_focus`/`psi_pol` are first-class parameters from
-  day one (§2.2, §3.3); the non-head-on physics is wired as an identity/no-op until the
-  derivation lands. Derivation proceeds with the author in parallel; validate against
-  kascade's arbitrary-angle MC at intermediate angles; the angle enters the Stage-2
-  kernels in one place. Never silently approximate (P14c).
-- **Marked as of Phase 3b (RES034).** The trap here is subtler than §9.2's, because the
-  crossing angle is *partly* implemented: `rotation_matrix` is applied wherever the pulse is
-  sampled, so overlap, timing and the sampled a0 all respond to a tilt, while
-  `RELATIVE_VELOCITY` and the Stage-2 kernel's angles do not. A caller who tilts the beam
-  and sees the yield move will assume the physics followed. `EMISSION_IS_HEAD_ON` and a
-  `validate()` warning now say otherwise — the same one-line "flip when it lands" marker
-  §9.2 has carried since Phase 1.
+The manuscript's polarization projection is defined with the field-free electron
+velocity. The author confirmed on 2026-09-06 that Stage 2 uses that velocity directly
+in the common lab frame:
+`v_e = β (θ_x, θ_y, 1) / √(1 + θ_x² + θ_y²)`.
+The observer direction and laser basis remain lab-frame vectors; the engine does not
+rotate them into a different frame for each particle. The polarization projection
+therefore uses each table cell's electron direction.
+
+This settles the coordinate convention for that projection only. Independent
+arbitrary-angle emission validation remains open, so validation reporting must not
+present crossing-angle observables as a scientific pass merely because the lab-frame
+formula is implemented.
 
 ### 9.4 Deferred (design for, don't build)
 

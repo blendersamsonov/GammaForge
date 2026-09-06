@@ -75,7 +75,18 @@ The first two terms are the head-on result (eq. `umod` and DER004's off-diagonal
 
 The laser propagates along $\hat{\mathbf{n}}_0$, which is rotated from the head-on direction $-\hat{\mathbf{z}}$ by the crossing-angle rotation $R = R_y(\theta_{xz})R_x(\theta_{yz})$ (as defined in `io.laser`). The polarization basis vectors $\mathbf{e}_0,\mathbf{e}_1$ are defined in the plane transverse to $\hat{\mathbf{n}}_0$ and carried through the same rotation. The paper (§2.2) defines `psi_focus` and `psi_pol` as angles in the head-on frame that are then rotated by $R$ — this is self-consistent and we adopt it.
 
-Let the electron velocity be $\mathbf{v} = \beta\hat{\mathbf{z}}$ (bunch along $+\hat{\mathbf{z}}$) and the observation direction be $\mathbf{n}$. In the small-angle regime around the collinear axis (the paper's domain of validity), we write
+For sampled particle slopes, the author-approved lab-frame convention is
+
+$$
+\mathbf v_e = \beta\frac{(\theta_{x,e},\theta_{y,e},1)}
+ {\sqrt{1+\theta_{x,e}^2+\theta_{y,e}^2}},\qquad
+\mathbf n = \frac{(\theta_{x,\mathrm{obs}},\theta_{y,\mathrm{obs}},1)}
+ {\sqrt{1+\theta_{x,\mathrm{obs}}^2+\theta_{y,\mathrm{obs}}^2}}.
+$$
+
+The basis and both vectors remain in this one lab frame; no per-particle rotation is
+applied. In the collinear small-angle limit used below, $\mathbf v=\beta\hat{\mathbf z}$ and
+we write
 
 $$
 \mathbf{n} = \hat{\mathbf{z}} + \boldsymbol{\theta},\qquad
@@ -237,14 +248,16 @@ The rotated basis $\mathbf{e}_i = R\,\mathbf{e}_i^{(0)}$ is computed once per la
 - **$\alpha = 90^\circ$ dipole null:** Inherited from DER005 (exact zero).
 - **Polarization matrix properties:** $\operatorname{Tr}(\hat\Xi) = 1$, $\Re(\Xi_{01}) = 0$, $\Im(\Xi_{01}) = -\varepsilon/(1+\varepsilon^2)$.
 
-**Numerical verification** (from DER004/DER005): Head-on limit at $1.5\times10^{-9}$ error; polarization structure at $1.2\times10^{-12}$ relative error.
+`tests/test_stage0_delta.py` independently evaluates Eq. `udef` with the approved
+lab-frame vectors and compares it with the production factor at `1e-9` relative tolerance.
+The symbolic verifier remains a restricted algebra check; neither test is an independent
+arbitrary-angle emission calculation.
 
 ---
 
 ## 8. Used by
 
-Not yet implemented. Once reviewed and moved to `validated/`/`verified/`:
-- `stages.py`: `RELATIVE_VELOCITY` becomes $1+\beta\cos\theta_{xz}\cos\theta_{yz}$; polarization factor uses the boxed formula above.
-- `delta.py`: Same polarization factor for the delta-kernel path.
-- `collision.py`: `photon_energy` gains $\cos^2(\alpha/2)$ factor.
-- `ELLIPTICITY_IS_NOOP` and `EMISSION_IS_HEAD_ON` can only go `False` after all three pieces land together (RES034).
+Implemented for the polarization projection by `stages.py`; its vectorized path receives
+each Stage-2 table cell's electron angles. `validation.references.delta` supplies each
+sample's angles to the same projection. The broader crossing-angle emission validation is
+outside this derivation's implementation check.
