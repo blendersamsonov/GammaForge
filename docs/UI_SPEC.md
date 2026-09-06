@@ -94,8 +94,8 @@ Every row below spans the available pane width.
 
 ## Engines and calculation lifecycle
 
-- Engine subtabs come from concrete available engines and their public schemas. Today
-  xigma is available; kascade's empty package does not become a fake selectable engine.
+- Engine subtabs come from concrete available engines and their public schemas. Xigma is
+  selected initially; the minimal validation-only kascade port is visible but opt-in.
 - Each engine tab has its settings and **Use for calculation** checkbox. One Calculate
   button below the subtabs runs exactly the checked engines; analytical stays separate.
 - Report queued/running/completed/failed per engine. No invented percent progress.
@@ -124,8 +124,9 @@ Every row below spans the available pane width.
   array sums, and preserve density units after display conversion.
 - Browser plots support zoom/pan. Provide PNG/PDF plot export and HDF5 results download;
   attach a YAML input specification to saved calculations. No new save format.
-- If particle output becomes available, show counts/statistics and download using
-  existing serialization; do not invent MC results for currently absent engines.
+- Particle output shows photon/final-electron counts and scalar engine diagnostics.
+  Existing HDF5 preserves slices and photon macroparticles; the panel states that
+  final-electron export remains a Phase 5 format item.
 - Empty state explains that Calculate populates results. Failed calculations show a
   readable error; no empty successful graph standing in for a failed computation.
 
@@ -163,5 +164,5 @@ formulas, tuned numerical constants, unrelated derivations, or the historical re
 
 ## Deferred
 
-LAN execution; cross-run xigma stage reuse; kascade implementation; physics derivations;
+LAN execution; cross-run xigma stage reuse; kascade validation-suite wiring; physics derivations;
 scans; arbitrary docking; persistence across browser refresh; multi-user deployment.

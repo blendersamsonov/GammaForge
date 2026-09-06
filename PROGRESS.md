@@ -21,7 +21,7 @@ unfinished or waiting on someone*.
 | 3a. xigma engineering | 🟢 done — Stage 0/1/2, `Collision`, `XigmaEngine` |
 | 3b. Physics closure | 🟢 §9.1 closed (RES033); §9.2 closed (DER004/DER006); §9.3 closed (DER005/DER006) |
 | 4. analytical engine | 🟢 landed and merged to `main`; general overlap-integral yield, width breakdown, quadrature spectrum, flying focus, crossing angle for the yield. Open: collimated-spectrum construction |
-| 5. kascade port + delta full role | ⚪ not started — `engines/kascade/` is an empty package |
+| 5. kascade port + delta full role | 🟡 minimal `KascadeEngine`, Thomson sanity anchor, and opt-in GUI integration landed (RES059); four-method validation wiring remains open |
 | 6. GUI | 🟡 NiceGUI local browser UI implemented (RES058, `docs/UI_SPEC.md`): Inputs/Results, split panes, schema forms, preview, worker execution, plots/exports. Cross-run xigma stage reuse remains open; no LAN executor yet. |
 | 7. Validation completion | ⚪ not started |
 | 8. Polish | ⚪ not started |
@@ -46,9 +46,12 @@ Ordered by who is blocked. Each names the file that carries the detail.
   tests are a one-commit deletion.
 ### Available to pick up (no external dependency)
 
-- **Phase 5, kascade.** The largest unblocked item, and the leg §9.3's §2.3 needs. Would
-  also give §7 a genuinely independent Stage 0 — which RES053 showed the cross-validation
-  currently lacks, since xigma and delta share `TrajectorySamples`.
+- **Finish Phase 5 validation wiring.** `KascadeEngine` supplies the independent
+  overlap/emission leg and passes its Thomson-limit anchor. Delta's full role and the
+  four-method scenario-bank comparison still need wiring into `run_suite()`.
+- **Finish MC export.** Kascade photon macroparticles round-trip through HDF5 and the GUI
+  reports final-electron statistics, but final-electron HDF5 and elegant-compatible
+  export remain the format/typing items in GRAND_PLAN.md §8/§10.8.
 - **Wire engines into `run_suite()`.** `validation.run.main()` still passes none (RES031), so
   the suite's green never exercises the cross-engine comparison; the xigma-vs-analytical
   agreement (0.31% on `ahat`, 0.32% on yield) has to be measured by hand.

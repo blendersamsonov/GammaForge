@@ -14,6 +14,7 @@ from ..io.results import Results
 from ..io.target import OutputKind, OutputRequest
 from .analytical.engine import AnalyticalEngine
 from .base import Engine
+from .kascade.engine import KascadeEngine
 from .xigma.engine import XigmaEngine
 
 __all__ = ["LocalRunner"]
@@ -29,7 +30,11 @@ class LocalRunner:
     """
 
     def __init__(self, engines: dict[str, Engine] | None = None) -> None:
-        self.engines: dict[str, Engine] = {"xigma": XigmaEngine()} if engines is None else engines
+        self.engines: dict[str, Engine] = (
+            {"xigma": XigmaEngine(), "kascade": KascadeEngine()}
+            if engines is None
+            else engines
+        )
         self.errors: dict[str, str] = {}
         self._cached_sampling_key: tuple[object, ...] | None = None
         self._cached_interaction: InteractionParameters | None = None

@@ -251,7 +251,15 @@ def render_engines(state: InputState, on_change: ChangeCallback) -> list[Editor]
                 )
                 editor = Editor(f"engine:{name}", "use", [selected])
                 editors.append(editor)
-                selected.on_value_change(lambda event, engine_name=name: (_set_engine_selected(state, engine_name, bool(event.value)), on_change(f"engine:{engine_name}", "use")))
+
+                def update_selection(event, engine_name=name):
+                    enabled = bool(event.value)
+                    if (engine_name in state.selected) == enabled:
+                        return
+                    _set_engine_selected(state, engine_name, enabled)
+                    on_change(f"engine:{engine_name}", "use")
+
+                selected.on_value_change(update_selection)
                 with ui.element("div").classes("gf-engine-fields w-full"):
                     editors += _render_fields(state, f"engine:{name}", on_change)
     return editors

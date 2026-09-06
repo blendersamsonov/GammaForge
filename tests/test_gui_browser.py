@@ -53,6 +53,7 @@ def test_browser_layout_and_calculation(tmp_path):
                 page.goto(url)
                 expect = playwright.expect
                 expect(page.get_by_text("GammaForge", exact=True)).to_be_visible()
+                expect(page.get_by_role("tab", name="kascade", exact=True)).to_be_visible()
                 expect(page.get_by_text("Updating estimates…")).to_have_count(0, timeout=20000)
                 columns = page.locator(".gf-input-column")
                 expect(columns).to_have_count(3)
@@ -79,8 +80,21 @@ def test_browser_layout_and_calculation(tmp_path):
                                    "engine:xigma.n_bins_theta_y": "4", "engine:xigma.n_bins_a0_shape": "8",
                                    "engine:xigma.n_bins_ahat": "4", "outputs.SPECTRUM.resolution.0": "16"}.items():
                     field(key).fill(value)
+                page.get_by_role("tab", name="kascade", exact=True).click()
+                page.get_by_role("checkbox", name="Use kascade for calculation", exact=True).click()
+                expect(
+                    page.get_by_role(
+                        "checkbox", name="Use kascade for calculation", exact=True
+                    )
+                ).to_be_checked()
+                dump_checkbox = page.get_by_role(
+                    "checkbox", name="Request Macroparticle Dump", exact=True
+                )
+                dump_checkbox.click()
+                expect(dump_checkbox).to_be_checked()
                 page.get_by_role("button", name="Calculate", exact=True).click()
                 expect(page.get_by_text("xigma: completed", exact=True)).to_be_visible(timeout=60000)
+                expect(page.get_by_text("kascade: completed", exact=True)).to_be_visible(timeout=60000)
                 page.get_by_role("tab", name="Results", exact=True).click()
                 expect(page.get_by_text("Calculate to populate results.")).to_have_count(0)
                 page.get_by_role("tab", name="Spectrum", exact=True).click()
@@ -95,11 +109,36 @@ def test_browser_layout_and_calculation(tmp_path):
                 with page.expect_download() as download:
                     page.get_by_role("button", name="PNG", exact=True).click()
                 assert Path(download.value.path()).read_bytes().startswith(b"\x89PNG")
+                page.get_by_role("tab", name="Macroparticle Dump", exact=True).click()
+                expect(page.get_by_text("Photon macroparticles", exact=True)).to_be_visible()
+                expect(page.get_by_text("Final electrons", exact=True)).to_be_visible()
+                kascade_hdf5 = page.locator(".q-tab-panel:visible").last.get_by_role(
+                    "button", name="Download kascade HDF5", exact=True
+                )
+                with page.expect_download() as download:
+                    kascade_hdf5.click()
+                assert load_results(download.value.path()).photons is not None
                 page.screenshot(path=str(tmp_path / "results.png"), full_page=True)
                 page.get_by_role("switch", name="Split view").click()
-                expect(page.locator(".gf-pane")).to_have_count(2)
-                page.locator(".gf-pane").first.get_by_role("tab", name="Inputs", exact=True).click()
+                panes = page.locator(".gf-pane")
+                expect(panes).to_have_count(2)
+                for index in range(2):
+                    panes.nth(index).get_by_role("tab", name="Inputs", exact=True).click()
                 expect(field("sampling.n_particles")).to_have_value("64")
+                for index in range(2):
+                    panes.nth(index).get_by_role("tab", name="kascade", exact=True).click()
+                first_use = panes.first.get_by_role(
+                    "checkbox", name="Use kascade for calculation", exact=True
+                )
+                second_use = panes.nth(1).get_by_role(
+                    "checkbox", name="Use kascade for calculation", exact=True
+                )
+                first_use.click()
+                expect(first_use).not_to_be_checked()
+                expect(second_use).not_to_be_checked()
+                second_use.click()
+                expect(first_use).to_be_checked()
+                expect(second_use).to_be_checked()
                 page.screenshot(path=str(tmp_path / "split.png"), full_page=True)
                 page.get_by_role("switch", name="Split view").click()
                 page.set_viewport_size({"width": 600, "height": 1000})

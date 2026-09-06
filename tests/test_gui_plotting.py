@@ -1,10 +1,11 @@
 import numpy as np
 
-from gammaforge.io.bunch import GaussianElectronBeam
+from gammaforge.io.bunch import Bunch, GaussianElectronBeam
 from gammaforge.io.drawing import geometry_model
 from gammaforge.io.laser import GaussianParaxialLaser
 from gammaforge.io.plotting import collimated_projections, display_scale, export_overlay, export_plot, plot_slice, project_slice
-from gammaforge.io.results import Axis, PhasespaceSlice, Results
+from gammaforge.io.results import Axis, PhasespaceSlice, PhotonMacroparticles, Results
+from gammaforge.gui.outputs import particle_summary
 from gammaforge.io.formats.hdf5 import load_results, save_results
 from gammaforge.io.target import OutputKind
 from gammaforge.io.units import Quantity as Q
@@ -102,3 +103,25 @@ def test_zero_angle_section_keeps_held_angle_in_its_density_units():
     expected = 1.0 / (display_scale(Axis.ENERGY) * display_scale(Axis.THETA_X) * display_scale(Axis.THETA_Y))
     np.testing.assert_allclose(figure.data[0].z, np.full((2, 2), expected))
     assert figure.data[0].colorbar.title.text == "Photons / eV / mrad / mrad"
+
+
+def test_particle_summary_is_generic_over_results_contract():
+    values = np.arange(3.0)
+    result = Results(
+        {},
+        electrons=Bunch(values, values, values, values, values, values + 2.0,
+                        np.full(3, 1 / 3)),
+        photons=PhotonMacroparticles(
+            energy=values + 1.0, theta_x=values, theta_y=values,
+            x=values, y=values, z=values, t=values,
+            weight=np.array([2.0, 3.0, 4.0]),
+        ),
+        model_specific={"truncated_electrons": 2, "warnings": ("limited",)},
+    )
+
+    assert particle_summary(result) == (
+        ("Photon macroparticles", "3"),
+        ("Weighted photons", "9"),
+        ("Final electrons", "3"),
+        ("Truncated Electrons", "2"),
+    )

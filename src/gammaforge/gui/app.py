@@ -104,7 +104,12 @@ class BrowserWorkspace:
         self.model.changed(group, key)
         self.preview_error = ""
         for pane in self.panes:
-            if pane.index != source or key == "use":
+            if key == "use":
+                for editor in pane.editors:
+                    if (editor.group, editor.key) == (group, key):
+                        name = group.split(":", 1)[1]
+                        editor.widgets[0].set_value(name in self.model.inputs.selected)
+            elif pane.index != source:
                 pane.inputs.refresh()
             pane.estimates.refresh()
             pane.status.refresh()
@@ -118,6 +123,14 @@ class BrowserWorkspace:
                 if editor.key == "use":
                     editor.set_locked(self.model.busy)
                     continue
+                if editor.group == "outputs":
+                    kind = OutputKind[editor.key]
+                    supported = state.supports(kind)
+                    requested = kind in state.requested
+                    editor.enabled = [
+                        kind is not OutputKind.TOTAL_YIELD and (supported or requested),
+                        *(supported and requested for _ in editor.widgets[1:]),
+                    ]
                 field_key = "n_e" if (editor.group, editor.key) == ("beam", "bunch_charge") else editor.key
                 engines = [state.engines[name] for name in state.selected]
                 if editor.group.startswith("engine:"):

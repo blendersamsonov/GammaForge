@@ -12,7 +12,7 @@ from ..io.plotting import collimated_projections, export_overlay, export_plot, p
 from ..io.results import Results
 from ..io.target import OutputKind
 
-__all__ = ["render_results", "render_geometry"]
+__all__ = ["particle_summary", "render_results", "render_geometry"]
 
 _ENGINE_COLORS = ("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b")
 
@@ -82,6 +82,55 @@ def _download_hdf5(results: Results, engine: str) -> None:
         path.unlink(missing_ok=True)
 
 
+def particle_summary(result: Results) -> tuple[tuple[str, str], ...]:
+    """Return engine-agnostic display rows for an MC result."""
+    rows: list[tuple[str, str]] = []
+    if result.photons is not None:
+        rows.extend((
+            ("Photon macroparticles", f"{result.photons.n_macroparticles:,}"),
+            ("Weighted photons", f"{float(result.photons.weight.sum()):.6g}"),
+        ))
+    electron_count = getattr(result.electrons, "n_particles", None)
+    if electron_count is not None:
+        rows.append(("Final electrons", f"{int(electron_count):,}"))
+    for key, value in result.model_specific.items():
+        if key == "warnings" or not isinstance(value, (bool, int, float, str)):
+            continue
+        label = key.replace("_", " ").title()
+        rows.append((label, str(value) if isinstance(value, (bool, str)) else f"{value:,}"))
+    return tuple(rows)
+
+
+def _download_buttons(results: dict[str, Results]) -> None:
+    ui = _ui()
+    with ui.row():
+        for engine, result in results.items():
+            ui.button(
+                f"Download {engine} HDF5",
+                on_click=lambda r=result, n=engine: _download_hdf5(r, n),
+            ).props("outline")
+
+
+def _render_particles(results: dict[str, Results]) -> None:
+    ui = _ui()
+    if not results:
+        ui.label("Requested, but no completed engine returned macroparticles.").classes("text-grey")
+        return
+    with ui.row().classes("w-full items-stretch"):
+        for engine, result in results.items():
+            with ui.card().classes("min-w-64"):
+                ui.label(engine).classes("text-subtitle1 font-medium")
+                for label, value in particle_summary(result):
+                    with ui.row().classes("w-full justify-between gap-8"):
+                        ui.label(label).classes("text-grey-7")
+                        ui.label(value).classes("font-mono")
+    ui.label(
+        "HDF5 includes result slices and photon macroparticles; final-electron export "
+        "remains a Phase 5 format item."
+    ).classes("text-caption text-grey-7")
+    _download_buttons(results)
+
+
 def render_results(
     results: dict[str, Results],
     requested: tuple[OutputKind, ...],
@@ -118,6 +167,13 @@ def render_results(
     with ui.tab_panels(tabs, value=selected_kind).classes("w-full"):
         for kind, tab in tab_by_kind.items():
             with ui.tab_panel(tab):
+                if kind is OutputKind.MACROPARTICLE_DUMP:
+                    particles = {
+                        name: result for name, result in results.items()
+                        if result.photons is not None or result.electrons is not None
+                    }
+                    _render_particles(particles)
+                    continue
                 available = {name: result.photon_slices[kind] for name, result in results.items()
                              if kind in result.photon_slices}
                 if not available:
@@ -132,9 +188,7 @@ def render_results(
                         ui.label(f"{engine}: {slice_.integrate() if slice_.axis_order else float(slice_.distr):.6g} photons")
                 else:
                     _render_picker(available, view_state)
-                with ui.row():
-                    for engine, result in results.items():
-                        ui.button(f"Download {engine} HDF5", on_click=lambda r=result, n=engine: _download_hdf5(r, n)).props("outline")
+                _download_buttons(results)
 
 
 def _render_overlaid_lines(available):

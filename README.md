@@ -10,15 +10,15 @@ contract is in [docs/UI_SPEC.md](docs/UI_SPEC.md).
 ## Status
 
 - Shared CGS-Gaussian inputs, xigma, and the analytical engine are available.
-- The optional local NiceGUI workspace runs those concrete engines; kascade remains
-  unimplemented.
+- The optional local NiceGUI workspace runs xigma and the validation-only kascade port;
+  analytical estimates are always available.
 
 ## Layout
 
 ```
 src/gammaforge/
 ├── io/            # shared CGS-Gaussian physics core (schema, beam, laser, target, results)
-├── engines/       # xigma and analytical; kascade is deferred
+├── engines/       # xigma, analytical, and the minimal validation-only kascade port
 ├── validation/    # cross-engine suite + old-repo golden references
 └── gui/           # optional local NiceGUI browser workspace
 ```
@@ -49,7 +49,8 @@ The workspace has Inputs and Results tabs, plus an optional split view. Inputs u
 equal-height Electron, Laser, and Geometry columns, followed by Target/outputs,
 analytical estimates, and engine settings. Calculate is gated on valid schema inputs
 and at least one selected calculation engine; analytical estimates remain a preview,
-not a substitute for a calculation.
+not a substitute for a calculation. Xigma is selected initially; kascade is available
+as an opt-in engine tab.
 
 Each browser page owns an in-memory workspace. Refreshing the page starts a new
 workspace; restart the server to load code edits. Results can be downloaded as HDF5,

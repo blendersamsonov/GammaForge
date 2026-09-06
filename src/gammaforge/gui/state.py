@@ -68,7 +68,10 @@ class InputState:
             "target": Parameters.from_specs(TARGET_FIELDS),
             **{f"engine:{name}": engine.schema for name, engine in self.engines.items()},
         }
-        self.selected = set(self.engines)
+        # The first concrete engine is the normal/default path. Validation engines remain
+        # visible but opt-in, without teaching the GUI any engine-specific names.
+        first_engine = next(iter(self.engines), None)
+        self.selected = {first_engine} if first_engine is not None else set()
 
     @staticmethod
     def error_key(group: str, key: str) -> str:
@@ -193,5 +196,9 @@ class InputState:
             laser=laser,
             target=target,
             sampling=sampling,
-            engine_params={name: self.groups[f"engine:{name}"] for name in self.selected},
+            engine_params={
+                name: self.groups[f"engine:{name}"]
+                for name in self.engines
+                if name in self.selected
+            },
         )

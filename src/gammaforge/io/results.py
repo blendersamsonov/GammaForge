@@ -15,7 +15,7 @@ needs a parameter reads it from the parameters.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from types import MappingProxyType
 from typing import Mapping
@@ -205,10 +205,15 @@ class Results:
         object.__setattr__(self, "photon_slices", MappingProxyType(dict(self.photon_slices)))
 
     def scaled(self, factor: float) -> "Results":
-        """All photon slices rescaled by ``factor`` — the §5 charge live-rescale path."""
+        """Photon slices and macroparticle weights rescaled for a charge-only edit."""
+        photons = (
+            replace(self.photons, weight=np.asarray(self.photons.weight) * factor)
+            if self.photons is not None
+            else None
+        )
         return Results(
             photon_slices={kind: slice_.scaled(factor) for kind, slice_ in self.photon_slices.items()},
             electrons=self.electrons,
-            photons=self.photons,
+            photons=photons,
             model_specific=dict(self.model_specific),
         )

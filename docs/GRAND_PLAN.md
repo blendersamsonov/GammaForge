@@ -1,9 +1,16 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.26 — 2026-09-05
+**Status:** draft v0.27 — 2026-09-06
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 **Changelog**
+- **v0.27**: Phase 5's minimal kascade port retains the independently useful
+  sequential emission chain in a pure-array solver rather than copying the predecessor's
+  configuration, result, and automatic-file-output framework. `KascadeEngine` owns the
+  checked CGS↔SI boundary, consumes `LaserField`, and exposes its typed schema through the
+  public runner. It is visible but off by default in the NiceGUI engine tabs. The
+  Thomson-limit normalization anchor is met; four-method validation wiring and the
+  final-electron export format remain Phase 5 work (RES059).
 - **v0.26**: author-directed NiceGUI browser frontend replaces the planned Tkinter
   frontend. A local loopback server hosts Inputs and Results tabs, with an optional
   resizable split view. Inputs use equal-height Electron/Laser/Geometry columns,
@@ -872,17 +879,20 @@ Closed-form estimates, no per-particle Monte Carlo:
 
 ### 4.4 kascade engine (`engines/kascade/`) — minimal port
 
-- Ported **as-is** behind the uniform interface, minimal effort: convert kascade's
-  `run_simulation(cfg, n_mc, seed, electrons)` — `cfg` is a dataclass, `electrons` a dict
-  of raw arrays — behind the `Engine` shape (its own SI internals convert at the
-  boundary, P1). The adapter **reconstitutes absolute weights at
-  its boundary** (relative weight × N_e, §3.2/§3.5) so `kascade.py`'s internals stay
-  untouched.
-- Purpose: one of the ≥4 cross-validation methods. Not first-class; not polished; off by
-  default in the GUI.
+- Retain the predecessor's sequential optical-depth inversion, polarized Thomson angle
+  sampler, optional Klein–Nishina rejection, and per-emission recoil in a pure-array
+  solver. Do not carry over its SI configuration model, result container, automatic file
+  output, or concrete-laser coupling (RES059).
+- `KascadeEngine` owns the uniform `Engine` boundary. It converts shared CGS arrays to
+  the solver's SI inputs once and **reconstitutes absolute weights at its boundary**
+  (relative weight × N_e, §3.2/§3.5), then returns canonical-CGS `Results`.
+- Purpose: one of the ≥4 cross-validation methods. Not first-class; not polished; visible
+  but off by default in the GUI. Its typed numerical schema is rendered through the same
+  engine-generic path as xigma.
 - **Minimum sanity bar before it anchors validation:** kascade has **zero dedicated
   tests** in the old repo; it needs at least a closed-form check (e.g. Thomson-limit
-  total yield) before the 4-method comparison may treat it as an independent leg.
+  total yield) before the 4-method comparison may treat it as an independent leg. **Met:**
+  the on-axis Thomson photon-column check and scenario-bank analytical comparison pass.
 - The future replacement MC is anticipated only at the interface level (P5) — no work on
   it now. Its regime (full nonlinear, quantum recoil) is explicitly different from
   xigma's (§2.3).
@@ -1237,7 +1247,7 @@ annotated at both equations.
 | **3a. xigma engineering** — **landed 2026-08-08** | Stage 1/2 pure functions; Collision facade + stage cache; Engine wrapper; numpy kernel for Stages 1/2, cupy/numba gated like Stage 0 until real kernels exist (**Stage 0 and the chunking utility already built in 2.5**; RES029); geometry/a0/ellipticity parameters wired as explicit identity/no-op placeholders (P14c) | Stage architecture tests green; placeholders documented |
 | **3b. Physics closure** — **§9.1 landed 2026-08-08; §9.2/§9.3 open, non-blocking** | ~2π resolution (§9.1 — **closed**: traced in 2.5, applied in 3b, RES033), crossing-angle derivation (§9.3), ellipticity→a0 (§9.2) — **runs concurrently with Phases 4 and 5, not serially** | §9.1's constant set in Stage 2 and the identity harness re-gated against 1.0 rather than 2π — **met**; §9.2/§9.3 derivations landed if author completes them in parallel (never blocking 4–6) — **outstanding, and the paper contains no formula for either**, so both stay wired as documented no-ops with `validate()` warnings (RES034) |
 | **4. analytical engine** — **landed 2026-08-09; one growth item open** | estimates + component breakdown; quadrature spectrum; general overlap-integral yield (non-round + displaced foci); remaining growth item (collimated spectrum) | Closed-form limits match — **met** (Thomson-limit anchor *and* the analytic reduction of `overlap_yield` to the round-beam closed form, §7); validation anchor ready — **met** for `TOTAL_YIELD`/`SPECTRUM`; foci displacement + non-round beam — **met** via DER001 (RES039); crossing-angle geometry — **met** for the yield via DER001 §A.6 (RES041), validated against a brute-force Monte Carlo; the width's nonlinearity term — **met** via the luminosity-weighted `<a0²>` (DER001 §A.8, RES042); resolved time/transverse previews — **met** (DER001 §A.9). Outstanding: collimated-spectrum construction, angle-resolved previews (deferred), and `SPECTRUM`'s shape under a crossing angle, which is §9.3's emission kernel rather than overlap geometry |
-| **5. kascade port + delta full role** | minimal kascade behind interface **+ its Thomson-limit sanity check (B4)**; delta full cross-validation role | 4-method cross-validation runs; kascade sanity check passes |
+| **5. kascade port + delta full role** — **partially landed 2026-09-06** | minimal kascade behind interface **+ its Thomson-limit sanity check (B4)** — **met** (RES059); delta full cross-validation role — **open** | Kascade sanity check passes — **met**; 4-method cross-validation runs — **open** |
 | **6. GUI** | schema-driven two-tab app; overlays + per-engine show/hide; save plots/HDF5; grey-out/release; sketch panel (headless module first); **import-boundary check enforced in CI (B3)** | GUI runs headless-smoke; all planned interactions work; boundary check green |
 | **7. Validation completion** | full scenario bank, convergence, chunk-invariance, closed-form identities, golden cross-checks | Full suite green; results reproducible; 3b closures integrated |
 | **8. Polish** | scans, docs, packaging, notebook examples, **doc-staleness sweep (C2)** | Release-ready |

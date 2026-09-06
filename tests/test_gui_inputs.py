@@ -65,6 +65,14 @@ def test_requested_outputs_need_a_selected_supporting_engine():
     assert OutputKind.ANGULAR_DISTRIBUTION not in state.requested
 
 
+def test_only_first_engine_is_selected_by_default_and_requests_keep_registry_order():
+    state = InputState({"first": AnalyticalEngine(), "second": AnalyticalEngine()})
+
+    assert state.selected == {"first"}
+    state.selected.add("second")
+    assert list(state.request().engine_params) == ["first", "second"]
+
+
 def test_previously_requested_output_can_be_removed_after_engine_selection_changes():
     state = InputState({"analytical": AnalyticalEngine()})
     state.selected.clear()

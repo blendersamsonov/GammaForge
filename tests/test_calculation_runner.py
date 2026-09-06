@@ -7,6 +7,7 @@ from dataclasses import replace
 import pytest
 
 from gammaforge.engines.runner import LocalRunner
+from gammaforge.engines.kascade.engine import KascadeEngine
 from gammaforge.engines.xigma.engine import XigmaEngine
 from gammaforge.io.calculation import CalculationRequest
 from gammaforge.io.interaction import SamplingSpec
@@ -32,6 +33,13 @@ class _FakeEngine:
         if self.fail:
             raise RuntimeError(f"{self.name} broke")
         return Results(photon_slices={}, model_specific={"engine": self.name})
+
+
+def test_default_runner_exposes_xigma_then_opt_in_kascade():
+    runner = LocalRunner()
+
+    assert list(runner.engines) == ["xigma", "kascade"]
+    assert isinstance(runner.engines["kascade"], KascadeEngine)
 
 
 def _request(**changes) -> CalculationRequest:

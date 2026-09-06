@@ -64,3 +64,4 @@ cross-checks this table against the files on disk.
 | RES056 | Code comments citing a decision are trimmed to a pointer; the rationale lives only in the decision file | process | implemented | implemented/process/RES056-code-comments-citing-a-decision-are-pointers.md |
 | RES057 | *docs/DERIVATIONS.md* is split into `docs/derivations/`, one file per result on a confidence pipeline instead of a lifecycle | process | implemented | implemented/process/RES057-derivations-migrated-to-per-file-confidence-pipeline.md |
 | RES058 | NiceGUI local browser UI with a separate calculation runner | architecture | implemented | implemented/architecture/RES058-nicegui-local-browser-execution-boundary.md |
+| RES059 | minimal kascade ports the emission chain, not the predecessor's framework | feature | implemented | implemented/feature/RES059-minimal-kascade-emission-chain.md |
