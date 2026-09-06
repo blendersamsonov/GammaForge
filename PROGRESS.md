@@ -18,7 +18,7 @@ unfinished or waiting on someone*.
 | 1. Core (`gammaforge.io`) | 🟢 done |
 | 2. Validation harness | 🟢 done |
 | 2.5. Stage 0 + minimal delta | 🟢 done |
-| 3a. xigma engineering | 🟢 done — Stage 0/1/2, `Collision`, `XigmaEngine` |
+| 3a. xigma engineering | 🟢 done — Stage 0/1/2, `Collision`, `XigmaEngine`. Stage 2 CuPy ring/annulus importance sampler integrated for production; NumPy grid quadrature retained for reference (RES061). |
 | 3b. Physics closure | 🟡 §9.1 closed (RES033). The author-approved per-particle lab-frame polarization projection is implemented (RES060); independent arbitrary-angle emission validation remains open. |
 | 4. analytical engine | 🟢 landed and merged to `main`; general overlap-integral yield, width breakdown, quadrature spectrum, flying focus, crossing angle for the yield. Open: collimated-spectrum construction |
 | 5. kascade port + delta full role | 🟡 minimal `KascadeEngine`, Thomson sanity anchor, and opt-in GUI integration landed (RES059); four-method validation wiring remains open |

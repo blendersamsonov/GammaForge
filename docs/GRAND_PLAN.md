@@ -1,9 +1,18 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.28 — 2026-09-06
+**Status:** draft v0.29 — 2026-09-06
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 **Changelog**
+- **v0.29**: CuPy ring/annulus importance-sampling rawkernel integrated as the
+  production compute path for `xigma`'s Stage 2 angular/collimated spectrum queries
+  (`angular_spectrum_from_table`, `spectrum_in_angular_range`), with NumPy brute-force
+  grid quadrature retained as the reference and validation path (`schema.py` exposes
+  `backend` defaulting to `"auto"`). Reconciled with GammaForge architecture: incorporates
+  `KERNEL_NORMALIZATION_CONSTANT = 1.5 / (2 pi)` (RES033) and log-spaced non-uniform `ahat`
+  grid support (RES032). Gated polarization routing: head-on linear polarization executes
+  on GPU; non-zero ellipticity or crossing angles route gracefully to NumPy (`backend='cupy'`
+  raises `NotImplementedError`). `DECISIONS.md` RES061.
 - **v0.28**: The author resolved the pending Stage-2 electron-direction convention:
   polarization uses the field-free, per-particle lab-frame velocity
   `β (θ_x, θ_y, 1) / √(1 + θ_x² + θ_y²)`. The observer direction and laser
@@ -804,22 +813,15 @@ The tabulated-overlap pipeline, restructured into composable stages:
   RES028's decision not to port it). Cheap and independent of `n_particles`, so `Collision`
   caches the shape deposit once and retargets many peak-a0 values from it.
 - **Stage 2 — spectrum queries** (`stages.py::spectrum_from_table`,
-  `angular_spectrum_from_table`, `spectrum_in_angular_range`): pure functions. The numpy
-  path ports the predecessor's brute-force grid quadrature (its validation-only
-  `reference.py`), not its GPU importance sampler — trust-level C in the predecessor's own
-  audit, not something to import as this phase's only implementation (RES029). `cupy`/
-  `numba` are gated like Stage 0's until real kernels exist. **Target shape (v0.18,
-  unscheduled):** the eventual production kernel is a ring/annulus-based importance
-  sampler, built and cross-checked against this brute-force quadrature rather than ported
-  from the predecessor's own audited-noisy one — on **every backend it ships for,
-  including CPU** (not a GPU-exclusive path), same backend set as Stage 0/1. The
-  brute-force quadrature then becomes the validation-only reference, same role
-  `reference.py` already had for the predecessor. **One authoritative
-  normalization, isolated in one module-level location**
-  (`stages.KERNEL_NORMALIZATION_CONSTANT`) and arbitrated against delta (§9.1) — the
-  constant itself is pi-free and unchanged from the predecessor's kernel math; the ~2π
-  question is which side of the table-free/table-based split the missing factor belongs
-  to, still open (RES029, §9.1).
+  `angular_spectrum_from_table`, `spectrum_in_angular_range`): pure functions. Multi-point
+  queries (`angular_spectrum_from_table`, `spectrum_in_angular_range`) dispatch to a CuPy
+  ring/annulus importance-sampling rawkernel (`spectrum_sampler.py`) as the production compute
+  path when `backend in ("auto", "cupy")` and CUDA is available (`DECISIONS.md` RES061). The
+  NumPy brute-force grid quadrature (`stages.py`) is retained as the reference for validation,
+  CPU-only environments, and general polarization geometries (non-zero ellipticity or crossing
+  angles). Both paths share **one authoritative normalization, isolated in one module-level
+  location** (`stages.KERNEL_NORMALIZATION_CONSTANT = 1.5 / (2 pi)`, RES033) and arbitrated
+  against delta (§9.1).
 - **`Collision` facade** (`collision.py`): the one stateful object. Owns one fixed
   (`InteractionParameters`, xigma `Parameters`) pair and memoizes what its stages produce
   from them. Methods are thin wrappers: `build_overlap()`, `spectrum(s)`,

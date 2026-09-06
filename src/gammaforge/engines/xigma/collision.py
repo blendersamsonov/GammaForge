@@ -126,12 +126,15 @@ class Collision:
         ellipticity: float = 0.0,
         theta_xz: float = 0.0,
         theta_yz: float = 0.0,
+        backend: str | None = None,
     ) -> np.ndarray:
         """Stage 2, at the pulse's own peak a0: ``d3N / (ds dtheta_x dtheta_y)``."""
+        b = backend or (self.params.get_choice("backend") if "backend" in self.params else "auto")
         return angular_spectrum_from_table(
             self._table(), theta_x, theta_y, s,
             psi_pol=psi_pol, ellipticity=ellipticity,
-            theta_xz=theta_xz, theta_yz=theta_yz
+            theta_xz=theta_xz, theta_yz=theta_yz,
+            backend=b,
         )
 
     def spectrum_in_angular_range(
@@ -145,14 +148,17 @@ class Collision:
         ellipticity: float = 0.0,
         theta_xz: float = 0.0,
         theta_yz: float = 0.0,
+        backend: str | None = None,
     ):
         """The windowed on-demand query (§4.2) — cheap once `build_overlap`/`_table` ran."""
+        b = backend or (self.params.get_choice("backend") if "backend" in self.params else "auto")
         return _spectrum_in_angular_range(
             self._table(),
             theta_x_range, theta_y_range, s_edges,
             resolution=resolution,
             psi_pol=psi_pol, ellipticity=ellipticity,
-            theta_xz=theta_xz, theta_yz=theta_yz
+            theta_xz=theta_xz, theta_yz=theta_yz,
+            backend=b,
         )
 
     # -- Results assembly -------------------------------------------------

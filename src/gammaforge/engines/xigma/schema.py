@@ -108,6 +108,14 @@ XIGMA_SPECS: tuple[FieldSpec, ...] = (
         default=1.0,
         value_range=(0.1, 12.0),
     ),
+    FieldSpec(
+        key="backend",
+        label="Compute backend",
+        kind=FieldKind.CHOICE,
+        unit=DIMENSIONLESS,
+        default="auto",
+        choices=("auto", "cupy", "numpy"),
+    ),
 )
 
 

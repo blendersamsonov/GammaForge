@@ -145,7 +145,7 @@ def test_the_two_normalization_paths_inside_one_results_object_agree():
     interaction = replace(interaction, target=target)
     params = XigmaEngine.schema.with_values(
         n_bins_gamma=32, n_bins_theta_x=24, n_bins_theta_y=24,
-        n_bins_a0_shape=64, n_bins_ahat=8, scheme="cic",
+        n_bins_a0_shape=64, n_bins_ahat=8, scheme="cic", backend="numpy",
     )
     results = XigmaEngine().run(interaction, params)
 

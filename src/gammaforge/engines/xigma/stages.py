@@ -911,12 +911,50 @@ def angular_spectrum_from_table(
     ellipticity: float = 0.0,
     theta_xz: float = 0.0,
     theta_yz: float = 0.0,
+    backend: str = "numpy",
+    subsampling: int = 32,
 ) -> np.ndarray:
     """Stage 2: :func:`spectrum_from_table` evaluated over a grid of observation points.
 
     Feeds `OutputKind.COLLIMATED_SPECTRUM` (§3.4). Shape
     ``(len(theta_x_grid), len(theta_y_grid), len(s))``.
+
+    Dispatches to the CuPy ring/annulus importance-sampling rawkernel when ``backend``
+    is ``'cupy'`` or ``'auto'`` (and CuPy + CUDA are available for head-on linear
+    polarization). Falls back to the NumPy brute-force grid quadrature otherwise.
     """
+    if backend == "cupy":
+        if ellipticity != 0.0 or theta_xz != 0.0 or theta_yz != 0.0:
+            raise NotImplementedError(
+                "angular_spectrum_from_table(backend='cupy'): CuPy importance sampler only supports "
+                "head-on linear polarization today; non-zero ellipticity or crossing angles must use backend='numpy'."
+            )
+        from .spectrum_sampler import calculate_angular_spectrum_gpu, is_gpu_available
+
+        if not is_gpu_available():
+            raise RuntimeError(
+                "angular_spectrum_from_table(backend='cupy') requested but CuPy or a CUDA device is not available."
+            )
+        return calculate_angular_spectrum_gpu(
+            table, theta_x_grid, theta_y_grid, s, psi_pol=psi_pol, subsampling=subsampling
+        )
+
+    if backend == "auto":
+        from .spectrum_sampler import calculate_angular_spectrum_gpu, is_gpu_available
+
+        if (
+            ellipticity == 0.0
+            and theta_xz == 0.0
+            and theta_yz == 0.0
+            and is_gpu_available()
+        ):
+            return calculate_angular_spectrum_gpu(
+                table, theta_x_grid, theta_y_grid, s, psi_pol=psi_pol, subsampling=subsampling
+            )
+
+    if backend not in ("auto", "cupy", "numpy"):
+        raise ValueError(f"Unknown backend {backend!r}; expected 'auto', 'cupy', or 'numpy'.")
+
     tx = np.atleast_1d(np.asarray(theta_x_grid, dtype=float))
     ty = np.atleast_1d(np.asarray(theta_y_grid, dtype=float))
     s_arr = np.atleast_1d(np.asarray(s, dtype=float))
@@ -965,6 +1003,8 @@ def spectrum_in_angular_range(
     ellipticity: float = 0.0,
     theta_xz: float = 0.0,
     theta_yz: float = 0.0,
+    backend: str = "numpy",
+    subsampling: int = 32,
 ) -> tuple[np.ndarray, np.ndarray, float]:
     """Stage 2: the windowed on-demand query the `Collision` facade wraps.
 
@@ -981,7 +1021,8 @@ def spectrum_in_angular_range(
     cube = angular_spectrum_from_table(
         table, tx, ty, s_centers,
         psi_pol=psi_pol, ellipticity=ellipticity,
-        theta_xz=theta_xz, theta_yz=theta_yz
+        theta_xz=theta_xz, theta_yz=theta_yz,
+        backend=backend, subsampling=subsampling,
     )
     dN_ds = np.trapezoid(np.trapezoid(cube, ty, axis=1), tx, axis=0)
     n_photons = float(np.trapezoid(dN_ds, s_centers))
