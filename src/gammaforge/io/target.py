@@ -18,6 +18,7 @@ correct when a non-Gaussian `LaserField` arrives.
 from __future__ import annotations
 
 import math
+import numbers
 from dataclasses import dataclass
 from enum import Enum
 
@@ -35,6 +36,7 @@ __all__ = [
     "auto_ranges",
     "compton_edge_energy",
     "slice_axis_values",
+    "slice_axis_widths",
     "SLICE_AXES",
     "RANGE_HEADROOM",
 ]
@@ -94,8 +96,9 @@ class OutputRequest:
                 f"{self.kind.name} needs {len(axes)} resolution value(s) for axes "
                 f"{tuple(a.name for a in axes)}, got {self.resolution}"
             )
-        if any(n < 1 for n in self.resolution):
-            raise ValueError(f"{self.kind.name}: resolutions must be >= 1, got {self.resolution}")
+        if any(isinstance(n, bool) or not isinstance(n, numbers.Integral) or n < 1
+               for n in self.resolution):
+            raise ValueError(f"{self.kind.name}: resolutions must be positive integers, got {self.resolution}")
         if self.manual_ranges is not None:
             if self.kind is not OutputKind.SPATIAL_DISTRIBUTION:
                 raise ValueError(
@@ -105,6 +108,13 @@ class OutputRequest:
             unknown = set(self.manual_ranges) - set(axes)
             if unknown:
                 raise ValueError(f"{self.kind.name}: {sorted(a.name for a in unknown)} is not one of its axes")
+            for axis, values in self.manual_ranges.items():
+                try:
+                    low, high = values
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f"{self.kind.name}: {axis.name} range must be a (low, high) pair") from exc
+                if not (np.isfinite(low) and np.isfinite(high) and low < high):
+                    raise ValueError(f"{self.kind.name}: {axis.name} range must be finite and increasing")
 
 
 @dataclass(frozen=True)
@@ -294,3 +304,20 @@ def slice_axis_values(
         width = (high - low) / n_bins
         values[axis] = low + width * (np.arange(n_bins) + 0.5)
     return values
+
+
+def slice_axis_widths(
+    request: OutputRequest, ranges: dict[Axis, tuple[float, float]]
+) -> dict[Axis, np.ndarray]:
+    """Constant histogram cell widths for an output request's axis ranges.
+
+    This is separate from :func:`slice_axis_values`: centre coordinates identify where a
+    histogram is plotted, while widths define its integration measure.
+    """
+    axes = SLICE_AXES[request.kind]
+    if axes is None:
+        raise ValueError(f"{request.kind.name} is not a slice")
+    return {
+        axis: np.full(n_bins, (ranges[axis][1] - ranges[axis][0]) / n_bins)
+        for axis, n_bins in zip(axes, request.resolution)
+    }

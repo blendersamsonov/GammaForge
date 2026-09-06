@@ -1,9 +1,13 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.28 — 2026-09-06
+**Status:** draft v0.29 — 2026-09-06
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 **Changelog**
+- **v0.29**: Slice integration now carries an explicit per-axis histogram measure.
+  Histogram cell densities use their stored widths, while smooth point samples retain
+  trapezoidal quadrature. The distinction survives projection, charge scaling, and HDF5;
+  legacy HDF5 slices without widths remain point samples (RES061).
 - **v0.28**: The author resolved the pending Stage-2 electron-direction convention:
   polarization uses the field-free, per-particle lab-frame velocity
   `β (θ_x, θ_y, 1) / √(1 + θ_x² + θ_y²)`. The observer direction and laser
@@ -726,9 +730,16 @@ absent curves in the outputs tab.
   `Axis.THETA_X`, `Axis.THETA_Y`) with **canonical CGS units** (erg, s, cm, rad);
   display conversion happens only in the plotting/serialization layers. The
   unit-baked-into-axis-name smell (`"E_eV"`) is gone.
-- `PhasespaceSlice(axes: dict[Axis, ndarray], distr: ndarray)`: density over a named
-  axis set; empty axes = 0D total yield. The closed set of allowed axis-groupings is
-  kept and validated (the nine groupings from the old contract).
+- `PhasespaceSlice(axes: dict[Axis, ndarray], distr: ndarray, widths: dict[Axis,
+  ndarray] | None = None)`: density over a named axis set; empty axes = 0D total yield.
+  `axes` always stores plotting coordinates. An optional positive `widths` array declares
+  that axis to be a histogram of cell-average densities, so integration is the weighted
+  cell sum (and a one-bin histogram is well defined). An axis without widths is a smooth
+  point sample and retains trapezoidal quadrature over its ordered coordinates; a one-point
+  smooth integral is deliberately undefined. Producers declare this distinction instead of
+  making a shared ndarray silently mean both. Projections preserve widths on retained axes
+  and use the declared measure on eliminated axes. The closed set of allowed axis-groupings
+  is kept and validated (the nine groupings from the old contract).
 - `Results(photon_slices, electrons: Bunch | None, photons: PhotonMacroparticles | None,
   model_specific: dict)`. `PhotonMacroparticles` is a small new dataclass with per-photon
   arrays (energy, lab direction, position, time, weight, order/parent); `electrons`

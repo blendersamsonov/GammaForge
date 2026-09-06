@@ -4,6 +4,7 @@ Layout::
 
     /slices/<output_kind>/distr           the density array
     /slices/<output_kind>/axes/<axis_key> that axis's values, with a `unit` attribute
+    /slices/<output_kind>/widths/<axis_key> optional histogram cell widths
       attrs: axis_order = [axis keys, in the slice's own order]
     /photons/<field>                      MC photon macroparticles, when present
 
@@ -57,6 +58,10 @@ def save_results(results: Results, path: str | Path, **groups: Parameters) -> No
                 dataset = axes.create_dataset(axis.key, data=values)
                 dataset.attrs["unit"] = axis.unit
             group.attrs["axis_order"] = [axis.key for axis in slice_.axis_order]
+            if slice_.widths:
+                widths = group.create_group("widths")
+                for axis, values in slice_.widths.items():
+                    widths.create_dataset(axis.key, data=values)
 
         if results.photons is not None:
             photons = handle.create_group("photons")
@@ -85,7 +90,13 @@ def load_results(path: str | Path, kind_from_name=None) -> Results:
                      for key in group.attrs["axis_order"]]
             axes = {Axis.from_key(key): np.asarray(group["axes"][key]) for key in order}
             key = kind_from_name(name) if kind_from_name is not None else name
-            photon_slices[key] = PhasespaceSlice(axes=axes, distr=np.asarray(group["distr"]))
+            widths = (
+                {Axis.from_key(name): np.asarray(values) for name, values in group["widths"].items()}
+                if "widths" in group else None
+            )
+            photon_slices[key] = PhasespaceSlice(
+                axes=axes, distr=np.asarray(group["distr"]), widths=widths
+            )
 
         if "photons" in handle:
             stored = {name: np.asarray(handle["photons"][name])

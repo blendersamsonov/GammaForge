@@ -45,7 +45,7 @@ def _density_in_display_units(density: np.ndarray, axes: tuple[Axis, ...]) -> np
 
 
 def project_slice(slice_: PhasespaceSlice, keep: tuple[Axis, ...]) -> PhasespaceSlice:
-    """Marginalize a density, with the slice's trapezoidal quadrature convention.
+    """Marginalize a density using each eliminated axis's declared measure.
 
     ``keep`` also fixes the output axis order.  Plain sums are intentionally never
     used: nonuniform output grids are a supported part of the result contract.
@@ -59,14 +59,23 @@ def project_slice(slice_: PhasespaceSlice, keep: tuple[Axis, ...]) -> Phasespace
         if axis not in keep:
             index = order.index(axis)
             grid = slice_.axes[axis]
-            if grid.size < 2:
+            widths = slice_.widths.get(axis)
+            if widths is not None:
+                shape = [1] * values.ndim
+                shape[index] = widths.size
+                values = np.sum(values * widths.reshape(shape), axis=index)
+            elif grid.size < 2:
                 raise ValueError(f"project_slice: cannot integrate {axis.name} with fewer than 2 samples")
-            values = np.trapezoid(values, grid, axis=index)
+            else:
+                values = np.trapezoid(values, grid, axis=index)
             order.pop(index)
     if tuple(order) != keep:
         permutation = [order.index(axis) for axis in keep]
         values = np.transpose(values, permutation)
-    return PhasespaceSlice({axis: slice_.axes[axis] for axis in keep}, values)
+    return PhasespaceSlice(
+        {axis: slice_.axes[axis] for axis in keep}, values,
+        widths={axis: slice_.widths[axis] for axis in keep if axis in slice_.widths},
+    )
 
 
 def _zero_slice(slice_: PhasespaceSlice, angle: Axis) -> PhasespaceSlice:
@@ -81,7 +90,9 @@ def _zero_slice(slice_: PhasespaceSlice, angle: Axis) -> PhasespaceSlice:
     flat = moved.reshape(-1, grid.size)
     values = np.array([np.interp(0.0, grid, row) for row in flat]).reshape(moved.shape[:-1])
     axes = {a: v for a, v in slice_.axes.items() if a is not angle}
-    return PhasespaceSlice(axes, values)
+    return PhasespaceSlice(
+        axes, values, widths={axis: slice_.widths[axis] for axis in axes if axis in slice_.widths}
+    )
 
 
 def collimated_projections(slice_: PhasespaceSlice) -> Mapping[str, PhasespaceSlice]:

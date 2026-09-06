@@ -50,9 +50,13 @@ Ordered by who is blocked. Each names the file that carries the detail.
 ### Available to pick up (no external dependency)
 
 - **Independently validate arbitrary-angle emission.** RES060 implements the author-approved
-  lab-frame polarization projection and checks it directly against Eq. `udef`, but the
-  angular histogram has no integration measure contract and no independent arbitrary-angle
-  emission method has yet checked the resulting observables.
+  lab-frame polarization projection and checks it directly against Eq. `udef`, but no
+  independent arbitrary-angle emission method has yet checked the resulting observables.
+
+- **Spatial autoranging under displacement.** The current Kascade reproduction captured its
+  sampled photon weights inside the symmetric auto range for laser offsets through 120 µm;
+  no geometry correction is established. A future change must first trace the event-source
+  coordinate through a displaced overlap, rather than infer a shifted Gaussian range.
 
 - **Finish Phase 5 validation wiring.** `KascadeEngine` supplies the independent
   overlap/emission leg and passes its Thomson-limit anchor. Delta's full role and the

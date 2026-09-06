@@ -92,17 +92,19 @@ ALLOWED_AXIS_GROUPINGS: frozenset[frozenset[Axis]] = frozenset(
 class PhasespaceSlice:
     """A photon density over a named set of axes.
 
-    ``axes`` maps each `Axis` to its bin-centre values; ``distr`` holds the density, with
-    one dimension per axis in the iteration order of ``axes``. An empty ``axes`` means a
-    0D total yield, whose ``distr`` is a scalar-shaped array.
+    ``axes`` maps each `Axis` to ordered plotting coordinates; ``distr`` holds the density,
+    with one dimension per axis in the iteration order of ``axes``. ``widths`` optionally
+    declares histogram cell widths for individual axes. An empty ``axes`` means a 0D total
+    yield, whose ``distr`` is a scalar-shaped array.
 
-    Densities are **per unit of each axis** (e.g. photons/erg for a spectrum), so
-    integrating with the axis spacing gives the yield. Storing densities rather than
-    per-bin counts is what makes two engines with different binning directly comparable.
+    An axis with explicit widths is integrated as cell-average histogram density. An axis
+    without widths is a smooth point sample and uses trapezoidal quadrature. The distinction
+    is explicit because bin-centre values alone cannot recover a histogram's endpoint mass.
     """
 
     axes: Mapping[Axis, np.ndarray]
     distr: np.ndarray
+    widths: Mapping[Axis, np.ndarray] | None = None
 
     def __post_init__(self) -> None:
         axes = {axis: np.asarray(values, dtype=float) for axis, values in self.axes.items()}
@@ -114,6 +116,22 @@ class PhasespaceSlice:
                 f"PhasespaceSlice: {sorted(a.name for a in grouping)} is not an allowed "
                 f"axis grouping (GRAND_PLAN.md §3.6)"
             )
+        for axis, values in axes.items():
+            if values.ndim != 1 or values.size == 0:
+                raise ValueError(f"PhasespaceSlice: axis {axis.name} must be a non-empty 1D array")
+            if not np.all(np.isfinite(values)) or np.any(np.diff(values) <= 0.0):
+                raise ValueError(f"PhasespaceSlice: axis {axis.name} must be finite and strictly increasing")
+        widths = {} if self.widths is None else {
+            axis: np.asarray(values, dtype=float) for axis, values in self.widths.items()
+        }
+        unknown_widths = set(widths) - set(axes)
+        if unknown_widths:
+            raise ValueError(f"PhasespaceSlice: widths supplied for absent axes {sorted(a.name for a in unknown_widths)}")
+        for axis, values in widths.items():
+            if values.ndim != 1 or values.shape != axes[axis].shape:
+                raise ValueError(f"PhasespaceSlice: widths for {axis.name} must match its axis shape")
+            if not np.all(np.isfinite(values)) or np.any(values <= 0.0):
+                raise ValueError(f"PhasespaceSlice: widths for {axis.name} must be finite and positive")
         distr = np.asarray(self.distr, dtype=float)
         expected = tuple(values.size for values in axes.values())
         if distr.shape != expected:
@@ -122,6 +140,7 @@ class PhasespaceSlice:
             )
         object.__setattr__(self, "axes", MappingProxyType(axes))
         object.__setattr__(self, "distr", distr)
+        object.__setattr__(self, "widths", MappingProxyType(widths))
 
     @property
     def axis_order(self) -> tuple[Axis, ...]:
@@ -130,17 +149,18 @@ class PhasespaceSlice:
     def integrate(self) -> float:
         """Total yield: the density integrated over every axis.
 
-        Uses the trapezoid rule over the bin centres, which is what makes
-        ``integral(spectrum) == integral(angular spectrum) == total_yield`` an exact
-        identity between slices of the same run rather than a tolerance (§7).
-
-        Every axis needs at least two samples: a one-sample axis carries no width, so its
-        integral is not defined and silently assuming one would corrupt the identity
-        above. A 0D slice (no axes) integrates to its own scalar.
+        Histogram axes use their explicit cell widths. Smooth point-sampled axes use the
+        trapezoid rule over coordinates. A one-point smooth axis has no defined measure;
+        a one-bin histogram does because it supplies a width. A 0D slice integrates to its
+        own scalar.
         """
         result = self.distr
         for axis in reversed(self.axis_order):
             values = self.axes[axis]
+            widths = self.widths.get(axis)
+            if widths is not None:
+                result = np.sum(result * widths, axis=-1)
+                continue
             if values.size < 2:
                 raise ValueError(
                     f"PhasespaceSlice.integrate: axis {axis.name} has {values.size} sample(s); "
@@ -155,7 +175,7 @@ class PhasespaceSlice:
         Every output is exactly linear in ``N_e`` (§3.5), so a charge-only change is a
         pure display operation on existing results, never an engine run (§5).
         """
-        return PhasespaceSlice(axes=dict(self.axes), distr=self.distr * factor)
+        return PhasespaceSlice(axes=dict(self.axes), distr=self.distr * factor, widths=dict(self.widths))
 
 
 @dataclass(frozen=True)

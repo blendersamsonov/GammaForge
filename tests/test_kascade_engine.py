@@ -10,7 +10,7 @@ import pytest
 
 from gammaforge.engines.base import Engine
 from gammaforge.engines.analytical.formulas import overlap_yield
-from gammaforge.engines.kascade.engine import KascadeEngine, _bunch_to_si
+from gammaforge.engines.kascade.engine import KascadeEngine, _bunch_to_si, _histogram_slice
 from gammaforge.io.bunch import Bunch, GaussianElectronBeam
 from gammaforge.io.interaction import InteractionParameters, SamplingSpec
 from gammaforge.io.laser import GaussianParaxialLaser
@@ -60,6 +60,18 @@ def test_bunch_is_converted_once_to_si_and_absolute_electron_weights():
     assert converted.theta_y is bunch.thy
     assert converted.gamma is bunch.gamma
     assert np.array_equal(converted.electron_weight, np.array([10.0, 30.0]))
+
+
+def test_histogram_slice_integrates_to_the_captured_photon_weights():
+    request = OutputRequest(OutputKind.ANGULAR_DISTRIBUTION, (2, 2))
+    ranges = {Axis.THETA_X: (0.0, 2.0), Axis.THETA_Y: (0.0, 4.0)}
+    samples = {
+        Axis.THETA_X: np.array([0.2, 1.8, 3.0]),
+        Axis.THETA_Y: np.array([0.2, 3.8, 1.0]),
+    }
+    weights = np.array([2.0, 3.0, 5.0])
+    histogram = _histogram_slice(request, ranges, samples, weights)
+    assert histogram.integrate() == pytest.approx(5.0)
 
 
 def test_supported_outputs_are_filled_and_macroparticles_are_cgs():

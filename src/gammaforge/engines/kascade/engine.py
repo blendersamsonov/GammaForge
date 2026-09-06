@@ -19,7 +19,7 @@ from ...io.interaction import InteractionParameters
 from ...io.laser import LaserField, fit_gaussian_paraxial
 from ...io.results import Axis, PhasespaceSlice, PhotonMacroparticles, Results
 from ...io.schema import Parameters
-from ...io.target import OutputKind, OutputRequest, auto_ranges, slice_axis_values
+from ...io.target import OutputKind, OutputRequest, auto_ranges, slice_axis_values, slice_axis_widths
 from ...io.units import C_CGS, E_ESU, HBAR_CGS, MEC2_CGS, ME_CGS, SIGMA_T_CGS
 from ..base import RecomputeCost
 from .schema import default_parameters
@@ -264,6 +264,7 @@ def _histogram_slice(
     weights: np.ndarray,
 ) -> PhasespaceSlice:
     values = slice_axis_values(request, ranges)
+    widths = slice_axis_widths(request, ranges)
     axes = tuple(values)
     bins = request.resolution
     ordered_ranges = [ranges[axis] for axis in axes]
@@ -272,7 +273,7 @@ def _histogram_slice(
     bin_volume = math.prod(
         (high - low) / count for (low, high), count in zip(ordered_ranges, bins)
     )
-    return PhasespaceSlice(axes=values, distr=counts / bin_volume)
+    return PhasespaceSlice(axes=values, distr=counts / bin_volume, widths=widths)
 
 
 class KascadeEngine:

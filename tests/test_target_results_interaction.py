@@ -19,6 +19,7 @@ from gammaforge.io.interaction import (
     build_interaction,
 )
 from gammaforge.io.laser import GaussianParaxialLaser
+from gammaforge.io.plotting import project_slice
 from gammaforge.io.results import (
     ALLOWED_AXIS_GROUPINGS,
     Axis,
@@ -34,6 +35,7 @@ from gammaforge.io.target import (
     auto_ranges,
     compton_edge_energy,
     slice_axis_values,
+    slice_axis_widths,
 )
 from gammaforge.io.units import C_CGS, EV_CGS, Quantity as Q
 
@@ -105,6 +107,77 @@ def test_integration_rejects_an_axis_with_no_width():
     single = PhasespaceSlice(axes={Axis.ENERGY: np.asarray([1.0])}, distr=np.ones(1))
     with pytest.raises(ValueError, match="at least 2"):
         single.integrate()
+
+
+def test_histogram_measure_preserves_edge_bin_mass_and_allows_one_bin_axes():
+    centres = np.array([0.5, 1.5])
+    histogram = PhasespaceSlice(
+        {Axis.ENERGY: centres}, np.ones(2), widths={Axis.ENERGY: np.ones(2)}
+    )
+    assert histogram.integrate() == pytest.approx(2.0)
+    one_bin = PhasespaceSlice(
+        {Axis.ENERGY: np.array([2.0])}, np.array([3.0]), widths={Axis.ENERGY: np.array([0.25])}
+    )
+    assert one_bin.integrate() == pytest.approx(0.75)
+
+
+def test_nonuniform_histogram_measure_and_projection_preserve_mass():
+    axes = {
+        Axis.ENERGY: np.array([0.1, 0.7]),
+        Axis.THETA_X: np.array([-0.4, 0.3]),
+        Axis.THETA_Y: np.array([-0.5, 0.2]),
+    }
+    widths = {
+        Axis.ENERGY: np.array([0.2, 0.8]),
+        Axis.THETA_X: np.array([0.3, 0.7]),
+        Axis.THETA_Y: np.array([0.4, 0.6]),
+    }
+    density = np.arange(1.0, 9.0).reshape(2, 2, 2)
+    source = PhasespaceSlice(axes, density, widths=widths)
+    projected = project_slice(source, (Axis.ENERGY,))
+    expected = np.sum(density * widths[Axis.THETA_X][None, :, None]
+                      * widths[Axis.THETA_Y][None, None, :], axis=(1, 2))
+    np.testing.assert_allclose(projected.distr, expected)
+    np.testing.assert_array_equal(projected.widths[Axis.ENERGY], widths[Axis.ENERGY])
+    assert projected.integrate() == pytest.approx(source.integrate())
+
+
+def test_smooth_nonconstant_slice_retains_trapezoidal_quadrature():
+    energy = np.array([0.0, 0.5, 2.0])
+    density = energy**2 + 1.0
+    smooth = PhasespaceSlice({Axis.ENERGY: energy}, density)
+    assert smooth.integrate() == pytest.approx(np.trapezoid(density, energy))
+
+
+def test_one_bin_histogram_axes_project_without_inventing_a_point_measure():
+    source = PhasespaceSlice(
+        {
+            Axis.ENERGY: np.array([1.0, 3.0]),
+            Axis.THETA_X: np.array([0.0]),
+            Axis.THETA_Y: np.array([0.0]),
+        },
+        np.array([[[2.0]], [[4.0]]]),
+        widths={
+            Axis.ENERGY: np.array([1.0, 2.0]),
+            Axis.THETA_X: np.array([0.5]),
+            Axis.THETA_Y: np.array([0.25]),
+        },
+    )
+    assert project_slice(source, (Axis.ENERGY,)).integrate() == pytest.approx(source.integrate())
+
+
+@pytest.mark.parametrize(
+    "axes,widths,match",
+    [
+        ({Axis.ENERGY: np.array([0.0, 0.0])}, None, "strictly increasing"),
+        ({Axis.ENERGY: np.array([0.0, np.inf])}, None, "finite"),
+        ({Axis.ENERGY: np.array([0.0, 1.0])}, {Axis.ENERGY: np.array([1.0, 0.0])}, "positive"),
+        ({Axis.ENERGY: np.array([0.0, 1.0])}, {Axis.ENERGY: np.array([1.0])}, "match"),
+    ],
+)
+def test_slice_rejects_invalid_coordinates_and_measures(axes, widths, match):
+    with pytest.raises(ValueError, match=match):
+        PhasespaceSlice(axes, np.ones(2), widths=widths)
 
 
 def test_integrating_a_3d_slice_agrees_with_its_energy_marginal():
@@ -288,6 +361,19 @@ def test_slice_axis_values_are_bin_centres_inside_the_range():
     values = slice_axis_values(request, ranges)[Axis.ENERGY]
     assert np.allclose(values, np.arange(8) + 0.5)
     assert values[0] > 0.0 and values[-1] < 8.0
+    np.testing.assert_allclose(slice_axis_widths(request, ranges)[Axis.ENERGY], np.ones(8))
+
+
+@pytest.mark.parametrize("resolution", [(1.5,), (True,), (0,)])
+def test_output_request_rejects_non_integral_or_nonpositive_resolution(resolution):
+    with pytest.raises(ValueError, match="positive integers"):
+        OutputRequest(OutputKind.SPECTRUM, resolution)
+
+
+@pytest.mark.parametrize("range_", [(1.0, 1.0), (2.0, 1.0), (math.nan, 1.0), (0.0, math.inf)])
+def test_output_request_rejects_invalid_manual_spatial_ranges(range_):
+    with pytest.raises(ValueError, match="finite and increasing"):
+        OutputRequest(OutputKind.SPATIAL_DISTRIBUTION, (4, 4), {Axis.X: range_})
 
 
 # ---------------------------------------------------------------------------

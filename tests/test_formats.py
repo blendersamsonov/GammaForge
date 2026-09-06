@@ -297,6 +297,30 @@ def test_hdf5_preserves_the_axis_order_of_an_asymmetric_slice(tmp_path):
     assert restored.distr.shape == (24, 9, 7)
 
 
+def test_hdf5_round_trips_histogram_measure_and_legacy_slices_are_point_samples(tmp_path):
+    histogram = PhasespaceSlice(
+        {Axis.ENERGY: np.array([0.5, 2.0])}, np.array([3.0, 5.0]),
+        widths={Axis.ENERGY: np.array([1.0, 2.0])},
+    )
+    path = tmp_path / "histogram.h5"
+    save_results(Results({OutputKind.SPECTRUM: histogram}), path)
+    restored = load_results(path, kind_from_name=OutputKind).photon_slices[OutputKind.SPECTRUM]
+    np.testing.assert_array_equal(restored.widths[Axis.ENERGY], histogram.widths[Axis.ENERGY])
+    assert restored.integrate() == pytest.approx(histogram.integrate())
+
+    legacy = tmp_path / "legacy.h5"
+    import h5py
+    with h5py.File(legacy, "w") as handle:
+        group = handle.create_group("slices").create_group("spectrum")
+        group.create_dataset("distr", data=np.array([1.0, 1.0]))
+        axes = group.create_group("axes")
+        axes.create_dataset("energy", data=np.array([0.0, 2.0]))
+        group.attrs["axis_order"] = ["energy"]
+    loaded_legacy = load_results(legacy, kind_from_name=OutputKind).photon_slices[OutputKind.SPECTRUM]
+    assert not loaded_legacy.widths
+    assert loaded_legacy.integrate() == pytest.approx(2.0)
+
+
 def test_hdf5_round_trips_photon_macroparticles(tmp_path):
     results = make_results()
     path = tmp_path / "run.h5"
