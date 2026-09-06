@@ -46,20 +46,24 @@ class DerivationFile:
     text: str
 
 
-def _discover(root: Path) -> list[DerivationFile]:
+def _discover(root: Path) -> tuple[list[DerivationFile], list[str]]:
     found = []
-    for status in STATUSES:
-        folder = root / status
-        if not folder.is_dir():
+    errors = []
+    for path in sorted(root.rglob("*.md")):
+        if path.name in ("README.md", "INDEX.md"):
             continue
-        for path in sorted(folder.glob("*.md")):
-            m = FILENAME_RE.match(path.name)
-            if not m:
-                continue
-            found.append(
-                DerivationFile(path=path, status_folder=status, id_=m.group(1), text=path.read_text())
-            )
-    return found
+        rel = path.relative_to(root)
+        if len(rel.parts) != 2 or rel.parts[0] not in STATUSES:
+            errors.append(f"{rel}: file not in valid '<status>/' directory")
+            continue
+        m = FILENAME_RE.match(path.name)
+        if not m:
+            errors.append(f"{rel}: malformed filename (expected 'DER<NNN>-<slug>.md')")
+            continue
+        found.append(
+            DerivationFile(path=path, status_folder=rel.parts[0], id_=m.group(1), text=path.read_text())
+        )
+    return found, errors
 
 
 def _header_errors(df: DerivationFile) -> list[str]:
@@ -146,6 +150,19 @@ def _index_errors(derivations: list[DerivationFile], index_path: Path) -> list[s
         rel_path = str(df.path.relative_to(index_path.parent))
         if row["path"] not in (rel_path, df.path.name):
             errors.append(f"{df.id_}: INDEX.md path '{row['path']}' doesn't match on-disk path '{rel_path}'")
+
+        # Status cross-check
+        row_status = row["status"]
+        if df.status_folder == "archived":
+            eff = _effective_status(df)
+            if not (row_status == eff or (eff == "rejected" and row_status.startswith("rejected"))):
+                errors.append(f"{df.id_}: INDEX.md status '{row_status}' != archived effective status '{eff}'")
+            if not row["path"].startswith("archived/"):
+                errors.append(f"{df.id_}: INDEX.md path '{row['path']}' for archived derivation must start with 'archived/'")
+        else:
+            if not (row_status == df.status_folder or (df.status_folder == "rejected" and row_status.startswith("rejected"))):
+                errors.append(f"{df.id_}: INDEX.md status '{row_status}' != on-disk status '{df.status_folder}'")
+
     for id_ in index_rows:
         if id_ not in on_disk_ids:
             errors.append(f"{id_} has an INDEX.md row but no file on disk")
@@ -153,11 +170,11 @@ def _index_errors(derivations: list[DerivationFile], index_path: Path) -> list[s
 
 
 def _check_tree(root: Path, index_path: Path | None) -> None:
-    derivations = _discover(root)
-    if not derivations:
+    derivations, disc_errors = _discover(root)
+    if not derivations and not disc_errors:
         pytest.skip(f"no derivation files under {root}")
 
-    failures = []
+    failures = list(disc_errors)
     for df in derivations:
         rel = df.path.relative_to(root)
         for err in _header_errors(df):
@@ -179,3 +196,92 @@ def test_docs_derivations_tree_is_well_formed():
 
 def test_examples_derivations_tree_is_well_formed():
     _check_tree(REPO_ROOT / "examples" / "derivations", index_path=None)
+
+
+# ---------------------------------------------------------------------------
+# Structural guard tests (A21)
+# ---------------------------------------------------------------------------
+
+def _write_valid_derivation(path: Path, id_: str, title: str, status_folder: str, status: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = [
+        f"# {id_} — {title}",
+        "",
+        f"Status: {status}",
+    ]
+    if status_folder == "archived":
+        body.append("Archived: 2026-09-06")
+    body.extend([
+        "",
+        "## Setup",
+        "Setup text.",
+    ])
+    effective = status if status_folder != "archived" else ("verified" if "verified" in status else "validated")
+    if effective in ("validated", "verified"):
+        body.extend([
+            "",
+            "## Result",
+            "Result text.",
+        ])
+    if effective == "verified":
+        body.extend([
+            "",
+            "## Verification",
+            "Verification text.",
+        ])
+    path.write_text("\n".join(body) + "\n")
+
+
+def test_derivation_format_flags_malformed_filename(tmp_path):
+    """A21: malformed filenames under derivations tree must fail rather than skip."""
+    bad_file = tmp_path / "derived" / "bad_name.md"
+    _write_valid_derivation(bad_file, "DER999", "Bad filename", "derived", "derived")
+    with pytest.raises(AssertionError, match="malformed filename"):
+        _check_tree(tmp_path, None)
+
+
+def test_derivation_format_flags_unexpected_directory(tmp_path):
+    """A21: files in non-status directories must fail."""
+    bad_dir_file = tmp_path / "somewhere_else" / "DER999-test.md"
+    _write_valid_derivation(bad_dir_file, "DER999", "Bad dir", "derived", "derived")
+    with pytest.raises(AssertionError, match="not in valid '<status>/' directory"):
+        _check_tree(tmp_path, None)
+
+
+def test_derivation_format_flags_duplicate_id(tmp_path):
+    """A21: duplicate derivation ids must be flagged."""
+    f1 = tmp_path / "derived" / "DER999-first.md"
+    f2 = tmp_path / "validated" / "DER999-second.md"
+    _write_valid_derivation(f1, "DER999", "First", "derived", "derived")
+    _write_valid_derivation(f2, "DER999", "Second", "validated", "validated")
+    with pytest.raises(AssertionError, match="duplicate id DER999"):
+        _check_tree(tmp_path, None)
+
+
+def test_derivation_format_flags_inconsistent_index_status(tmp_path):
+    """A21: INDEX.md status inconsistent with disk must fail."""
+    f = tmp_path / "derived" / "DER999-test.md"
+    _write_valid_derivation(f, "DER999", "Test", "derived", "derived")
+    index = tmp_path / "INDEX.md"
+    # Row declares validated status when disk is derived
+    index.write_text(
+        "| id | title | status | path |\n"
+        "|----|-------|--------|------|\n"
+        "| DER999 | Test | validated | derived/DER999-test.md |\n"
+    )
+    with pytest.raises(AssertionError, match="INDEX.md status 'validated' != on-disk status 'derived'"):
+        _check_tree(tmp_path, index)
+
+
+def test_derivation_format_accepts_archived_derivation_with_historical_status(tmp_path):
+    """A21: archived derivations retain historical status and must pass when index matches."""
+    f = tmp_path / "archived" / "DER999-old.md"
+    _write_valid_derivation(f, "DER999", "Old", "archived", "verified")
+    index = tmp_path / "INDEX.md"
+    index.write_text(
+        "| id | title | status | path |\n"
+        "|----|-------|--------|------|\n"
+        "| DER999 | Old | verified | archived/DER999-old.md |\n"
+    )
+    _check_tree(tmp_path, index)
+

@@ -26,15 +26,15 @@ Note: `CLAUDE.md` is a symlink to this file. Edit the real file, not the symlink
    *italics* = a hypothetical/rejected/future name) that `tests/test_doc_staleness.py`
    enforces on every `proposed`/`implemented`/`rejected` entry, plus a structural format
    check in `tests/test_decision_format.py`.
-   **Ids are an addressing scheme** — ~124 code comments cite `DNNN` bare (not a path), so
+   **Ids are an addressing scheme** — ~124 code comments cite `RESNNN` bare (not a path), so
    entries are never renumbered and never deleted, only archived.
 4. **`docs/derivations/INDEX.md`** — the long-form physics derivations that back specific
-   code, one file per result under `docs/derivations/{status}/DVNNN-*.md`. Unlike a
+   code, one file per result under `docs/derivations/{status}/DERNNN-*.md`. Unlike a
    decision, a derivation's status is a **confidence pipeline**, not a build lifecycle:
    `derived` (worked out, not yet reviewed) → `validated` (a domain expert checked the
    algebra) → `verified` (checked against code — a test, a closed-form limit, an
-   independent method). See `docs/derivations/README.md`. Cite `DVNNN` bare from code and
-   decisions the same way as a `D0NN` decision id.
+   independent method). See `docs/derivations/README.md`. Cite `DERNNN` bare from code and
+   decisions the same way as a `RESNNN` decision id.
 
 The physics authority is the paper draft at `~/Work/Papers/2026/Compton-Numerics`. It
 is in flux. **If code and paper disagree, that is BLOCKING — stop and flag it, don't
@@ -101,7 +101,7 @@ constraints (`GRAND_PLAN.md` §1 has the full table with provenance — P1–P15
   pointer at the top of both, then move the old one to `docs/decisions/archived/<class>/`
   **verbatim** plus an `Archived:` line — editing its reasoning would falsify what was
   decided at the time.
-- **Citing a decision from code:** a comment/docstring may cite `(D0NN)` bare — no path
+- **Citing a decision from code:** a comment/docstring may cite `(RESNNN)` bare — no path
   needed, ids are permanent. Keep it a pointer: one clause of current behavior plus the
   citation. If the surrounding comment grows past that — a derivation of *why*, rejected
   alternatives, historical numbers — that's a sign the content belongs in the decision
@@ -144,12 +144,12 @@ deliberately carries only what does not change between phases:
   lands (RES003 in `docs/decisions/`). Check before assuming one exists; the knowledge graph
   (`graphify query`) answers this faster than grep.
 - Only the **numpy** backend is real. `cupy`/`numba` are gated everywhere they appear.
-- **§9.2 and §9.3 are open derivations the paper does not contain**, wired as documented
-  no-ops with `validate()` warnings and one-line markers (`ELLIPTICITY_IS_NOOP`,
-  `EMISSION_IS_HEAD_ON`). Don't "fix" either by inventing a formula — that is the specific
-  failure P14c names. `docs/derivations/` (DER004, DER005) holds what has been derived and
-  what each result is blocked on; `PROGRESS.md`'s open threads say which parts are
-  already closed.
+- **§9.2 and §9.3 emission kernel factors are implemented** (DER004, DER005, DER006, RES060),
+  and `ELLIPTICITY_IS_NOOP` and `EMISSION_IS_HEAD_ON` are `False`. The lab-frame per-particle
+  velocity projection is author-approved (RES060) and formula-checked against Eq. `udef`.
+  **Independent arbitrary-angle emission validation remains open** (tracked in `PROGRESS.md`),
+  so production validation reports angular/crossing-angle coverage blockers rather than claiming
+  scientific closure. `docs/derivations/` holds the mathematical derivations and verifications.
 
 
 ## Behavioral guidelines to reduce common LLM coding mistakes. 

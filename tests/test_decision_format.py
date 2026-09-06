@@ -48,27 +48,30 @@ class DecisionFile:
     text: str
 
 
-def _discover(root: Path) -> list[DecisionFile]:
+def _discover(root: Path) -> tuple[list[DecisionFile], list[str]]:
     found = []
-    for lifecycle in LIFECYCLES:
-        for class_ in CLASSES:
-            folder = root / lifecycle / class_
-            if not folder.is_dir():
-                continue
-            for path in sorted(folder.glob("*.md")):
-                m = FILENAME_RE.match(path.name)
-                if not m:
-                    continue
-                found.append(
-                    DecisionFile(
-                        path=path,
-                        lifecycle=lifecycle,
-                        class_=class_,
-                        id_=m.group(1),
-                        text=path.read_text(),
-                    )
-                )
-    return found
+    errors = []
+    for path in sorted(root.rglob("*.md")):
+        if path.name in ("README.md", "INDEX.md"):
+            continue
+        rel = path.relative_to(root)
+        if len(rel.parts) != 3 or rel.parts[0] not in LIFECYCLES or rel.parts[1] not in CLASSES:
+            errors.append(f"{rel}: file not in valid '<lifecycle>/<class>/' directory")
+            continue
+        m = FILENAME_RE.match(path.name)
+        if not m:
+            errors.append(f"{rel}: malformed filename (expected 'RES<NNN>-<slug>.md')")
+            continue
+        found.append(
+            DecisionFile(
+                path=path,
+                lifecycle=rel.parts[0],
+                class_=rel.parts[1],
+                id_=m.group(1),
+                text=path.read_text(),
+            )
+        )
+    return found, errors
 
 
 def _header_errors(df: DecisionFile) -> list[str]:
@@ -178,6 +181,19 @@ def _index_errors(decisions: list[DecisionFile], index_path: Path) -> list[str]:
         rel_path = str(df.path.relative_to(index_path.parent))
         if row["path"] not in (rel_path, df.path.name):
             errors.append(f"{df.id_}: INDEX.md path '{row['path']}' doesn't match on-disk path '{rel_path}'")
+
+        # Status cross-check
+        row_status = row["status"]
+        if df.lifecycle == "archived":
+            eff = _effective_lifecycle(df)
+            if not (row_status == eff or (eff == "rejected" and row_status.startswith("rejected"))):
+                errors.append(f"{df.id_}: INDEX.md status '{row_status}' != archived effective status '{eff}'")
+            if not row["path"].startswith("archived/"):
+                errors.append(f"{df.id_}: INDEX.md path '{row['path']}' for archived decision must start with 'archived/'")
+        else:
+            if not (row_status == df.lifecycle or (df.lifecycle == "rejected" and row_status.startswith("rejected"))):
+                errors.append(f"{df.id_}: INDEX.md status '{row_status}' != on-disk lifecycle '{df.lifecycle}'")
+
     for id_ in index_rows:
         if id_ not in on_disk_ids:
             errors.append(f"{id_} has an INDEX.md row but no file on disk")
@@ -185,11 +201,11 @@ def _index_errors(decisions: list[DecisionFile], index_path: Path) -> list[str]:
 
 
 def _check_tree(root: Path, index_path: Path | None) -> None:
-    decisions = _discover(root)
-    if not decisions:
+    decisions, disc_errors = _discover(root)
+    if not decisions and not disc_errors:
         pytest.skip(f"no decision files under {root}")
 
-    failures = []
+    failures = list(disc_errors)
     for df in decisions:
         rel = df.path.relative_to(root)
         for err in _header_errors(df):
@@ -211,3 +227,101 @@ def test_docs_decisions_tree_is_well_formed():
 
 def test_examples_decisions_tree_is_well_formed():
     _check_tree(REPO_ROOT / "examples" / "decisions", index_path=None)
+
+
+# ---------------------------------------------------------------------------
+# Structural guard tests (A21)
+# ---------------------------------------------------------------------------
+
+def _write_valid_decision(path: Path, id_: str, title: str, lifecycle: str, class_: str, status: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = [
+        f"# {id_} — {title}",
+        "",
+        f"Status: {status}",
+        f"Class: {class_}",
+    ]
+    if lifecycle == "archived":
+        body.append("Archived: 2026-09-06")
+    body.extend([
+        "",
+        "## Problem",
+        "Problem text.",
+        "",
+        "## Alternatives considered",
+        "Alternative text.",
+    ])
+    if lifecycle == "proposed":
+        body.extend([
+            "",
+            "## Proposal",
+            "Proposal text.",
+        ])
+    else:
+        body.extend([
+            "",
+            "## Decision",
+            "Decision text.",
+            "",
+            "## Rationale",
+            "Rationale text.",
+            "",
+            "## Consequences",
+            "Consequences text.",
+        ])
+    path.write_text("\n".join(body) + "\n")
+
+
+def test_decision_format_flags_malformed_filename(tmp_path):
+    """A21: files with malformed filenames under decisions tree must fail rather than skip."""
+    bad_file = tmp_path / "implemented" / "architecture" / "bad_name.md"
+    _write_valid_decision(bad_file, "RES999", "Bad filename", "implemented", "architecture", "implemented")
+    with pytest.raises(AssertionError, match="malformed filename"):
+        _check_tree(tmp_path, None)
+
+
+def test_decision_format_flags_unexpected_directory(tmp_path):
+    """A21: files in non-lifecycle or non-class directories must fail."""
+    bad_dir_file = tmp_path / "somewhere_else" / "RES999-test.md"
+    _write_valid_decision(bad_dir_file, "RES999", "Bad dir", "implemented", "architecture", "implemented")
+    with pytest.raises(AssertionError, match="not in valid '<lifecycle>/<class>/' directory"):
+        _check_tree(tmp_path, None)
+
+
+def test_decision_format_flags_duplicate_id(tmp_path):
+    """A21: duplicate decision ids must be flagged."""
+    f1 = tmp_path / "implemented" / "architecture" / "RES999-first.md"
+    f2 = tmp_path / "proposed" / "feature" / "RES999-second.md"
+    _write_valid_decision(f1, "RES999", "First", "implemented", "architecture", "implemented")
+    _write_valid_decision(f2, "RES999", "Second", "proposed", "feature", "proposed")
+    with pytest.raises(AssertionError, match="duplicate id RES999"):
+        _check_tree(tmp_path, None)
+
+
+def test_decision_format_flags_inconsistent_index_status(tmp_path):
+    """A21: INDEX.md status inconsistent with disk must fail."""
+    f = tmp_path / "implemented" / "architecture" / "RES999-test.md"
+    _write_valid_decision(f, "RES999", "Test", "implemented", "architecture", "implemented")
+    index = tmp_path / "INDEX.md"
+    # Row declares proposed status when disk is implemented
+    index.write_text(
+        "| id | title | class | status | path |\n"
+        "|----|-------|-------|--------|------|\n"
+        "| RES999 | Test | architecture | proposed | implemented/architecture/RES999-test.md |\n"
+    )
+    with pytest.raises(AssertionError, match="INDEX.md status 'proposed' != on-disk lifecycle 'implemented'"):
+        _check_tree(tmp_path, index)
+
+
+def test_decision_format_accepts_archived_decision_with_historical_status(tmp_path):
+    """A21: archived decisions retain historical status and must pass when index matches."""
+    f = tmp_path / "archived" / "architecture" / "RES999-old.md"
+    _write_valid_decision(f, "RES999", "Old", "archived", "architecture", "implemented")
+    index = tmp_path / "INDEX.md"
+    index.write_text(
+        "| id | title | class | status | path |\n"
+        "|----|-------|-------|--------|------|\n"
+        "| RES999 | Old | architecture | implemented | archived/architecture/RES999-old.md |\n"
+    )
+    _check_tree(tmp_path, index)
+

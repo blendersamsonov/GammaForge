@@ -177,28 +177,20 @@ worst error $1.2\times10^{-2}$ — that residual is eq. `smallangle`'s documente
 $O(\theta^2)$, not this derivation, and it is present in the existing linear-only kernel too.
 
 This checks the algebra against an independent from-scratch evaluation of the same
-formula — it does not check against the production kernels, since `ellipticity` isn't
-threaded into `stages.py`/`delta.py` yet (`ELLIPTICITY_IS_NOOP` stays `True`), and it has
-not yet been reviewed by the author. Both are what would move this file to `validated/`
-and then `verified/`.
+formula. `ellipticity` is now threaded into `stages.py` and `delta.py`
+(`ELLIPTICITY_IS_NOOP` is `False`). Note that this is a mathematical and code verification
+against Eq. `udef`; scientific validation against an independent arbitrary-angle emission
+code remains an open check (tracked in `PROGRESS.md`).
 
 ## Used by
 
-Implementing §9.2 in full would change `a0_peak` — a reported quantity — and change
-nothing else through that route: the two places $C$ enters cancel for $\hat a$ (§1.1), so
-§9.2's only physical effect on the spectrum is §1.2's kernel polarization factor.
+Both parts are now implemented in the codebase:
 
-**If the author agrees with §1.1:** no code changes — the energy→$a_0$ chain
-(`laser.py`'s `_a0_from_density`) is already correct, and this closes the open item as a
-documentation fix: `_a0_from_density`'s docstring and `ELLIPTICITY_IS_NOOP`'s `validate()`
-warning both need rewording (see §1.1's "two pieces of text" above), not a formula change.
-
-**If the author agrees with §1.2:** a one-line generalization in each of the two kernels,
+- **§1.1:** The energy→$a_0$ chain (`laser.py`'s `_a0_from_density`) is polarization-independent at fixed pulse energy.
+- **§1.2:** The kernel polarization factor:
 
 $$
 \cos^2\psi \;\longrightarrow\; \frac{\cos^2\psi + \varepsilon^2\sin^2\psi}{1+\varepsilon^2},
 $$
 
-in `stages.py`, `delta.py`, and `collision.py`, plus threading `ellipticity` through to
-them the way `psi_pol` already is. `ELLIPTICITY_IS_NOOP` can only go `False` after this
-lands — see RES034 for why a partial application is specifically disallowed.
+is implemented in `stages.py`, `delta.py`, and `collision.py`, with `ellipticity` threaded through and `ELLIPTICITY_IS_NOOP = False`. Broader crossing-angle and arbitrary-angle emission validation remains tracked in `PROGRESS.md`.

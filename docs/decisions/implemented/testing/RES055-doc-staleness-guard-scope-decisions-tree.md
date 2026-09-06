@@ -23,7 +23,7 @@ so are `docs/decisions/README.md`/`INDEX.md` (navigation/meta prose, same catego
 `GRAND_PLAN.md`/`PROGRESS.md`).
 
 This is a real coverage expansion, not just a reshaping of RES002's scope: `proposed/` and
-`rejected/` decisions didn't previously exist as a checkable category (`DECISIONS.md` held
+`rejected/` decisions didn't previously exist as a checkable category (*DECISIONS.md* held
 only after-the-fact entries), and an individual decision file is exactly the size where
 the backtick/italics convention is easy to hold to rigorously.
 

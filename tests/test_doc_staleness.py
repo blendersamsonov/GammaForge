@@ -27,6 +27,8 @@ import enum
 import importlib
 import pkgutil
 import re
+import os
+from dataclasses import dataclass
 from pathlib import Path
 
 import gammaforge
@@ -52,27 +54,11 @@ GAMMAFORGE_DOTTED_RE = re.compile(r"^gammaforge(\.[A-Za-z_][A-Za-z0-9_]*)+$")
 CLASS_ATTR_RE = re.compile(r"^[A-Z][A-Za-z0-9_]*\.[a-zA-Z_][A-Za-z0-9_]*$")
 BARE_NAME_RE = re.compile(r"^[A-Z][A-Za-z0-9_]*$")
 
-_IGNORED_DIR_NAMES = {".git", "__pycache__", ".pytest_cache", "build", "dist", ".venv", "venv"}
-
-
-def _iter_repo_files():
-    for path in REPO_ROOT.rglob("*"):
-        if path.is_file() and not _IGNORED_DIR_NAMES & set(path.parts):
-            yield path
-
-
-def _file_exists_by_basename(basename: str) -> bool:
-    return any(p.name == basename for p in _iter_repo_files())
-
-
-def _repo_extensions() -> set[str]:
-    """Suffixes that actually occur in this repo.
-
-    Derived rather than hardcoded, so the file-like rule stays self-maintaining. It exists
-    to stop `np.cov` being read as "a file named cov": a dotted token only counts as a path
-    when its suffix is one this repo really uses.
-    """
-    return {p.suffix.lower() for p in _iter_repo_files() if p.suffix}
+_IGNORED_DIR_NAMES = {
+    ".git", ".claude", ".venv", "venv", ".pytest_cache", ".ruff_cache",
+    ".mypy_cache", "__pycache__", "build", "dist", "graphify-out",
+    ".agents", ".codex", ".openscience",
+}
 
 
 def _iter_gammaforge_modules():
@@ -105,6 +91,79 @@ def _package_symbol_index():
     return names, classes
 
 
+@dataclass
+class CheckoutIndex:
+    """In-memory index of checkout files and installed symbols built once per check run."""
+
+    repo_root: Path
+    repo_files: set[str]
+    basenames: dict[str, list[str]]
+    extensions: set[str]
+    names: set[str]
+    classes: dict[str, type]
+
+    @classmethod
+    def build(cls, repo_root: Path = REPO_ROOT) -> CheckoutIndex:
+        repo_files: set[str] = set()
+        basenames: dict[str, list[str]] = {}
+        extensions: set[str] = set()
+
+        for root_str, dirs, files in os.walk(repo_root, topdown=True):
+            root_path = Path(root_str)
+            # Exclude nested worktrees, dot-dirs, virtualenvs and generated graphs
+            # before traversal, not only after expensive recursion.
+            dirs[:] = [
+                d for d in dirs
+                if d not in _IGNORED_DIR_NAMES
+                and not d.startswith(".")
+                and not (root_path / d / ".git").exists()
+            ]
+            rel_root = root_path.relative_to(repo_root)
+            for f in files:
+                rel_path = (rel_root / f).as_posix() if str(rel_root) != "." else f
+                repo_files.add(rel_path)
+                basenames.setdefault(f, []).append(rel_path)
+                suffix = Path(f).suffix.lower()
+                if suffix:
+                    extensions.add(suffix)
+
+        if repo_root == REPO_ROOT:
+            names, classes = _package_symbol_index()
+        else:
+            names, classes = set(), {}
+
+        return cls(
+            repo_root=repo_root,
+            repo_files=repo_files,
+            basenames=basenames,
+            extensions=extensions,
+            names=names,
+            classes=classes,
+        )
+
+    def file_resolves(self, token: str) -> bool:
+        if "/" in token:
+            # Qualified path: must match a real path in the checkout.
+            # Either exact relative path from repo_root, or suffix path (e.g. io/laser.py or xigma/schema.py).
+            if token in self.repo_files:
+                return True
+            token_suffix = f"/{token}"
+            return any(p.endswith(token_suffix) for p in self.repo_files)
+        else:
+            # Bare filename shorthand: must exist as a file in the checkout.
+            return token in self.basenames
+
+
+_DEFAULT_INDEX: CheckoutIndex | None = None
+
+
+def get_default_index(repo_root: Path = REPO_ROOT) -> CheckoutIndex:
+    global _DEFAULT_INDEX
+    if _DEFAULT_INDEX is None or _DEFAULT_INDEX.repo_root != repo_root:
+        _DEFAULT_INDEX = CheckoutIndex.build(repo_root)
+    return _DEFAULT_INDEX
+
+
 def _has_member(cls: type, attr: str) -> bool:
     """Whether ``attr`` is a real member of ``cls``, including annotation-only fields.
 
@@ -119,8 +178,20 @@ def _has_member(cls: type, attr: str) -> bool:
     return any(attr in getattr(base, "__annotations__", {}) for base in cls.__mro__)
 
 
-def _classify_and_check(token: str, names: set[str], classes: dict[str, type]) -> bool | None:
+def _classify_and_check(
+    token: str,
+    index: CheckoutIndex | None = None,
+    names: set[str] | None = None,
+    classes: dict[str, type] | None = None,
+) -> bool | None:
     """True/False if the token was checkable; None if its shape was skipped."""
+    if index is None:
+        index = get_default_index()
+    if names is None:
+        names = index.names
+    if classes is None:
+        classes = index.classes
+
     token = token.strip()
     if token.endswith("()"):
         token = token[:-2]
@@ -131,11 +202,6 @@ def _classify_and_check(token: str, names: set[str], classes: dict[str, type]) -
         # A bare extension (`.ele`, `.h5`) names a format, not a file in this repo.
         return None
 
-    # Several shapes are genuinely ambiguous — `FieldKind.CHOICE` and `GRAND_PLAN.md` both
-    # read as "a name, a dot, a suffix". So every applicable interpretation is tried and
-    # *any* of them resolving is enough; a token is only reported stale when at least one
-    # interpretation applied and none of them found anything. Guessing an order instead
-    # produces false positives, which train people to ignore the guard.
     applicable = False
     if GAMMAFORGE_DOTTED_RE.match(token):
         applicable = True
@@ -154,9 +220,9 @@ def _classify_and_check(token: str, names: set[str], classes: dict[str, type]) -
         if cls is not None and _has_member(cls, attr):
             return True
 
-    if FILE_LIKE_RE.match(token) and Path(token).suffix.lower() in _repo_extensions():
+    if FILE_LIKE_RE.match(token) and Path(token).suffix.lower() in index.extensions:
         applicable = True
-        if _file_exists_by_basename(Path(token).name):
+        if index.file_resolves(token):
             return True
 
     if BARE_NAME_RE.match(token):
@@ -168,12 +234,12 @@ def _classify_and_check(token: str, names: set[str], classes: dict[str, type]) -
 
 
 def test_decisions_doc_backticks_resolve():
-    names, classes = _package_symbol_index()
+    index = get_default_index()
     failures = []
     for doc in _checked_docs():
         text = doc.read_text()
         for token in BACKTICK_RE.findall(text):
-            if _classify_and_check(token, names, classes) is False:
+            if _classify_and_check(token, index) is False:
                 failures.append(f"{doc.relative_to(REPO_ROOT)}: `{token}`")
     assert not failures, "Stale doc references:\n" + "\n".join(failures)
 
@@ -195,7 +261,9 @@ RESOLVES = [
     "GaussianParaxialLaser",  # module-level class
     "gammaforge.io.bunch",     # dotted module path
     "GRAND_PLAN.md",          # repo file whose shape also looks like Class.attr
-    "laser.py",
+    "laser.py",               # bare filename shorthand
+    "src/gammaforge/io/laser.py", # exact relative path
+    "io/laser.py",            # suffix relative path
     "UNITS",                    # class-level declared table
     "LIGHT_TIME_FIELDS",
     "Bunch.get",                # method
@@ -209,6 +277,8 @@ STALE = [
     "NoConvention",        # rejected (§2.1)
     "gammaforge.io.nowhere",
     "nonexistent_module.py",
+    "src/does/not/exist/laser.py", # qualified path with nonexistent prefix
+    "DECISIONS.md",               # historical root file that does not exist in checkout
 ]
 SKIPPED = [
     ".ele",             # a bare format extension, not a file in this repo
@@ -220,18 +290,72 @@ SKIPPED = [
 
 
 def test_guard_resolves_current_references():
-    names, classes = _package_symbol_index()
-    unresolved = [token for token in RESOLVES if _classify_and_check(token, names, classes) is not True]
+    index = get_default_index()
+    unresolved = [token for token in RESOLVES if _classify_and_check(token, index) is not True]
     assert not unresolved, f"guard fails to resolve current references: {unresolved}"
 
 
 def test_guard_still_detects_stale_references():
-    names, classes = _package_symbol_index()
-    missed = [token for token in STALE if _classify_and_check(token, names, classes) is not False]
+    index = get_default_index()
+    missed = [token for token in STALE if _classify_and_check(token, index) is not False]
     assert not missed, f"guard no longer detects stale references: {missed}"
 
 
 def test_guard_skips_shapes_it_cannot_judge():
-    names, classes = _package_symbol_index()
-    judged = [token for token in SKIPPED if _classify_and_check(token, names, classes) is not None]
+    index = get_default_index()
+    judged = [token for token in SKIPPED if _classify_and_check(token, index) is not None]
     assert not judged, f"guard guessed at tokens it should skip: {judged}"
+
+
+def test_nested_worktree_and_generated_files_do_not_satisfy_missing_paths(tmp_path):
+    """A10: nested worktrees, virtualenvs and generated files must not satisfy missing paths."""
+    (tmp_path / "src" / "pkg").mkdir(parents=True)
+    (tmp_path / "src" / "pkg" / "real_file.py").write_text("# real")
+
+    # Nested worktree (e.g. .claude/worktrees/...)
+    (tmp_path / ".claude" / "worktrees" / "nested").mkdir(parents=True)
+    (tmp_path / ".claude" / "worktrees" / "nested" / "DECISIONS.md").write_text("# fake")
+    (tmp_path / ".claude" / "worktrees" / "nested" / "fake_file.py").write_text("# fake")
+
+    # Generated graph directory (e.g. graphify-out/)
+    (tmp_path / "graphify-out").mkdir(parents=True)
+    (tmp_path / "graphify-out" / "graph.json").write_text("{}")
+
+    # Virtualenv (e.g. .venv/)
+    (tmp_path / ".venv" / "lib").mkdir(parents=True)
+    (tmp_path / ".venv" / "lib" / "venv_file.py").write_text("# venv")
+
+    index = CheckoutIndex.build(tmp_path)
+
+    # Legitimate references in current checkout resolve:
+    assert index.file_resolves("real_file.py")
+    assert index.file_resolves("src/pkg/real_file.py")
+    assert index.file_resolves("pkg/real_file.py")
+
+    # Missing files in current checkout DO NOT resolve even if present in nested worktrees/generated dirs:
+    assert not index.file_resolves("DECISIONS.md")
+    assert not index.file_resolves("fake_file.py")
+    assert not index.file_resolves("src/does/not/exist/real_file.py")
+    assert not index.file_resolves("graph.json")
+    assert not index.file_resolves("venv_file.py")
+
+
+def test_checkout_indexing_occurs_once(monkeypatch):
+    """A10: indexing occurs once per check run rather than repeating on every token."""
+    import sys
+    m = sys.modules[__name__]
+    monkeypatch.setattr(m, "_DEFAULT_INDEX", None)
+    build_calls = []
+    original_build = m.CheckoutIndex.build
+
+    def spy_build(repo_root=REPO_ROOT):
+        build_calls.append(repo_root)
+        return original_build(repo_root)
+
+    monkeypatch.setattr(m.CheckoutIndex, "build", spy_build)
+
+    idx1 = m.get_default_index()
+    idx2 = m.get_default_index()
+    assert idx1 is idx2
+    assert len(build_calls) == 1
+

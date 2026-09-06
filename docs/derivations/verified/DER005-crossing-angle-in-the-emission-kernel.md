@@ -175,12 +175,10 @@ the paper's.
 
 ## Used by
 
-Not yet implemented; the geometry-only crossing angle already lands in the analytical
-overlap integral (DER001 §A.6) and xigma's sampling geometry, but the emission kernel stays
-head-on until this file is reviewed and moves to `validated/`/`verified/` — RES034 records
-that a partial application (geometry rotated, polarization structure not) is specifically
-disallowed. Once accepted: `RELATIVE_VELOCITY` becomes $1+\beta\cos\theta_{xz}\cos\theta_{yz}$
-in `stages.py`; `photon_energy` gains $\cos^2(\alpha/2)$ in `collision.py`; and
-$\mathbf{u}_i\cdot\mathbf{u}_j$ gains the $\mathbf{v}\cdot\mathbf{e}_i$ term in `stages.py`
-and `delta.py`, with the kernels taking the rotated $\mathbf{e}_0,\mathbf{e}_1$.
-`EMISSION_IS_HEAD_ON` can only go `False` after all three land together.
+Implemented together per RES034/RES060:
+- `RELATIVE_VELOCITY` carries $1+\beta\cos\theta_{xz}\cos\theta_{yz}$ in `stages.py` (§2.1)
+- `photon_energy` carries $\cos^2(\alpha/2)$ in `collision.py` (§2.2)
+- $\mathbf{u}_i\cdot\mathbf{u}_j$ carries the $\mathbf{v}\cdot\mathbf{e}_i$ terms in `stages.py` and `delta.py` with rotated $\mathbf{e}_0, \mathbf{e}_1$ and per-particle lab-frame velocity $\mathbf{v}_e$ (RES060, DER006)
+- `EMISSION_IS_HEAD_ON` is `False`.
+
+As noted in §Verification, this implements the manuscript's lab-frame formula; independent arbitrary-angle emission physics validation remains an open item in `PROGRESS.md`.

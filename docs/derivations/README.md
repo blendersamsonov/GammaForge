@@ -8,26 +8,25 @@ in-file format. `tests/test_derivation_format.py` enforces the mechanical parts.
 
 ## Layout and naming
 
-`docs/derivations/{status}/DVNNN-topic-title.md`.
+`docs/derivations/{status}/DERNNN-topic-title.md`.
 
-- **`DVNNN`** is a permanent, sequential id — distinct from decisions' `DNNN` and the
+- **`DERNNN`** is a permanent, sequential id — distinct from decisions' `RESNNN` and the
   plan's principle ids (`PN`) so a bare citation in code is unambiguous at a glance —
   assigned once, never reused.
 - **Status** (the folder) is a **confidence level**, not a build lifecycle, and a
   derivation climbs through them as evidence accumulates:
   1. **`derived/`** — worked out, not yet reviewed by a person with the domain expertise
-     to catch a wrong assumption. `DER004`/`DER005` are here — pending the author's review.
+     to catch a wrong assumption.
   2. **`validated/`** — a domain expert has reviewed the algebra and the result; believed
      correct, not yet checked against what the code actually does.
   3. **`verified/`** — checked against code: a test pins the predicted value, a
-     closed-form limit matches, an independent numerical method agrees. `DER001`–`DER003`
-     are here.
+     closed-form limit matches, an independent numerical method agrees.
   4. **`rejected/`** — a derivation attempt whose approach turned out wrong. Kept so
      nobody re-derives the same dead end.
   5. **`archived/`** — fully superseded by a later derivation, moved out of the live
      tree, kept because a bare id might already be cited from a code comment.
 
-No class/topic subfolder — this repo's five derivations sit flat within their status
+No class/topic subfolder — derivations sit flat within their status
 folder; introduce project-specific grouping only if the list grows large enough to need it.
 
 `docs/derivations/INDEX.md` is the map: `id | title | status | path`. Update it in the
@@ -122,7 +121,7 @@ Verification scripts live in the repo root: `verify_der004.py`, `verify_der005.p
 ## The file format
 
 ```markdown
-# DV0NN — <title>
+# DERNNN — <title>
 
 Status: <status>
 ```

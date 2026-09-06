@@ -9,7 +9,7 @@ of what's below; read it if you want to see exactly what's checked.
 ## Layout and naming
 
 Every decision has three axes, all encoded in its **path and filename**:
-`docs/decisions/{lifecycle}/{class}/DNNN-topic-title.md`.
+`docs/decisions/{lifecycle}/{class}/RESNNN-topic-title.md`.
 
 - **Lifecycle** (top-level folder) is the decision's status, and a decision **moves**
   between folders as that status changes:
@@ -21,7 +21,7 @@ Every decision has three axes, all encoded in its **path and filename**:
   - **`rejected/`** — considered and declined. Never deleted (see *Archiving* below) —
     only moved to `archived/` once its rationale stops being load-bearing.
 - **Class** (nested folder) is the *kind* of decision, from the closed set below.
-- **`DNNN`** is a permanent, sequential id — `RES001`, `RES002`, … — assigned once, in filename
+- **`RESNNN`** is a permanent, sequential id — `RES001`, `RES002`, … — assigned once, in filename
   order across the whole tree regardless of lifecycle or class, and **never reused**, so
   code comments can cite one bare (`RES013`, not a path) and it stays resolvable even after
   the file it names moves between folders. The slug after the id is a short, lowercase,
@@ -102,7 +102,7 @@ two clauses each and cite `(RES054)`, not the derivation (RES056).
 Archive a decision — `implemented/` or `rejected/` alike — once it stops being load-
 bearing: an `implemented` decision whose shipped behavior has since been fully replaced,
 or a `rejected` decision whose rationale no longer guards against a plausible mistake.
-Archiving is a **move**, to `archived/{class}/DNNN-topic-title.md`, plus one appended
+Archiving is a **move**, to `archived/{class}/RESNNN-topic-title.md`, plus one appended
 header line (`Archived: YYYY-MM-DD`) — the rest of the file, including its `Status:` line,
 is untouched. Nothing is rewritten and nothing is deleted, because a bare id might already
 be cited from a code comment somewhere — this repo has roughly 124 such citations across
@@ -117,7 +117,7 @@ never deleting, is the rule here.
 ## Superseding
 
 When a new decision replaces an old one: state it in the new decision's opening (`##
-Problem` or `## Decision`, "supersedes D0YY, because..."), then archive the old one with a
+Problem` or `## Decision`, "supersedes RESnnn, because..."), then archive the old one with a
 short pointer paragraph at the very top of its body, before `## Problem`:
 
 ```markdown
@@ -183,7 +183,7 @@ Problem`, exactly as above.
 The first lines of every decision file are fixed:
 
 ```markdown
-# DNNN — <title>
+# RESNNN — <title>
 
 Status: <status>
 Class: <class>
