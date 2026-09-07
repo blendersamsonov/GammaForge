@@ -587,3 +587,22 @@ def test_production_coverage_blockers_prevent_a_full_pass(monkeypatch, small_sce
     assert report.blockers == 1
     assert "ALL EXECUTED CHECKS PASS; 1 COVERAGE BLOCKER(S)" in str(report)
     assert validation_run.main(["--production"], scenarios=[small_scenario]) == 1
+
+
+def test_alpha_scope_keeps_failed_checks_fatal_and_reports_deferred_coverage(monkeypatch):
+    monkeypatch.setattr(validation_run, "production_checks", lambda scenarios: (
+        [validation_run.Check("deliberately wrong yield", False, "incorrect")], [], ["angular emission remains open"],
+    ))
+    report = validation_run.run_suite(scenarios=[], alpha=True)
+    assert report.failures == 1
+    assert report.blockers == 0
+    assert "outside alpha validation scope: angular emission remains open" in str(report)
+    assert validation_run.main(["--alpha"], scenarios=[]) == 1
+    assert validation_run.main(["--alpha", "--production"], scenarios=[]) == 2
+
+
+def test_alpha_gate_succeeds_only_when_executed_checks_pass(monkeypatch):
+    monkeypatch.setattr(validation_run, "production_checks", lambda scenarios: (
+        [validation_run.Check("yield", True, "checked")], [], ["kascade remains open"],
+    ))
+    assert validation_run.main(["--alpha"], scenarios=[]) == 0
