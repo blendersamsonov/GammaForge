@@ -54,6 +54,7 @@ for "the derivation landed".
 from __future__ import annotations
 
 import math
+import numbers
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
@@ -322,6 +323,13 @@ class GaussianParaxialLaser:
                     getattr(self, name), unit, name, light_time=name in self.LIGHT_TIME_FIELDS
                 ),
             )
+        for name in ("ellipticity", "beta_ff"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, numbers.Real) or not math.isfinite(float(value)):
+                raise ValueError(f"GaussianParaxialLaser: {name} must be a finite scalar, got {value!r}")
+        for name in self.UNITS:
+            if not math.isfinite(self.m(name)):
+                raise ValueError(f"GaussianParaxialLaser: {name} must be finite, got {getattr(self, name)!r}")
 
     def m(self, name: str) -> float:
         """Magnitude of a dimensioned field in its canonical CGS unit.

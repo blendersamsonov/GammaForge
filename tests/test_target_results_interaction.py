@@ -244,6 +244,25 @@ def test_output_request_checks_its_resolution_against_its_axes():
     assert OutputRequest(OutputKind.MACROPARTICLE_DUMP).resolution == ()
 
 
+def test_output_request_snapshots_nested_ranges_and_resolution():
+    resolution = [4, 5]
+    ranges = {Axis.X: [0.0, 1.0]}
+    request = OutputRequest(OutputKind.SPATIAL_DISTRIBUTION, resolution, ranges)
+    resolution[0] = 99
+    ranges[Axis.X][0] = -99.0
+    assert request.resolution == (4, 5)
+    assert request.manual_ranges[Axis.X] == (0.0, 1.0)
+    with pytest.raises(TypeError):
+        request.manual_ranges[Axis.X] = (0.0, 2.0)  # type: ignore[index]
+
+
+def test_target_snapshots_an_output_sequence():
+    outputs = [OutputRequest(OutputKind.TOTAL_YIELD)]
+    target = Target(theta_x_col=Q(1, "mrad"), theta_y_col=Q(2, "mrad"), outputs=outputs)
+    outputs.append(OutputRequest(OutputKind.SPECTRUM, (4,)))
+    assert target.outputs == (OutputRequest(OutputKind.TOTAL_YIELD),)
+
+
 def test_manual_ranges_are_an_advanced_option_for_the_spatial_output_only():
     OutputRequest(OutputKind.SPATIAL_DISTRIBUTION, (8, 8), {Axis.X: (-1.0, 1.0)})
     with pytest.raises(ValueError, match="advanced override"):
@@ -258,6 +277,15 @@ def test_target_rejects_a_duplicated_output_kind():
 def test_target_rejects_a_non_positive_collimation_window():
     with pytest.raises(ValueError, match="half-angles"):
         Target(theta_x_col=Q(0.0, "mrad"), theta_y_col=Q(1, "mrad"))
+
+
+def test_interaction_rejects_nonpositive_or_nonfinite_electron_count():
+    bunch = sample_gaussian_bunch(make_beam(), 2, seed=1)
+    kwargs = dict(beam=make_beam(), laser=make_laser(), bunch=bunch,
+                  target=make_target(), sampling=SamplingSpec(2, 1, 0.0))
+    for value in (0.0, -1.0, math.nan, math.inf):
+        with pytest.raises(ValueError, match="N_e"):
+            InteractionParameters(N_e=value, **kwargs)
 
 
 # -- auto-ranging ------------------------------------------------------------
@@ -445,3 +473,25 @@ def test_sampling_spec_validates_its_fields():
         SamplingSpec(prefilter=1.0)
     with pytest.raises(ValueError, match="prefilter"):
         SamplingSpec(prefilter=-0.1)
+
+
+@pytest.mark.parametrize("bad", [1.5, True])
+def test_sampling_spec_rejects_nonintegral_particle_counts(bad):
+    with pytest.raises(ValueError, match="n_particles"):
+        SamplingSpec(n_particles=bad)
+
+
+@pytest.mark.parametrize("bad", [-1, 2**31, 1.5, True])
+def test_sampling_spec_rejects_unsupported_seeds(bad):
+    with pytest.raises(ValueError, match="seed"):
+        SamplingSpec(seed=bad)
+
+
+def test_sampling_spec_accepts_numpy_integer_inputs():
+    spec = SamplingSpec(n_particles=np.int64(4), seed=np.int64(3))
+    assert spec.n_particles == 4 and spec.seed == 3
+
+
+def test_target_rejects_nonfinite_collimation_angles():
+    with pytest.raises(ValueError, match="finite"):
+        Target(theta_x_col=Q(np.nan, "rad"), theta_y_col=Q(1.0, "mrad"))

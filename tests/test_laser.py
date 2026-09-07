@@ -421,6 +421,12 @@ def test_validate_rejects_impossible_values():
             validate(make_laser(**bad))
 
 
+@pytest.mark.parametrize("field", ["ellipticity", "beta_ff"])
+def test_laser_rejects_nonfinite_scalar_inputs(field):
+    with pytest.raises(ValueError, match=field):
+        make_laser(**{field: np.nan})
+
+
 def test_ellipticity_is_applied_to_angle_resolved_kernel():
     # §9.2/DER004: ellipticity is now applied to the angle-resolved kernel.
     # The total yield and mean red-shift (ahat) are polarization-agnostic by invariance,

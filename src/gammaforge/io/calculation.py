@@ -7,6 +7,8 @@ engine parameters, never browser state or execution machinery.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Mapping
 
 from .bunch import GaussianElectronBeam
 from .interaction import SamplingSpec
@@ -25,4 +27,15 @@ class CalculationRequest:
     laser: LaserField
     target: Target
     sampling: SamplingSpec
-    engine_params: dict[str, Parameters]
+    engine_params: Mapping[str, Parameters]
+
+    def __post_init__(self) -> None:
+        """Freeze the nested parameter mapping at the execution boundary.
+
+        ``frozen=True`` protects the attribute, not a caller-owned dict passed into it.
+        ``Parameters`` is already immutable, so a shallow mapping snapshot is the exact
+        ownership boundary needed here.
+        """
+        if any(not isinstance(value, Parameters) for value in self.engine_params.values()):
+            raise TypeError("CalculationRequest.engine_params values must be Parameters")
+        object.__setattr__(self, "engine_params", MappingProxyType(dict(self.engine_params)))

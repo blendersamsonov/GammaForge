@@ -21,6 +21,8 @@ import math
 import numbers
 from dataclasses import dataclass
 from enum import Enum
+from types import MappingProxyType
+from typing import Mapping
 
 import numpy as np
 
@@ -83,9 +85,16 @@ class OutputRequest:
 
     kind: OutputKind
     resolution: tuple[int, ...] = ()
-    manual_ranges: dict[Axis, tuple[float, float]] | None = None
+    manual_ranges: Mapping[Axis, tuple[float, float]] | None = None
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "resolution", tuple(self.resolution))
+        if self.manual_ranges is not None:
+            object.__setattr__(
+                self,
+                "manual_ranges",
+                MappingProxyType({axis: tuple(values) for axis, values in self.manual_ranges.items()}),
+            )
         axes = SLICE_AXES[self.kind]
         if axes is None:
             if self.resolution or self.manual_ranges:
@@ -138,6 +147,7 @@ class Target:
     LIGHT_TIME_FIELDS = frozenset(set())
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "outputs", tuple(self.outputs))
         for name, unit in self.UNITS.items():
             object.__setattr__(
                 self,
@@ -146,6 +156,8 @@ class Target:
                     getattr(self, name), unit, name, light_time=name in self.LIGHT_TIME_FIELDS
                 ),
             )
+        if not all(math.isfinite(self.m(name)) for name in self.UNITS):
+            raise ValueError("Target: collimation half-angles must be finite")
         if self.m("theta_x_col") <= 0 or self.m("theta_y_col") <= 0:
             raise ValueError("Target: collimation half-angles must be > 0")
         kinds = [request.kind for request in self.outputs]
