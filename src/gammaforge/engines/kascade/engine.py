@@ -116,7 +116,10 @@ class _RawResults:
 
 def _photon_density_scale_m3(laser: LaserField) -> float:
     """Photons/m^3 per unit cycle-averaged ``<a^2>`` (RES054)."""
-    omega = fit_gaussian_paraxial(laser).omega0()
+    if hasattr(laser, "omega0"):
+        omega = laser.omega0()
+    else:
+        omega = fit_gaussian_paraxial(laser).omega0()
     per_cm3 = (ME_CGS * C_CGS) ** 2 * omega / (4.0 * math.pi * HBAR_CGS * E_ESU**2)
     return per_cm3 * _CM3_TO_M3_DENSITY
 
@@ -197,10 +200,16 @@ def _run_raw(
     interaction: InteractionParameters, params: Parameters
 ) -> tuple[_RawResults, _SIElectrons]:
     si = _bunch_to_si(interaction.bunch, interaction.N_e)
-    metrics = fit_gaussian_paraxial(interaction.laser)
-    k_hat, _, _ = metrics.focusing_axes()
+    laser = interaction.laser
+    if hasattr(laser, "focusing_axes") and hasattr(laser, "photon_energy"):
+        k_hat, _, _ = laser.focusing_axes()
+        photon_energy = laser.photon_energy()
+    else:
+        metrics = fit_gaussian_paraxial(laser)
+        k_hat, _, _ = metrics.focusing_axes()
+        photon_energy = metrics.photon_energy()
     cos_collision = float(k_hat[2])
-    photon_energy_over_mec2 = metrics.photon_energy() / MEC2_CGS
+    photon_energy_over_mec2 = photon_energy / MEC2_CGS
     reference_gamma = interaction.beam.gamma0()
     quantum = params.get_choice("quantum") == "klein-nishina"
     rng = np.random.default_rng(interaction.sampling.seed)
@@ -286,7 +295,6 @@ class KascadeEngine:
 
     def run(self, interaction: InteractionParameters, params: Parameters) -> Results:
         raw, si = _run_raw(interaction, params)
-        metrics = fit_gaussian_paraxial(interaction.laser)
         photon_weight = si.electron_weight[raw.parent]
         total_yield = float(np.dot(si.electron_weight, raw.lambda_total))
         ranges = auto_ranges(
@@ -343,11 +351,16 @@ class KascadeEngine:
             )
 
         warnings = []
+        laser = interaction.laser
+        ellipticity = getattr(laser, "ellipticity", 0.0)
+        psi_pol = laser.m("psi_pol") if hasattr(laser, "m") and hasattr(laser, "psi_pol") else 0.0
+        theta_xz = laser.m("theta_xz") if hasattr(laser, "m") and hasattr(laser, "theta_xz") else 0.0
+        theta_yz = laser.m("theta_yz") if hasattr(laser, "m") and hasattr(laser, "theta_yz") else 0.0
         if (
-            metrics.ellipticity != 0.0
-            or metrics.m("psi_pol") != 0.0
-            or metrics.m("theta_xz") != 0.0
-            or metrics.m("theta_yz") != 0.0
+            ellipticity != 0.0
+            or psi_pol != 0.0
+            or theta_xz != 0.0
+            or theta_yz != 0.0
         ):
             warnings.append(
                 "kascade retains the predecessor's linear lab-x polarization kernel; "

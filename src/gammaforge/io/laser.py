@@ -1,12 +1,13 @@
-"""Laser field representation (GRAND_PLAN.md §3.3, §2.2; P15).
+"""Laser field representation (GRAND_PLAN.md §3.3, §2.2; P15, RES067).
 
 Two things live here, and the split is the point:
 
-* :class:`LaserField` — the **sampling contract engines are typed against**. Three
-  vectorized, lab-frame methods (``a0_profile``, ``field``, ``active_region``) and
-  nothing else. An engine that only calls these works unchanged when a differently
-  represented pulse arrives (P15).
-* :class:`GaussianParaxialLaser` — today's only implementation. It owns the four
+* :class:`LaserField` — the **sampling contract engines are typed against**. Vectorized,
+  lab-frame methods (``intensity_profile``, ``a0_profile``, ``field``, ``active_region``).
+  Quasi-monochromatic engines (xigma, kascade) consume field sampling alongside physical
+  carrier and polarization invariants; analytical explicitly requires `GaussianParaxialLaser`
+  (RES067).
+* :class:`GaussianParaxialLaser` — today's primary implementation. It owns the four
   geometry angles of §2.2 and an elliptical, astigmatic paraxial-Gaussian model. How it
   gets from its own head-on-frame parameterization to lab coordinates is entirely its own
   business; the protocol says nothing about it.

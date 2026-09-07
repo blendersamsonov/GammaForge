@@ -12,7 +12,7 @@ from dataclasses import replace
 import numpy as np
 
 from ...io.interaction import InteractionParameters
-from ...io.laser import fit_gaussian_paraxial
+from ...io.laser import GaussianParaxialLaser
 from ...io.results import Axis, PhasespaceSlice, Results
 from ...io.schema import Parameters
 from ...io.target import OutputKind, OutputRequest, auto_ranges, slice_axis_values
@@ -55,9 +55,14 @@ class AnalyticalEngine:
     recompute_costs: dict[str, RecomputeCost] = RECOMPUTE_COSTS
 
     def run(self, interaction: InteractionParameters, params: Parameters) -> Results:
+        if not isinstance(interaction.laser, GaussianParaxialLaser):
+            raise TypeError(
+                f"AnalyticalEngine requires a GaussianParaxialLaser, got {type(interaction.laser).__name__}. "
+                "Closed-form overlap integrals assume an astigmatic paraxial Gaussian pulse (RES067)."
+            )
         target = interaction.target
         beam = interaction.beam
-        metrics = fit_gaussian_paraxial(interaction.laser)
+        metrics = interaction.laser
         photon_energy = metrics.photon_energy()
         n_quad = params.get_int("n_quad")
 

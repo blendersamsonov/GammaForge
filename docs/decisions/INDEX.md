@@ -72,4 +72,4 @@ cross-checks this table against the files on disk.
 | RES064 | Input boundary snapshots and owned particle arrays | architecture | implemented | implemented/architecture/RES064-input-boundary-snapshots-and-array-ownership.md |
 | RES065 | Headless alpha validation has an explicit restricted scope | testing | implemented | implemented/testing/RES065-headless-alpha-validation-scope.md |
 | RES066 | Alpha dependency floors preserve the numerical reference constants | process | implemented | implemented/process/RES066-alpha-dependency-floors.md |
-| RES067 | LaserField boundary and fitting contract | architecture | proposed | proposed/architecture/RES067-laserfield-boundary-and-fitting-contract.md |
+| RES067 | LaserField boundary and fitting contract | architecture | implemented | implemented/architecture/RES067-laserfield-boundary-and-fitting-contract.md |

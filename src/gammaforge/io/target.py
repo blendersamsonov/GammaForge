@@ -227,8 +227,11 @@ def auto_ranges(
     generalized replacement for the predecessor's head-on-only
     ``laser_overlap_time_window``, correct for a crossing angle without a special case.
     """
-    metrics = fit_gaussian_paraxial(laser)
-    edge = compton_edge_energy(beam, metrics.photon_energy())
+    if hasattr(laser, "photon_energy"):
+        photon_energy = laser.photon_energy()
+    else:
+        photon_energy = fit_gaussian_paraxial(laser).photon_energy()
+    edge = compton_edge_energy(beam, photon_energy)
 
     energy_range = (0.0, RANGE_HEADROOM * edge)
     # The radiation cone is ~1/gamma; a divergent beam smears it by its own spread, and
@@ -240,9 +243,20 @@ def auto_ranges(
         Axis.THETA_Y: (-RANGE_HEADROOM * cone_y, RANGE_HEADROOM * cone_y),
     }
     # Photons are emitted where electrons and laser overlap, so the source is no larger
-    # than the smaller of the two transverse sizes.
-    source_x = _SPATIAL_SIGMA_FACTOR * min(beam.m("sigma_x"), metrics.m("sigma_x"))
-    source_y = _SPATIAL_SIGMA_FACTOR * min(beam.m("sigma_y"), metrics.m("sigma_y"))
+    # than the smaller of the two transverse sizes (RES067).
+    if hasattr(laser, "m") and hasattr(laser, "sigma_x") and hasattr(laser, "sigma_y"):
+        laser_sigma_x = laser.m("sigma_x")
+        laser_sigma_y = laser.m("sigma_y")
+    elif hasattr(laser, "active_region"):
+        region = laser.active_region(1e-3)
+        laser_sigma_x = region.radius
+        laser_sigma_y = region.radius
+    else:
+        metrics = fit_gaussian_paraxial(laser)
+        laser_sigma_x = metrics.m("sigma_x")
+        laser_sigma_y = metrics.m("sigma_y")
+    source_x = _SPATIAL_SIGMA_FACTOR * min(beam.m("sigma_x"), laser_sigma_x)
+    source_y = _SPATIAL_SIGMA_FACTOR * min(beam.m("sigma_y"), laser_sigma_y)
     spatial_range = {
         Axis.X: (-RANGE_HEADROOM * source_x, RANGE_HEADROOM * source_x),
         Axis.Y: (-RANGE_HEADROOM * source_y, RANGE_HEADROOM * source_y),

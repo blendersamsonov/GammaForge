@@ -1094,3 +1094,16 @@ def test_model_specific_carries_the_width_breakdown_and_is_charge_independent():
     y = float(results.photon_slices[OutputKind.TOTAL_YIELD].distr)
     y_doubled = float(results_doubled.photon_slices[OutputKind.TOTAL_YIELD].distr)
     assert y_doubled == pytest.approx(2.0 * y)
+
+
+def test_analytical_engine_rejects_non_gaussian_laser_with_type_error():
+    """AnalyticalEngine explicitly rejects non-Gaussian LaserField implementations (RES067)."""
+    class NonGaussianLaser:
+        def intensity_profile(self, x, y, z, t): ...
+        def a0_profile(self, x, y, z, t): ...
+        def field(self, x, y, z, t): ...
+        def active_region(self, threshold: float): ...
+
+    interaction = replace(_interaction(), laser=NonGaussianLaser())
+    with pytest.raises(TypeError, match="AnalyticalEngine requires a GaussianParaxialLaser"):
+        AnalyticalEngine().run(interaction, AnalyticalEngine.schema)

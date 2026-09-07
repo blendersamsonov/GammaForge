@@ -72,7 +72,9 @@ __all__ = [
 #: Head-on (n0_hat = -z_hat, v = beta z_hat) gives ``c(1+beta) -> 2c``.
 #: With crossing angles theta_xz, theta_yz: n0_hat = (-sin(theta_xz)cos(theta_yz), sin(theta_yz), -cos(theta_xz)cos(theta_yz))
 #: so 1 - v.n0_hat = 1 + beta cos(theta_xz)cos(theta_yz) -> 2 cos^2(alpha/2) where cos(alpha) = cos(theta_xz)cos(theta_yz).
-def relative_velocity(beta: float, theta_xz: float = 0.0, theta_yz: float = 0.0) -> float:
+def relative_velocity(
+    beta: float, theta_xz: float = 0.0, theta_yz: float = 0.0, *, k_hat: np.ndarray | None = None
+) -> float:
     """Relative-velocity factor ``1 - v.n0_hat = 1 + beta cos(theta_xz) cos(theta_yz)``.
 
     Parameters
@@ -83,6 +85,8 @@ def relative_velocity(beta: float, theta_xz: float = 0.0, theta_yz: float = 0.0)
         Crossing angle in x-z plane (radians).
     theta_yz : float
         Crossing angle in y-z plane (radians).
+    k_hat : np.ndarray | None
+        Unit propagation vector. If provided, ``1 - beta * k_hat[2]`` is used directly.
 
     Returns
     -------
@@ -90,6 +94,8 @@ def relative_velocity(beta: float, theta_xz: float = 0.0, theta_yz: float = 0.0)
         The factor multiplying ``c`` for the relative velocity. Head-on limit (theta_xz=theta_yz=0)
         gives ``1 + beta`` (-> 2 for beta=1).
     """
+    if k_hat is not None:
+        return 1.0 - beta * float(k_hat[2])
     return 1.0 + beta * math.cos(theta_xz) * math.cos(theta_yz)
 
 
@@ -229,13 +235,16 @@ def photon_density_scale(laser: LaserField) -> float:
         n_photons(r, t) = <a^2>(r, t) * (m_e c)**2 omega0 / (4 pi hbar e**2)
 
     which is why Stage 0 can take the whole laser through `LaserField.intensity_profile`
-    alone. Only ``omega0`` remains, and that comes from the descriptive fit (§3.3), not
-    from assuming the field is Gaussian.
+    alone. Only ``omega0`` remains, and that comes directly from the laser if exposed,
+    or from the descriptive fit (§3.3, RES067).
 
     Note the ``4 pi``: this scales ``<a^2>``, not the peak ``a0^2`` (which would be
     ``8 pi``, and would carry a polarization convention with it).
     """
-    omega0 = fit_gaussian_paraxial(laser).omega0()
+    if hasattr(laser, "omega0"):
+        omega0 = laser.omega0()
+    else:
+        omega0 = fit_gaussian_paraxial(laser).omega0()
     return (ME_CGS * C_CGS) ** 2 * omega0 / (4.0 * math.pi * HBAR_CGS * E_ESU**2)
 
 
@@ -385,12 +394,10 @@ def integrate_trajectories(
     # the window definition is least meaningful.
     offsets = (np.arange(n_steps) + 0.5) / n_steps
 
-    metrics = fit_gaussian_paraxial(laser)
-    # The peak *cycle-averaged intensity*, not the peak a0: polarization-agnostic, so
-    # nothing downstream of Stage 0 carries a polarization convention (RES054). Do not
-    # rebuild this as `C * a0_peak()**2` — that reintroduces polarization-dependence
-    # (RES053/RES054's bug); use `intensity_peak()` directly.
-    intensity_peak = metrics.intensity_peak()
+    if hasattr(laser, "intensity_peak"):
+        intensity_peak = laser.intensity_peak()
+    else:
+        intensity_peak = fit_gaussian_paraxial(laser).intensity_peak()
     density_scale = photon_density_scale(laser)
     # Absolute photons per macroparticle-second of overlap. The bunch's weights are
     # relative and sum to 1 over the *unfiltered* population, so scaling by N_e here keeps
@@ -400,7 +407,14 @@ def integrate_trajectories(
     norm = np.sqrt(1.0 + bunch.thx**2 + bunch.thy**2)
     velocity = (C_CGS * bunch.thx / norm, C_CGS * bunch.thy / norm, C_CGS / norm)
     beta = 1.0  # ultra-relativistic: v = c exactly
-    rel_vel = relative_velocity(beta, metrics.m("theta_xz"), metrics.m("theta_yz"))
+    if hasattr(laser, "focusing_axes"):
+        k_hat, _, _ = laser.focusing_axes()
+        rel_vel = relative_velocity(beta, k_hat=k_hat)
+    elif hasattr(laser, "m") and hasattr(laser, "theta_xz") and hasattr(laser, "theta_yz"):
+        rel_vel = relative_velocity(beta, laser.m("theta_xz"), laser.m("theta_yz"))
+    else:
+        metrics = fit_gaussian_paraxial(laser)
+        rel_vel = relative_velocity(beta, metrics.m("theta_xz"), metrics.m("theta_yz"))
 
     def integrate(first_index: int, last_index: int):
         sl = slice(first_index, last_index)

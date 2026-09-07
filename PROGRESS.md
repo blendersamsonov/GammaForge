@@ -47,11 +47,10 @@ Ordered by who is blocked. Each names the file that carries the detail.
   test at the current value; changing a tuned default is the author's call. RES053's last
   section has the sweep.
 
-- **`LaserField` boundary and arbitrary pulse physics (RES067).** Downstream engines
-  currently depend on `fit_gaussian_paraxial` for carrier frequency, crossing angles,
-  and polarization scalars. Quasi-monochromatic and structured pulses require author
-  guidance on polychromatic emission kinematics and spatially inhomogeneous polarization
-  kernels in Stage 2. Proposed in `docs/decisions/proposed/architecture/RES067-laserfield-boundary-and-fitting-contract.md`.
+- **Structured light polarization kernels (RES067).** Quasi-monochromatic non-Gaussian
+  fields execute through Stage 0, Stage 2, and Kascade without Gaussian fitting (RES067),
+  and broadband pulses are confirmed out of scope. Spatially inhomogeneous polarization
+  kernels (e.g. radial/azimuthal vortex beams) remain open pending author derivations.
 
 ### Available to pick up (no external dependency)
 

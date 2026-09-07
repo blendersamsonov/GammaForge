@@ -183,19 +183,44 @@ class Collision:
             self.interaction.laser,
             self.interaction.bunch,
         )
-        metrics = fit_gaussian_paraxial(self.interaction.laser)
-        # Photon energy with crossing angle factor cos²(α/2) per DER005 §2.2
-        photon_energy = metrics.photon_energy()
-        theta_xz = metrics.m("theta_xz")
-        theta_yz = metrics.m("theta_yz")
+        laser = self.interaction.laser
+        if (
+            hasattr(laser, "photon_energy")
+            and hasattr(laser, "m")
+            and hasattr(laser, "theta_xz")
+            and hasattr(laser, "theta_yz")
+            and hasattr(laser, "psi_pol")
+            and hasattr(laser, "ellipticity")
+        ):
+            photon_energy = laser.photon_energy()
+            theta_xz = laser.m("theta_xz")
+            theta_yz = laser.m("theta_yz")
+            psi_pol = laser.m("psi_pol")
+            ellipticity = float(laser.ellipticity)
+        elif (
+            hasattr(laser, "photon_energy")
+            and hasattr(laser, "polarization_axes")
+            and hasattr(laser, "ellipticity")
+        ):
+            photon_energy = laser.photon_energy()
+            k_hat, _, _ = laser.polarization_axes()
+            theta_yz = math.asin(np.clip(k_hat[1], -1.0, 1.0))
+            cos_yz = math.cos(theta_yz)
+            theta_xz = math.atan2(-k_hat[0], -k_hat[2]) if abs(cos_yz) > 1e-12 else 0.0
+            psi_pol = float(getattr(laser, "psi_pol", 0.0))
+            ellipticity = float(laser.ellipticity)
+        else:
+            metrics = fit_gaussian_paraxial(self.interaction.laser)
+            photon_energy = metrics.photon_energy()
+            theta_xz = metrics.m("theta_xz")
+            theta_yz = metrics.m("theta_yz")
+            psi_pol = metrics.m("psi_pol")
+            ellipticity = metrics.ellipticity
+
+        # Photon energy with crossing angle factor cos²(α/2) per DER005 §2.2 (RES067)
         cos_alpha = math.cos(theta_xz) * math.cos(theta_yz)
         cos_alpha_half_sq = (1.0 + cos_alpha) * 0.5  # cos²(α/2) = (1 + cos α)/2
         photon_energy *= cos_alpha_half_sq
-        # `psi_pol` and `ellipticity` are `GaussianParaxialLaser` fields, not part of the `LaserField`
-        # protocol (P15) — read through the descriptive fit, same as every other laser
-        # metric this facade uses, rather than assuming the concrete implementation.
-        psi_pol = metrics.m("psi_pol")
-        ellipticity = metrics.ellipticity
 
         slices: dict[OutputKind, PhasespaceSlice] = {}
         if self.build_overlap().n_particles == 0:

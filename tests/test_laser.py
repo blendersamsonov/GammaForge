@@ -439,6 +439,80 @@ def test_laserfield_conforming_wrapper_fails_at_fit_gaussian_paraxial_boundary()
         fit_gaussian_paraxial(wrapper)
 
 
+def test_quasi_monochromatic_conforming_laser_runs_without_gaussian_fitter():
+    """A conforming LaserField with carrier/polarization invariants executes across engines without fit_gaussian_paraxial (RES067)."""
+    from gammaforge.engines.kascade.engine import KascadeEngine
+    from gammaforge.engines.xigma.engine import XigmaEngine
+    from gammaforge.io.bunch import GaussianElectronBeam
+    from gammaforge.io.interaction import build_interaction, SamplingSpec
+    from gammaforge.io.target import auto_ranges, OutputKind, OutputRequest, Target
+
+    inner = make_laser()
+
+    class QuasiMonochromaticLaser:
+        def __init__(self, inner):
+            self._inner = inner
+            self.ellipticity = inner.ellipticity
+
+        def intensity_profile(self, x, y, z, t):
+            return self._inner.intensity_profile(x, y, z, t)
+
+        def a0_profile(self, x, y, z, t):
+            return self._inner.a0_profile(x, y, z, t)
+
+        def field(self, x, y, z, t):
+            return self._inner.field(x, y, z, t)
+
+        def active_region(self, threshold: float):
+            return self._inner.active_region(threshold)
+
+        def omega0(self):
+            return self._inner.omega0()
+
+        def photon_energy(self):
+            return self._inner.photon_energy()
+
+        def intensity_peak(self):
+            return self._inner.intensity_peak()
+
+        def focusing_axes(self):
+            return self._inner.focusing_axes()
+
+        def polarization_axes(self):
+            return self._inner.polarization_axes()
+
+    laser = QuasiMonochromaticLaser(inner)
+    assert isinstance(laser, LaserField)
+
+    beam = GaussianElectronBeam(
+        bunch_charge=Q(100, "pC"),
+        kinetic_energy=Q(100, "MeV"),
+        rel_energy_spread=0.001,
+        sigma_x=Q(10, "um"),
+        sigma_y=Q(10, "um"),
+        emit_x=Q(0.05, "um") * Q(1.0, "rad"),
+        emit_y=Q(0.05, "um") * Q(1.0, "rad"),
+        sigma_z=Q(1.0, "ps"),
+    )
+    target = Target(
+        theta_x_col=Q(1.0, "mrad"),
+        theta_y_col=Q(1.0, "mrad"),
+        outputs=(OutputRequest(OutputKind.SPECTRUM, resolution=(16,)),),
+    )
+
+    # auto_ranges succeeds without fit_gaussian_paraxial
+    ranges = auto_ranges(target, beam, laser)
+    assert OutputKind.SPECTRUM in ranges
+
+    # xigma and kascade execute successfully without fit_gaussian_paraxial
+    interaction = build_interaction(beam, laser, target, SamplingSpec(n_particles=16, seed=1))
+    xigma_res = XigmaEngine().run(interaction, XigmaEngine.schema)
+    assert OutputKind.SPECTRUM in xigma_res.photon_slices
+
+    kascade_res = KascadeEngine().run(interaction, KascadeEngine.schema)
+    assert OutputKind.SPECTRUM in kascade_res.photon_slices
+
+
 # -- validation --------------------------------------------------------------
 def test_validate_rejects_impossible_values():
     for bad in [dict(pulse_energy=Q(0.0, "J")), dict(wavelength=Q(-1.0, "nm")), dict(sigma_x=Q(0.0, "um")),
