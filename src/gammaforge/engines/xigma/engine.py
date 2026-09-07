@@ -12,18 +12,10 @@ from ...io.results import Results
 from ...io.schema import Parameters
 from ...io.target import OutputKind
 from ..base import RecomputeCost
-from .collision import Collision
+from .collision import Collision, SUPPORTED_OUTPUTS
 from .schema import default_parameters
 
 __all__ = ["XigmaEngine"]
-
-#: Matches `Collision`'s `_SUPPORTED` set (§4.2) — the outputs this engine can fill today.
-SUPPORTED_OUTPUTS: tuple[OutputKind, ...] = (
-    OutputKind.TOTAL_YIELD,
-    OutputKind.SPECTRUM,
-    OutputKind.ANGULAR_DISTRIBUTION,
-    OutputKind.COLLIMATED_SPECTRUM,
-)
 
 #: §5's mapping, restricted to what is honestly wired **today**. Bunch charge is exactly
 #: linear in N_e (§3.5) for every engine and is handled at the `io` level

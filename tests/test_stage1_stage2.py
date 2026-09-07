@@ -22,10 +22,12 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from gammaforge.engines.xigma import stages
 from gammaforge.engines.xigma.stages import (
     ShapeTable,
     TrajectorySamples,
     _ahat_target_edges,
+    angle_integrated_spectrum,
     angular_spectrum_from_table,
     deposit_shape_table,
     integrate_trajectories,
@@ -73,6 +75,54 @@ def _table(samples, *, shape_bins=(16, 16, 16, 16), scheme="nearest", **retarget
     """Shorthand: the two-call chain most tests need, at a modest, fast scale."""
     shape_table = deposit_shape_table(samples, n_bins=shape_bins, scheme=scheme)
     return retarget_ahat(shape_table, samples.intensity_peak, **retarget_kwargs)
+
+
+def _unchunked_angle_integrated_spectrum(samples, s):
+    """The direct formula, retained here only as a small regression reference."""
+    s_values = np.atleast_1d(np.asarray(s, dtype=float))
+    gamma_squared = (samples.gamma**2)[:, None]
+    y = s_values[None, :] / gamma_squared
+    shape = np.where((y < 0.0) | (y > 1.0), 0.0, 1.5 * (1.0 - 2.0 * y * (1.0 - y)))
+    out = np.sum(samples.luminosity[:, None] * shape / gamma_squared, axis=0)
+    return out if np.ndim(s) else out[0]
+
+
+def test_angle_integrated_spectrum_chunks_both_reduction_axes(monkeypatch):
+    samples = replace(_synthetic_samples(n=17), luminosity=np.linspace(1.0, 4.0, 17))
+    s = np.linspace(0.1, 1.1, 7) * samples.gamma.mean() ** 2
+    expected = _unchunked_angle_integrated_spectrum(samples, s)
+
+    monkeypatch.setattr(stages, "SPECTRUM_MAX_ENERGY_CHUNK", 3)
+    monkeypatch.setattr(
+        stages, "SPECTRUM_WORKING_SET_BYTES", 3 * stages._SPECTRUM_BYTES_PER_PARTICLE_ENERGY
+    )
+    calls = []
+    original = stages.run_in_chunks
+
+    def spy(n_items, work, **kwargs):
+        def observed(start, stop):
+            calls.append((start, stop, kwargs["bytes_per_item"]))
+            return work(start, stop)
+
+        return original(n_items, observed, **kwargs)
+
+    monkeypatch.setattr(stages, "run_in_chunks", spy)
+    actual = angle_integrated_spectrum(samples, s)
+
+    assert actual == pytest.approx(expected, rel=1e-14)
+    assert angle_integrated_spectrum(samples, float(s[2])) == pytest.approx(expected[2], rel=1e-14)
+    # No callback spans the full 17-particle × 7-energy calculation. The spy observes
+    # energy blocks of at most three and particle blocks bounded by the working set.
+    assert {bytes_per_item // stages._SPECTRUM_BYTES_PER_PARTICLE_ENERGY
+            for _, _, bytes_per_item in calls} == {1, 3}
+    assert all((stop - start) * bytes_per_item <= stages.SPECTRUM_WORKING_SET_BYTES
+               for start, stop, bytes_per_item in calls)
+
+
+def test_angle_integrated_spectrum_rejects_an_output_larger_than_the_memory_budget(monkeypatch):
+    monkeypatch.setattr(stages.chunking, "available_ram_bytes", lambda: 100)
+    with pytest.raises(MemoryError, match="requested output grid"):
+        angle_integrated_spectrum(_synthetic_samples(n=4), np.linspace(0.0, 1.0, 20))
 
 
 # ---------------------------------------------------------------------------
@@ -138,28 +188,26 @@ def test_shape_table_rejects_a_shape_mismatched_H():
         )
 
 
-def test_deposition_is_cheap_next_to_stage_0(baseline):
-    """The measurement RES028/RES032 rests on: deposit_shape_table's cost
-    against integrate_trajectories's, for the same particle count. If deposition were not
-    cheap, caching the shape table once per `Collision` (RES032) rather than per particle
-    count would matter far less.
+def test_deposition_is_one_vectorized_pass(monkeypatch):
+    """Stage 1 calls one array deposit, rather than looping over macroparticles.
+
+    This is the structural property behind caching one shape table per `Collision`
+    (RES032), without treating a host's wall-clock timing as correctness.
     """
-    import time
+    samples = _synthetic_samples(n=257)
+    calls = []
+    original = stages._deposit_nearest
 
-    interaction = scenarios.build(
-        replace(scenarios.BASELINE, sampling=replace(scenarios.BASELINE.sampling, n_particles=50_000))
-    )
-    t0 = time.perf_counter()
-    samples = integrate_trajectories(interaction.bunch, interaction.laser, interaction.N_e, n_steps=64)
-    stage0_time = time.perf_counter() - t0
+    def spy(coords, weight, n_bins):
+        calls.append((tuple(values.shape for values in coords), weight.shape, n_bins))
+        return original(coords, weight, n_bins)
 
-    t0 = time.perf_counter()
-    deposit_shape_table(samples, n_bins=(48, 48, 48, 96))
-    stage1_time = time.perf_counter() - t0
+    monkeypatch.setattr(stages, "_deposit_nearest", spy)
+    n_bins = (8, 7, 6, 5)
+    table = deposit_shape_table(samples, n_bins=n_bins)
 
-    # A generous margin, not a tight benchmark gate: this is a one-time architectural
-    # sanity check, not a performance regression test.
-    assert stage1_time < stage0_time
+    assert calls == [(((257,), (257,), (257,), (257,)), (257,), n_bins)]
+    assert table.H.shape == n_bins
 
 
 # ---------------------------------------------------------------------------

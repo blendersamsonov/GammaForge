@@ -9,7 +9,7 @@ description = "Compton-photon simulation toolkit: electron-bunch / laser-pulse i
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "numpy>=1.26",
+    "numpy>=2.0",
     "pint>=0.23",
     "h5py>=3.10",
     "pyyaml>=6.0",
@@ -21,6 +21,8 @@ gui = ["nicegui>=3.16,<4", "plotly>=6,<7"]
 gpu = ["cupy-cuda12x"]
 jit = ["numba>=0.59"]
 dev = ["pytest>=8.0"]
+browser = ["playwright>=1.48"]
+symbolic = ["sympy>=1.13"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gammaforge"]

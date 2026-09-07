@@ -15,7 +15,7 @@ replaced (RES030).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import math
 import numpy as np
@@ -36,7 +36,7 @@ from .stages import (
     spectrum_in_angular_range as _spectrum_in_angular_range,
 )
 
-__all__ = ["Collision"]
+__all__ = ["Collision", "SUPPORTED_OUTPUTS"]
 
 #: `OutputKind`s this Collision can fill today. `TEMPORAL_ENVELOPE`/`SPATIAL_DISTRIBUTION`
 #: need Stage 0 diagnostics `TrajectorySamples` does not carry (per-step position/time,
@@ -44,12 +44,13 @@ __all__ = ["Collision"]
 #: no photon-macroparticle population to dump (xigma is a tabulated-density engine, not an
 #: MC one). All three are omitted, not silently approximated — `run()` fills only what a
 #: request asks for and this set covers, same contract as any engine (P10).
-_SUPPORTED = frozenset({
+SUPPORTED_OUTPUTS: tuple[OutputKind, ...] = (
     OutputKind.TOTAL_YIELD,
     OutputKind.SPECTRUM,
     OutputKind.ANGULAR_DISTRIBUTION,
     OutputKind.COLLIMATED_SPECTRUM,
-})
+)
+_SUPPORTED = frozenset(SUPPORTED_OUTPUTS)
 
 
 @dataclass
@@ -159,7 +160,15 @@ class Collision:
     def run(self, requests: tuple[OutputRequest, ...]) -> Results:
         """Fill every requested output this Collision supports; skip the rest (P10)."""
         target = self.interaction.target
-        ranges = auto_ranges(target, self.interaction.beam, self.interaction.laser, self.interaction.bunch)
+        supported_requests = tuple(request for request in requests if request.kind in _SUPPORTED)
+        if not supported_requests:
+            return Results(photon_slices={}, model_specific={"warnings": ()})
+        ranges = auto_ranges(
+            replace(target, outputs=supported_requests),
+            self.interaction.beam,
+            self.interaction.laser,
+            self.interaction.bunch,
+        )
         metrics = fit_gaussian_paraxial(self.interaction.laser)
         # Photon energy with crossing angle factor cos²(α/2) per DER005 §2.2
         photon_energy = metrics.photon_energy()
@@ -175,14 +184,26 @@ class Collision:
         ellipticity = metrics.ellipticity
 
         slices: dict[OutputKind, PhasespaceSlice] = {}
-        for request in requests:
-            if request.kind not in _SUPPORTED:
-                continue
-            slices[request.kind] = self._fill(
-                request, ranges[request.kind], photon_energy, psi_pol, ellipticity,
-                theta_xz, theta_yz
+        if self.build_overlap().n_particles == 0:
+            for request in supported_requests:
+                values = slice_axis_values(request, ranges[request.kind])
+                slices[request.kind] = PhasespaceSlice(
+                    axes=values,
+                    distr=np.zeros(tuple(value.size for value in values.values())),
+                )
+        else:
+            for request in supported_requests:
+                slices[request.kind] = self._fill(
+                    request, ranges[request.kind], photon_energy, psi_pol, ellipticity,
+                    theta_xz, theta_yz
+                )
+        warnings = ()
+        if OutputKind.SPECTRUM in slices:
+            warnings = (
+                "SPECTRUM uses xigma's table-free linear-Compton shape and omits the "
+                "nonlinear redshift carried by the tabulated angular kernel.",
             )
-        return Results(photon_slices=slices)
+        return Results(photon_slices=slices, model_specific={"warnings": warnings})
 
 
     def _fill(

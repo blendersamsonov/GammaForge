@@ -38,6 +38,7 @@ import numpy as np
 from ...io.bunch import Bunch, illumination_window, overlap_time_window
 from ...io.laser import LaserField, fit_gaussian_paraxial
 from ...io.units import C_CGS, E_ESU, HBAR_CGS, ME_CGS, SIGMA_T_CGS
+from . import chunking
 from .chunking import run_in_chunks
 
 __all__ = [
@@ -61,6 +62,8 @@ __all__ = [
     "DEFAULT_AHAT_MIN",
     "DEFAULT_AHAT_MAX",
     "DEFAULT_AHAT_DECADES",
+    "SPECTRUM_WORKING_SET_BYTES",
+    "SPECTRUM_MAX_ENERGY_CHUNK",
 ]
 
 #: Relative-velocity factor for the near-backscattering geometry: electron and photon
@@ -92,6 +95,20 @@ def relative_velocity(beta: float, theta_xz: float = 0.0, theta_yz: float = 0.0)
 #: Backward-compatible alias for code/docs that still reference the constant name.
 #: ``RELATIVE_VELOCITY = relative_velocity(1.0) == 2.0``
 RELATIVE_VELOCITY = 2.0
+
+
+#: The table-free spectrum has several live particle-by-energy temporaries. Its work is
+#: partitioned beneath this fixed ceiling even where the host cannot report available RAM;
+#: :mod:`chunking` further shrinks the particle side on constrained hosts.
+SPECTRUM_WORKING_SET_BYTES = 64 * 1024**2
+
+#: Energy is also an independent reduction axis. Capping it keeps a very long requested
+#: output grid from making even one particle chunk too large.
+SPECTRUM_MAX_ENERGY_CHUNK = 2048
+
+#: ``y``, its boolean mask, and the resulting spectral shape are live together. This
+#: intentionally overestimates their NumPy temporary footprint.
+_SPECTRUM_BYTES_PER_PARTICLE_ENERGY = 64
 
 
 def polarization_factor(
@@ -947,10 +964,35 @@ def angle_integrated_spectrum(samples: TrajectorySamples, s) -> np.ndarray:
     this is a stated approximation, not the full physics (mirrors delta's own caveat).
     """
     s_values = np.atleast_1d(np.asarray(s, dtype=float))
-    gamma_squared = (samples.gamma**2)[:, None]
-    y = s_values[None, :] / gamma_squared
-    shape = np.where((y < 0.0) | (y > 1.0), 0.0, 1.5 * (1.0 - 2.0 * y * (1.0 - y)))
-    spectrum = np.sum(samples.luminosity[:, None] * shape / gamma_squared, axis=0)
+    output_bytes = s_values.size * np.dtype(float).itemsize
+    available = chunking.available_ram_bytes()
+    if available is not None and output_bytes > available * chunking.SAFETY_FRACTION["numpy"]:
+        raise MemoryError(
+            "angle_integrated_spectrum: requested output grid needs "
+            f"{output_bytes:,} bytes, exceeding the available-memory budget"
+        )
+
+    spectrum = np.zeros(s_values.shape, dtype=float)
+    for energy_start in range(0, s_values.size, SPECTRUM_MAX_ENERGY_CHUNK):
+        energy_stop = min(energy_start + SPECTRUM_MAX_ENERGY_CHUNK, s_values.size)
+        energy = s_values[energy_start:energy_stop]
+        bytes_per_particle = _SPECTRUM_BYTES_PER_PARTICLE_ENERGY * energy.size
+        particle_ceiling = max(1, SPECTRUM_WORKING_SET_BYTES // bytes_per_particle)
+
+        def integrate_particle_chunk(start: int, stop: int) -> np.ndarray:
+            gamma_squared = (samples.gamma[start:stop] ** 2)[:, None]
+            y = energy[None, :] / gamma_squared
+            shape = np.where((y < 0.0) | (y > 1.0), 0.0, 1.5 * (1.0 - 2.0 * y * (1.0 - y)))
+            return np.sum(samples.luminosity[start:stop, None] * shape / gamma_squared, axis=0)
+
+        partials = run_in_chunks(
+            samples.n_particles,
+            integrate_particle_chunk,
+            bytes_per_item=bytes_per_particle,
+            ceiling=particle_ceiling,
+        )
+        if partials:
+            spectrum[energy_start:energy_stop] = np.sum(partials, axis=0)
     return spectrum if np.ndim(s) else spectrum[0]
 
 
