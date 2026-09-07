@@ -27,6 +27,7 @@ __all__ = [
     "BEAM_FIELDS",
     "LASER_FIELDS",
     "SAMPLING_FIELDS",
+    "TARGET_FIELDS",
     "to_parameters",
     "from_parameters",
 ]
@@ -137,6 +138,18 @@ SAMPLING_FIELDS: tuple[FieldSpec, ...] = (
               value_range=(0, 2**31 - 1), integer=True),
     FieldSpec("prefilter", "Prefilter threshold (fraction of peak a0)", FieldKind.SCALAR,
               DIMENSIONLESS, 1e-3, value_range=(0.0, 0.999)),
+)
+
+
+TARGET_FIELDS: tuple[FieldSpec, ...] = (
+    FieldSpec(
+        "theta_x_col", "Collimation half-angle (x)", FieldKind.SCALAR, "rad", 1e-3,
+        display_units=("mrad", "urad", "rad", "degree"), value_range=(0.0, math.inf),
+    ),
+    FieldSpec(
+        "theta_y_col", "Collimation half-angle (y)", FieldKind.SCALAR, "rad", 1e-3,
+        display_units=("mrad", "urad", "rad", "degree"), value_range=(0.0, math.inf),
+    ),
 )
 
 

@@ -405,12 +405,38 @@ def test_fit_gaussian_paraxial_is_the_identity_on_a_gaussian_laser():
 
 def test_fit_gaussian_paraxial_refuses_an_unknown_field_rather_than_guessing():
     class Elsewhere:
+        def intensity_profile(self, x, y, z, t): ...
         def a0_profile(self, x, y, z, t): ...
         def field(self, x, y, z, t): ...
         def active_region(self, threshold): ...
 
     with pytest.raises(NotImplementedError, match="no numerical path yet"):
         fit_gaussian_paraxial(Elsewhere())
+
+
+def test_laserfield_conforming_wrapper_fails_at_fit_gaussian_paraxial_boundary():
+    """A conforming LaserField wrapper passes protocol check but fails at fit_gaussian_paraxial (RES010/RES067)."""
+    inner = make_laser()
+
+    class ConformingDelegator:
+        def intensity_profile(self, x, y, z, t):
+            return inner.intensity_profile(x, y, z, t)
+
+        def a0_profile(self, x, y, z, t):
+            return inner.a0_profile(x, y, z, t)
+
+        def field(self, x, y, z, t):
+            return inner.field(x, y, z, t)
+
+        def active_region(self, threshold: float):
+            return inner.active_region(threshold)
+
+    wrapper = ConformingDelegator()
+    assert isinstance(wrapper, LaserField)
+
+    # fit_gaussian_paraxial refuses the wrapper rather than guessing (RES010)
+    with pytest.raises(NotImplementedError, match="no numerical path yet"):
+        fit_gaussian_paraxial(wrapper)
 
 
 # -- validation --------------------------------------------------------------

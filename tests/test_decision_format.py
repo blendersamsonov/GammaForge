@@ -225,10 +225,6 @@ def test_docs_decisions_tree_is_well_formed():
     _check_tree(REPO_ROOT / "docs" / "decisions", REPO_ROOT / "docs" / "decisions" / "INDEX.md")
 
 
-def test_examples_decisions_tree_is_well_formed():
-    _check_tree(REPO_ROOT / "examples" / "decisions", index_path=None)
-
-
 # ---------------------------------------------------------------------------
 # Structural guard tests (A21)
 # ---------------------------------------------------------------------------

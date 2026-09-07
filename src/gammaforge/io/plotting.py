@@ -11,7 +11,7 @@ from typing import Mapping
 
 import numpy as np
 
-from .results import Axis, PhasespaceSlice, Results
+from .results import Axis, PhasespaceSlice
 
 __all__ = [
     "display_unit", "display_scale", "display_values", "project_slice",

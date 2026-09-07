@@ -329,16 +329,12 @@ class KascadeEngine:
                 weight=photon_weight,
                 order=raw.generation,
             )
+            norm = np.sqrt(1.0 + si.theta_x**2 + si.theta_y**2)
+            t_final = np.where(raw.n_photons > 0, raw.time_last_emit, 0.0)
             electrons = Bunch(
-                x=(si.x + raw.time_last_emit * C_LIGHT_SI * si.theta_x / np.sqrt(
-                    1.0 + si.theta_x**2 + si.theta_y**2
-                )) * _M_TO_CM,
-                y=(si.y + raw.time_last_emit * C_LIGHT_SI * si.theta_y / np.sqrt(
-                    1.0 + si.theta_x**2 + si.theta_y**2
-                )) * _M_TO_CM,
-                z=(si.z + raw.time_last_emit * C_LIGHT_SI / np.sqrt(
-                    1.0 + si.theta_x**2 + si.theta_y**2
-                )) * _M_TO_CM,
+                x=(si.x + t_final * C_LIGHT_SI * si.theta_x / norm) * _M_TO_CM,
+                y=(si.y + t_final * C_LIGHT_SI * si.theta_y / norm) * _M_TO_CM,
+                z=(si.z + t_final * C_LIGHT_SI / norm) * _M_TO_CM,
                 thx=raw.theta_x_final,
                 thy=raw.theta_y_final,
                 gamma=raw.gamma_final,

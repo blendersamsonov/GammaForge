@@ -2,6 +2,7 @@
 
 Status: implemented
 Class: bug-fix
+Archived: 2026-09-07
 
 ## Problem
 

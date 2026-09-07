@@ -14,6 +14,7 @@ from ..io.fields import (
     BEAM_FIELDS,
     LASER_FIELDS,
     SAMPLING_FIELDS,
+    TARGET_FIELDS,
     beam_from_parameters,
     laser_from_parameters,
     sampling_from_parameters,
@@ -24,17 +25,6 @@ from ..io.units import Quantity
 
 if TYPE_CHECKING:
     from ..engines.base import Engine
-
-TARGET_FIELDS: tuple[FieldSpec, ...] = (
-    FieldSpec(
-        "theta_x_col", "Collimation half-angle (x)", FieldKind.SCALAR, "rad", 1e-3,
-        display_units=("mrad", "urad", "rad", "degree"), value_range=(0.0, float("inf")),
-    ),
-    FieldSpec(
-        "theta_y_col", "Collimation half-angle (y)", FieldKind.SCALAR, "rad", 1e-3,
-        display_units=("mrad", "urad", "rad", "degree"), value_range=(0.0, float("inf")),
-    ),
-)
 
 
 @dataclass(frozen=True)

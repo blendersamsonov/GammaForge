@@ -11,6 +11,7 @@ from gammaforge.io.fields import (
     BEAM_FIELDS,
     LASER_FIELDS,
     SAMPLING_FIELDS,
+    TARGET_FIELDS,
     beam_from_parameters,
     beam_to_parameters,
     laser_from_parameters,
@@ -25,7 +26,7 @@ from gammaforge.io.interaction import SamplingSpec
 from gammaforge.io.laser import GaussianParaxialLaser
 from gammaforge.io.results import Axis, PhasespaceSlice, PhotonMacroparticles, Results
 from gammaforge.io.schema import Parameters, SchemaError
-from gammaforge.io.target import OutputKind
+from gammaforge.io.target import OutputKind, Target
 from gammaforge.io.units import C_CGS, EV_CGS, MEC2_CGS, Quantity as Q
 
 
@@ -53,7 +54,7 @@ def make_laser() -> GaussianParaxialLaser:
 @pytest.mark.parametrize(
     "specs, cls",
     [(BEAM_FIELDS, GaussianElectronBeam), (LASER_FIELDS, GaussianParaxialLaser),
-     (SAMPLING_FIELDS, SamplingSpec)],
+     (SAMPLING_FIELDS, SamplingSpec), (TARGET_FIELDS, Target)],
 )
 def test_every_declared_field_matches_a_dataclass_field(specs, cls):
     import dataclasses

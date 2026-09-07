@@ -24,7 +24,6 @@ import pytest
 
 from gammaforge.engines.xigma import stages
 from gammaforge.engines.xigma.stages import (
-    ShapeTable,
     TrajectorySamples,
     _ahat_target_edges,
     angle_integrated_spectrum,

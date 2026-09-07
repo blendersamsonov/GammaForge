@@ -45,7 +45,7 @@ cross-checks this table against the files on disk.
 | RES037 | `erfcx` is hand-rolled from `math.erfc`, not a new `scipy` dependency | process | implemented | implemented/process/RES037-erfcx-hand-rolled.md |
 | RES038 | the spectrum-width breakdown's `theta_col` is the geometric mean of `Target`'s x/y collimation half-angles | architecture | implemented | implemented/architecture/RES038-theta-col-geometric-mean.md |
 | RES039 | the analytical yield is a general overlap quadrature, not the round-beam closed form | feature | implemented | implemented/feature/RES039-general-overlap-quadrature-yield.md |
-| RES040 | `estimate_yield`'s laser-divergence convention error is flagged and pinned, not fixed | bug-fix | implemented | implemented/bug-fix/RES040-estimate-yield-rayleigh-convention-pinned.md |
+| RES040 | `estimate_yield`'s laser-divergence convention error is flagged and pinned, not fixed | bug-fix | implemented | archived/bug-fix/RES040-estimate-yield-rayleigh-convention-pinned.md |
 | RES041 | the crossing angle is covered for the yield, by quadratic form; the spectrum stays head-on and says so | feature | implemented | implemented/feature/RES041-crossing-angle-yield-quadratic-form.md |
 | RES042 | the width's nonlinearity term uses a luminosity-weighted `<a0^2>`, computed, not approximated | feature | implemented | implemented/feature/RES042-luminosity-weighted-a0-squared.md |
 | RES043 | three explicit cost tiers, and the exact 2D quadrature is opt-in | feature | implemented | implemented/feature/RES043-three-cost-tiers-2d-quadrature-opt-in.md |
@@ -72,3 +72,4 @@ cross-checks this table against the files on disk.
 | RES064 | Input boundary snapshots and owned particle arrays | architecture | implemented | implemented/architecture/RES064-input-boundary-snapshots-and-array-ownership.md |
 | RES065 | Headless alpha validation has an explicit restricted scope | testing | implemented | implemented/testing/RES065-headless-alpha-validation-scope.md |
 | RES066 | Alpha dependency floors preserve the numerical reference constants | process | implemented | implemented/process/RES066-alpha-dependency-floors.md |
+| RES067 | LaserField boundary and fitting contract | architecture | proposed | proposed/architecture/RES067-laserfield-boundary-and-fitting-contract.md |

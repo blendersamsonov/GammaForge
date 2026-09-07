@@ -25,7 +25,6 @@ from gammaforge.engines.analytical.formulas import (
     _overlap_quadratic_form,
     angle_integrated_spectrum,
     estimate_spectrum_width,
-    estimate_yield,
     overlap_det,
     overlap_mean_a0_sq,
     overlap_time_profile,
@@ -65,54 +64,7 @@ _EXAMPLE_LASER = GaussianParaxialLaser(
 #: repos are separately-installed `pint` environments with (very slightly) different
 #: CODATA constant tables — not a unit-conversion defect in this port. The width uses no
 #: such constant and matches to ~1e-11.
-_PREDECESSOR_YIELD = 6644238.68637256
 _PREDECESSOR_WIDTH_TOTAL = 4.6671292359002505
-
-
-def test_estimate_yield_is_positive_finite():
-    y = estimate_yield(_EXAMPLE_BEAM, _EXAMPLE_LASER, _EXAMPLE_BEAM.n_electrons())
-    assert math.isfinite(y) and y > 0
-
-
-def test_estimate_yield_reproduces_the_predecessors_worked_example():
-    y = estimate_yield(_EXAMPLE_BEAM, _EXAMPLE_LASER, _EXAMPLE_BEAM.n_electrons())
-    assert y == pytest.approx(_PREDECESSOR_YIELD, rel=1e-4)
-
-
-def test_estimate_yield_matches_the_thomson_limit_closed_form():
-    """§7's own anchor: "Thomson limit: zero-a0 yield ~ N_e . sigma_T . (overlap) closed
-    form." As `nu -> infinity`, `nu * erfcx(nu) -> 1/sqrt(pi)` (the standard asymptotic
-    limit), collapsing `estimate_yield`'s full expression to the textbook head-on Gaussian
-    luminosity `N_e * n_photons * sigma_T / (2 pi (sigma_ex^2 + sigma_lr0^2))`. A short
-    bunch/pulse relative to the transverse sizes drives `nu` large without needing the
-    predecessor repo at all.
-    """
-    from gammaforge.io.units import SIGMA_T_CGS
-
-    beam = GaussianElectronBeam(
-        bunch_charge=Quantity(100.0, "pC"),
-        kinetic_energy=Quantity(200.0, "MeV"),
-        rel_energy_spread=0.001,
-        sigma_x=Quantity(100.0, "um"),
-        sigma_y=Quantity(100.0, "um"),
-        emit_x=Quantity(1.0, "um") * Quantity(1.0, "rad"),
-        emit_y=Quantity(1.0, "um") * Quantity(1.0, "rad"),
-        sigma_z=Quantity(0.03, "um"),
-    )
-    laser = GaussianParaxialLaser(
-        pulse_energy=Quantity(0.05, "J"),
-        wavelength=Quantity(0.8, "um"),
-        sigma_x=Quantity(100.0, "um"),
-        sigma_y=Quantity(100.0, "um"),
-        duration=Quantity(0.1, "fs"),
-    )
-    N_e = beam.n_electrons()
-    y = estimate_yield(beam, laser, N_e)
-
-    sigma_ex, sigma_ey = beam.m("sigma_x"), beam.m("sigma_y")
-    sigma_lr0 = math.sqrt(laser.m("sigma_x") * laser.m("sigma_y"))
-    thomson_limit = N_e * laser.n_photons() * SIGMA_T_CGS / (2.0 * math.pi * (sigma_ex**2 + sigma_lr0**2))
-    assert y == pytest.approx(thomson_limit, rel=1e-6)
 
 
 # ---------------------------------------------------------------------------
@@ -869,23 +821,6 @@ def test_overlap_yield_matches_a_brute_force_monte_carlo(name):
 
     exact = overlap_yield(beam, laser, beam.n_electrons(), n_quad=20001)
     assert _monte_carlo_yield(beam, laser) == pytest.approx(exact, rel=5e-3)
-
-
-def test_overlap_yield_differs_from_the_legacy_closed_form_by_the_rayleigh_convention():
-    """Pins the size of the `estimate_yield` laser-divergence discrepancy (RES040) so it stays
-    visible and cannot drift silently. The baseline's hourglass is almost entirely
-    laser-driven (laser divergence 3e-2 rad against the bunch's 5e-6), so the factor-4 error
-    in `lambda / (pi sigma)` vs `sigma / z_R = lambda / (4 pi sigma)` shows up nearly in
-    full.
-
-    3.285 is **not** a physical constant: it is the ratio *at* `scenarios.BASELINE`, and it
-    depends on that scenario's laser waist, wavelength and duration through how strongly the
-    hourglass suppresses the yield. So if this fails, check whether `BASELINE` moved before
-    concluding either formula did."""
-    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
-    N_e = beam.n_electrons()
-    ratio = overlap_yield(beam, laser, N_e, n_quad=32001) / estimate_yield(beam, laser, N_e)
-    assert ratio == pytest.approx(3.285, rel=1e-3)
 
 
 def test_engine_reports_that_a_crossed_spectrum_has_head_on_shape():

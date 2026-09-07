@@ -131,16 +131,7 @@ class BrowserWorkspace:
                         kind is not OutputKind.TOTAL_YIELD and (supported or requested),
                         *(supported and requested for _ in editor.widgets[1:]),
                     ]
-                field_key = "n_e" if (editor.group, editor.key) == ("beam", "bunch_charge") else editor.key
-                engines = [state.engines[name] for name in state.selected]
-                if editor.group.startswith("engine:"):
-                    name = editor.group.split(":", 1)[1]
-                    engines = [state.engines[name]] if name in state.selected else []
-                locked = self.model.locked and any(
-                    engine.recompute_costs.get(field_key, RecomputeCost.FULL_RERUN)
-                    is RecomputeCost.FULL_RERUN for engine in engines
-                )
-                editor.set_locked(locked)
+                editor.set_locked(self.model.busy)
 
     async def calculate(self) -> None:
         if self.model.busy:
@@ -315,14 +306,10 @@ class Pane:
             button = ui.button("Calculate", icon="play_arrow", on_click=self.page.calculate)
             if model.busy or model.inputs.errors or not model.inputs.selected:
                 button.disable()
-            release = ui.button("Release inputs", on_click=self.page.release).props("outline")
-            if not model.locked or model.busy:
-                release.disable()
             if model.busy:
                 ui.spinner(size="sm")
             ui.label("Calculating…" if model.busy else "Results outdated — Calculate to update"
-                     if model.stale else "Inputs locked after calculation" if model.locked
-                     else "Ready").classes("gf-status")
+                     if model.stale else "Ready").classes("gf-status")
         for name, status in model.statuses.items():
             ui.label(f"{name}: {status}").classes("text-caption")
         if model.error:

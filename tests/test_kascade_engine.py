@@ -11,6 +11,12 @@ import pytest
 from gammaforge.engines.base import Engine
 from gammaforge.engines.analytical.formulas import overlap_yield
 from gammaforge.engines.kascade.engine import KascadeEngine, _bunch_to_si, _histogram_slice
+from gammaforge.engines.kascade.solver import (
+    C_LIGHT_SI,
+    ElectronChunk,
+    TrajectoryGrid,
+    simulate_chunk,
+)
 from gammaforge.io.bunch import Bunch, GaussianElectronBeam
 from gammaforge.io.interaction import InteractionParameters, SamplingSpec
 from gammaforge.io.laser import GaussianParaxialLaser
@@ -212,3 +218,232 @@ def test_thomson_yield_agrees_with_the_independent_analytical_engine_across_the_
         expected = overlap_yield(interaction.beam, interaction.laser, interaction.N_e)
 
         assert actual == pytest.approx(expected, rel=0.015), scenario.name
+
+
+def test_negative_emission_times_are_preserved_in_last_emission_reduction():
+    """Audit A06 regression: all emissions at t < 0 must retain their true last-emission time."""
+    n_electrons = 64
+    n_time = 50
+    time = np.linspace(-2e-12, -1e-12, n_time)
+    time_grid = np.tile(time, (n_electrons, 1))
+    cum_rate = np.linspace(0.0, 100.0, n_time)
+    cum_grid = np.tile(cum_rate, (n_electrons, 1))
+
+    electrons = ElectronChunk(
+        x=np.zeros(n_electrons),
+        y=np.zeros(n_electrons),
+        z=np.zeros(n_electrons),
+        theta_x=np.zeros(n_electrons),
+        theta_y=np.zeros(n_electrons),
+        gamma=np.full(n_electrons, 1000.0),
+    )
+    grid = TrajectoryGrid(
+        time=time_grid,
+        intensity=np.zeros_like(time_grid),
+        cumulative=cum_grid,
+        velocity_x=np.zeros(n_electrons),
+        velocity_y=np.zeros(n_electrons),
+        velocity_z=np.full(n_electrons, C_LIGHT_SI),
+    )
+    result = simulate_chunk(
+        electrons,
+        grid,
+        photon_energy_over_mec2=1e-5,
+        electron_rest_energy_joule=8.187e-14,
+        cos_collision=-1.0,
+        quantum=False,
+        max_photons=1,
+        rng=np.random.default_rng(42),
+    )
+
+    assert result.n_photons.sum() == n_electrons
+    assert np.all(result.time < 0.0)
+    assert np.all(result.time_last_emit < 0.0)
+    assert np.array_equal(result.time_last_emit, result.time)
+
+
+@pytest.mark.parametrize(
+    "time_range",
+    [
+        (-3e-12, -1e-12),  # all-negative
+        (-2e-12, 2e-12),   # mixed-sign
+        (1e-12, 3e-12),    # all-positive
+    ],
+)
+def test_time_last_emit_matches_parent_maximum_across_histories(time_range):
+    """Each emitting parent's last time must equal the maximum of its own photon times."""
+    t0, t1 = time_range
+    n_electrons = 24
+    n_time = 60
+    time = np.linspace(t0, t1, n_time)
+    time_grid = np.tile(time, (n_electrons, 1))
+    cum_grid = np.tile(np.linspace(0.0, 20.0, n_time), (n_electrons, 1))
+
+    electrons = ElectronChunk(
+        x=np.zeros(n_electrons),
+        y=np.zeros(n_electrons),
+        z=np.zeros(n_electrons),
+        theta_x=np.zeros(n_electrons),
+        theta_y=np.zeros(n_electrons),
+        gamma=np.full(n_electrons, 1000.0),
+    )
+    grid = TrajectoryGrid(
+        time=time_grid,
+        intensity=np.zeros_like(time_grid),
+        cumulative=cum_grid,
+        velocity_x=np.zeros(n_electrons),
+        velocity_y=np.zeros(n_electrons),
+        velocity_z=np.full(n_electrons, C_LIGHT_SI),
+    )
+    result = simulate_chunk(
+        electrons,
+        grid,
+        photon_energy_over_mec2=1e-5,
+        electron_rest_energy_joule=8.187e-14,
+        cos_collision=-1.0,
+        quantum=False,
+        max_photons=4,  # repeated-parent histories
+        rng=np.random.default_rng(7),
+    )
+
+    assert result.parent.size > 0
+    assert np.any(result.n_photons > 1)
+    for p in range(n_electrons):
+        mask = result.parent == p
+        if np.any(mask):
+            assert result.time_last_emit[p] == np.max(result.time[mask])
+        else:
+            assert result.time_last_emit[p] == 0.0
+
+
+def test_time_last_emit_handles_nonemitters_zero_photons_and_empty_input():
+    # 1. Partial emission: even electrons emit, odd electrons do not
+    n_electrons = 10
+    n_time = 30
+    time_grid = np.tile(np.linspace(-2e-12, -1e-12, n_time), (n_electrons, 1))
+    cum_grid = np.zeros((n_electrons, n_time))
+    cum_grid[::2, :] = np.linspace(0.0, 50.0, n_time)
+
+    electrons = ElectronChunk(
+        x=np.zeros(n_electrons),
+        y=np.zeros(n_electrons),
+        z=np.zeros(n_electrons),
+        theta_x=np.zeros(n_electrons),
+        theta_y=np.zeros(n_electrons),
+        gamma=np.full(n_electrons, 1000.0),
+    )
+    grid = TrajectoryGrid(
+        time=time_grid,
+        intensity=np.zeros_like(time_grid),
+        cumulative=cum_grid,
+        velocity_x=np.zeros(n_electrons),
+        velocity_y=np.zeros(n_electrons),
+        velocity_z=np.full(n_electrons, C_LIGHT_SI),
+    )
+    result = simulate_chunk(
+        electrons,
+        grid,
+        photon_energy_over_mec2=1e-5,
+        electron_rest_energy_joule=8.187e-14,
+        cos_collision=-1.0,
+        quantum=False,
+        max_photons=2,
+        rng=np.random.default_rng(11),
+    )
+    assert np.all(result.n_photons[1::2] == 0)
+    assert np.all(result.time_last_emit[1::2] == 0.0)
+    assert np.all(result.n_photons[::2] > 0)
+    assert np.all(result.time_last_emit[::2] < 0.0)
+
+    # 2. Zero photons overall
+    cum_zero = np.zeros((n_electrons, n_time))
+    grid_zero = TrajectoryGrid(
+        time=time_grid,
+        intensity=np.zeros_like(time_grid),
+        cumulative=cum_zero,
+        velocity_x=np.zeros(n_electrons),
+        velocity_y=np.zeros(n_electrons),
+        velocity_z=np.full(n_electrons, C_LIGHT_SI),
+    )
+    res_zero = simulate_chunk(
+        electrons,
+        grid_zero,
+        photon_energy_over_mec2=1e-5,
+        electron_rest_energy_joule=8.187e-14,
+        cos_collision=-1.0,
+        quantum=False,
+        max_photons=2,
+        rng=np.random.default_rng(12),
+    )
+    assert res_zero.parent.size == 0
+    assert np.all(res_zero.n_photons == 0)
+    assert np.all(res_zero.time_last_emit == 0.0)
+
+    # 3. Empty input
+    empty_e = ElectronChunk(
+        x=np.empty(0),
+        y=np.empty(0),
+        z=np.empty(0),
+        theta_x=np.empty(0),
+        theta_y=np.empty(0),
+        gamma=np.empty(0),
+    )
+    empty_grid = TrajectoryGrid(
+        time=np.empty((0, 10)),
+        intensity=np.empty((0, 10)),
+        cumulative=np.empty((0, 10)),
+        velocity_x=np.empty(0),
+        velocity_y=np.empty(0),
+        velocity_z=np.empty(0),
+    )
+    res_empty = simulate_chunk(
+        empty_e,
+        empty_grid,
+        photon_energy_over_mec2=1e-5,
+        electron_rest_energy_joule=8.187e-14,
+        cos_collision=-1.0,
+        quantum=False,
+        max_photons=2,
+        rng=np.random.default_rng(13),
+    )
+    assert res_empty.time_last_emit.size == 0
+    assert res_empty.n_photons.size == 0
+
+
+def test_final_electron_position_reconstruction_preserves_nonemitters_and_avoids_sentinels():
+    interaction = _interaction(
+        n_particles=500,
+        outputs=(OutputRequest(OutputKind.MACROPARTICLE_DUMP),),
+    )
+    results = KascadeEngine().run(interaction, _params())
+    electrons = results.electrons
+    assert electrons is not None
+
+    t_last = electrons.meta["time_last_emit"]
+    n_photons = electrons.meta["n_photons"]
+
+    # All exported arrays and metadata must be finite (no -inf or NaN sentinels)
+    assert np.all(np.isfinite(electrons.x))
+    assert np.all(np.isfinite(electrons.y))
+    assert np.all(np.isfinite(electrons.z))
+    assert np.all(np.isfinite(t_last))
+
+    # Non-emitters stay at the focus (t = 0.0, identical to initial bunch positions)
+    non_emitters = n_photons == 0
+    assert np.any(non_emitters)
+    assert np.all(t_last[non_emitters] == 0.0)
+    assert np.allclose(electrons.x[non_emitters], interaction.bunch.x[non_emitters])
+    assert np.allclose(electrons.y[non_emitters], interaction.bunch.y[non_emitters])
+    assert np.allclose(electrons.z[non_emitters], interaction.bunch.z[non_emitters])
+
+    # Emitters have recorded last emission times and drift accordingly
+    emitters = n_photons > 0
+    assert np.any(emitters)
+    assert np.any(t_last[emitters] < 0.0)
+    assert np.any(t_last[emitters] > 0.0)
+    norm = np.sqrt(1.0 + interaction.bunch.thx[emitters] ** 2 + interaction.bunch.thy[emitters] ** 2)
+    expected_x = (
+        interaction.bunch.x[emitters] * 1e-2
+        + t_last[emitters] * C_LIGHT_SI * interaction.bunch.thx[emitters] / norm
+    ) * 1e2
+    assert np.allclose(electrons.x[emitters], expected_x)

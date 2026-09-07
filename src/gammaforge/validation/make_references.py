@@ -44,7 +44,7 @@ import numpy as np
 
 from ..io.laser import fit_gaussian_paraxial
 from ..io.results import Axis, PhasespaceSlice, Results
-from ..io.target import SLICE_AXES, OutputKind
+from ..io.target import SLICE_AXES
 from ..io.units import C_CGS, EV_CGS, scale_factor
 from .golden import Provenance, save_golden
 from .scenarios import SCENARIOS, Scenario, by_name

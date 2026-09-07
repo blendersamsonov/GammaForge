@@ -56,7 +56,6 @@ from ...io.laser import GaussianParaxialLaser
 from ...io.units import C_CGS, SIGMA_T_CGS
 
 __all__ = [
-    "estimate_yield",
     "overlap_det",
     "overlap_yield",
     "overlap_mean_a0_sq",
@@ -93,50 +92,6 @@ def _erfcx(nu: float) -> float:
     inv2 = 1.0 / (nu * nu)
     series = 1.0 - 0.5 * inv2 + 0.75 * inv2**2 - 1.875 * inv2**3
     return series / (nu * math.sqrt(math.pi))
-
-
-def estimate_yield(beam: GaussianElectronBeam, laser: GaussianParaxialLaser, N_e: float) -> float:
-    """Cheap analytic total-photon-yield estimate from a Gaussian-bunch overlap integral.
-
-    Not a replacement for a per-particle computation — a sanity-check anchor (§4.3/§7).
-    ``laser`` must be a `GaussianParaxialLaser` — the *fitted* descriptive metrics
-    (`gammaforge.io.laser.fit_gaussian_paraxial`), never a raw `LaserField`, mirroring how
-    `xigma.collision.Collision.run`/`gammaforge.io.target.auto_ranges` already read laser
-    scalars (P15). ``N_e`` is explicit rather than derived from ``beam`` so this honors the
-    same cheap charge-only recompute path `XigmaEngine` declares (`RecomputeCost.QUERY_ONLY`
-    on ``"n_e"``, handled entirely at the `io` level) — defaulting to
-    ``beam.n_electrons()`` would desync from a charge-rescaled `InteractionParameters`.
-
-    The laser's transverse profile is treated as round (geometric-mean effective size
-    ``sqrt(sigma_x * sigma_y)``) since the underlying formula assumes a round beam — an
-    elliptical laser is only approximated, not modeled exactly (see the module docstring).
-
-    .. warning::
-
-       **This function's laser hourglass term disagrees with this repository's own
-       Rayleigh-range convention by a factor of 4 in the angle**, and it is kept only as
-       a port-fidelity anchor — a faithfully-ported predecessor bug, not introduced here.
-       :func:`overlap_yield` is the one to use. On the baseline scenario the discrepancy
-       is a factor of 3.3 in the yield (RES040).
-    """
-    sigma_ex = beam.m("sigma_x")
-    sigma_ey = beam.m("sigma_y")
-    beta_x = beam.beta_star_x()
-    beta_y = beam.beta_star_y()
-    sigma_ez = beam.m("sigma_z")
-    sigma_lr0 = math.sqrt(laser.m("sigma_x") * laser.m("sigma_y"))
-    sigma_lz = laser.m("duration") * C_CGS
-    lambda_l = laser.m("wavelength")
-
-    sb_av = math.sqrt(sigma_ex * sigma_ey / beta_x / beta_y)
-    sigma0 = math.sqrt(sigma_ex**2 + sigma_lr0**2)
-    nu = (
-        math.sqrt(2.0)
-        * sigma0
-        / math.sqrt(sigma_ez**2 + sigma_lz**2)
-        / math.sqrt(sb_av**2 + lambda_l**2 / math.pi**2 / sigma_lr0**2)
-    )
-    return N_e * laser.n_photons() * SIGMA_T_CGS / 2.0 / math.sqrt(math.pi) / sigma0**2 * nu * _erfcx(nu)
 
 
 def _electron_sigma2(beam: GaussianElectronBeam, z):

@@ -78,13 +78,6 @@ def doppler_factor(gamma, cos_collision: float):
     return (1.0 - beta * cos_collision) / (1.0 - beta)
 
 
-def recoil_parameter(gamma, photon_energy_over_mec2: float, cos_collision: float):
-    values = np.asarray(gamma, dtype=float)
-    return doppler_factor(values, cos_collision) * photon_energy_over_mec2 / np.clip(
-        values, 1e-30, None
-    )
-
-
 def kn_sigma_ratio(k):
     """Total Klein--Nishina cross section divided by the Thomson cross section."""
     k = np.asarray(k, dtype=float)
@@ -234,14 +227,15 @@ def simulate_chunk(
 
     parent = np.concatenate(parents) if parents else np.empty(0, dtype=int)
     time = np.concatenate(photon_time) if photon_time else np.empty(0)
-    time_last = np.zeros(n_electrons)
-    if parent.size:
-        np.maximum.at(time_last, parent, time)
     n_photons = (
         np.bincount(parent, minlength=n_electrons)
         if parent.size
         else np.zeros(n_electrons, dtype=int)
     )
+    time_last = np.zeros(n_electrons, dtype=float)
+    if parent.size:
+        time_last[parent] = -np.inf
+        np.maximum.at(time_last, parent, time)
 
     def concatenate_or_empty(values, dtype=float):
         return np.concatenate(values) if values else np.empty(0, dtype=dtype)

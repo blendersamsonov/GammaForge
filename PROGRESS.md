@@ -46,9 +46,13 @@ Ordered by who is blocked. Each names the file that carries the detail.
   pre-existing rather than introduced; `decades = 1.0 -> 0.3` removes most of it. Pinned by
   test at the current value; changing a tuned default is the author's call. RES053's last
   section has the sweep.
-- **`estimate_yield`'s future.** Kept only for port fidelity to the predecessor's worked
-  example (RES040). If those published results no longer need reproducing, it and its three
-  tests are a one-commit deletion.
+
+- **`LaserField` boundary and arbitrary pulse physics (RES067).** Downstream engines
+  currently depend on `fit_gaussian_paraxial` for carrier frequency, crossing angles,
+  and polarization scalars. Quasi-monochromatic and structured pulses require author
+  guidance on polychromatic emission kinematics and spatially inhomogeneous polarization
+  kernels in Stage 2. Proposed in `docs/decisions/proposed/architecture/RES067-laserfield-boundary-and-fitting-contract.md`.
+
 ### Available to pick up (no external dependency)
 
 - **Resolve CuPy/reference distribution disagreement.** The kernel executes on GTX

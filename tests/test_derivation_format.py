@@ -194,10 +194,6 @@ def test_docs_derivations_tree_is_well_formed():
     _check_tree(REPO_ROOT / "docs" / "derivations", REPO_ROOT / "docs" / "derivations" / "INDEX.md")
 
 
-def test_examples_derivations_tree_is_well_formed():
-    _check_tree(REPO_ROOT / "examples" / "derivations", index_path=None)
-
-
 # ---------------------------------------------------------------------------
 # Structural guard tests (A21)
 # ---------------------------------------------------------------------------

@@ -37,7 +37,7 @@ from gammaforge.io.target import (
     slice_axis_values,
     slice_axis_widths,
 )
-from gammaforge.io.units import C_CGS, EV_CGS, Quantity as Q
+from gammaforge.io.units import Quantity as Q
 
 
 def make_beam(**overrides) -> GaussianElectronBeam:
