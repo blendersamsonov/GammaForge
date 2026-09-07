@@ -77,3 +77,13 @@ independent comparison must pass on CUDA hardware before either is claimed as ve
 - Direct stage callers and unit tests can continue to request `backend="numpy"` for deterministic
   verification.
 - Code and tests maintain compatibility with environments lacking CUDA GPUs.
+
+## Amendments
+
+> **2026-09-07 — alpha validation keeps NumPy as the default.** On the GTX 1660 Ti,
+> the 40,000-particle baseline's 5x5x8 cube gave a GPU/NumPy integrated ratio of
+> 1.419 at the fixed 256x32 sampler setting; increasing subsampling to 64, 128, and
+> 256 gave 1.230, 1.252, and 1.373. A smooth-table diagnostic also produced non-finite
+> GPU values for supported points. The port remains explicitly selectable for diagnosis,
+> but `backend="numpy"` is the alpha default, `auto` is an opt-in experimental route,
+> and GPU results carry an actionable warning. *DER008* remains derived.

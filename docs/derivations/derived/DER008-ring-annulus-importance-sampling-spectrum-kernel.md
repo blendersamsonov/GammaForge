@@ -656,3 +656,11 @@ and verified by the test suite:
   decision adopting this kernel as the production compute path.
 - `~/Work/Papers/2026/Compton-Numerics/xigma.tex`: Sections 4.3 and 5.3–5.4 (Reduction to three dimensions,
   Reduction of the integration domain, Importance sampling and quasi-random evaluation).
+
+## Amendments
+
+> **2026-09-07 — alpha GPU comparison did not establish numerical closure.** The
+> baseline 5x5x8 integrated GPU/NumPy ratio was 1.419 at 256x32 sampling and did not
+> converge monotonically under the tested subsampling sweep. A smooth-table diagnostic
+> found non-finite GPU outputs for supported points. This file remains derived; the CuPy
+> path is explicitly experimental and NumPy is the alpha default.

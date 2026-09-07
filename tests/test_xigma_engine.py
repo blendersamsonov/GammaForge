@@ -56,6 +56,7 @@ def _empty_interaction(outputs, *, through_prefilter: bool):
 
 def test_xigma_engine_conforms_to_the_engine_protocol():
     assert isinstance(XigmaEngine(), Engine)
+    assert XigmaEngine.schema.get_choice("backend") == "numpy"
 
 
 def test_supported_outputs_matches_what_run_actually_fills():
@@ -131,6 +132,17 @@ def test_collision_rejects_replacement_of_fixed_cache_inputs():
         collision.params = _engine_params(n_steps=32)
 
     assert collision.build_overlap().total_yield() > 0.0
+
+
+def test_collision_returns_read_only_cached_samples():
+    collision = Collision(interaction=_interaction(), params=_engine_params())
+    samples = collision.build_overlap()
+    total = samples.total_yield()
+
+    with pytest.raises(ValueError, match="read-only"):
+        samples.luminosity[0] = 0.0
+
+    assert collision.build_overlap().total_yield() == total
 
 
 def test_shape_is_memoized():
