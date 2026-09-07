@@ -134,6 +134,13 @@ constraints (`GRAND_PLAN.md` §1 has the full table with provenance — P1–P15
   for one node. Each returns a scoped subgraph, far smaller than `GRAPH_REPORT.md` or raw
   grep output; read the full report only for a broad architecture pass. Re-run
   `graphify update .` after landing code — it is AST-only and costs nothing.
+- **Human Walkthrough Notebooks (`notebooks/`):** The human architect uses the modular
+  notebooks in `notebooks/` to learn, explore, and verify the codebase. They are authored as
+  `# %%` scripts (`notebooks/*.py`) paired with Jupyter `.ipynb` notebooks. When modifying
+  core data structures (`gammaforge.io`), engine interfaces (`gammaforge.engines`), or
+  validation pipelines, **you must update the corresponding script in `notebooks/` and run
+  `python tools/build_notebooks.py --run`** so that the human mental model and interactive
+  examples stay in sync with the codebase.
 
 ## Current status
 

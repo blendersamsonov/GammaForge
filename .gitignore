@@ -20,6 +20,7 @@ venv/
 # Jupyter
 .ipynb_checkpoints/
 *.ipynb
+!notebooks/*.ipynb
 
 # OS / editor
 .DS_Store
