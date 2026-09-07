@@ -98,6 +98,24 @@ def test_unsupported_polarization_with_backend_cupy_raises(baseline_table):
         angular_spectrum_from_table(table, tx, ty, s, backend="cupy", theta_xz=0.05)
 
 
+@pytest.mark.xfail(strict=True, reason="GPU density/integral discrepancy; docs/ALPHA_GPU_VALIDATION.md")
+def test_gpu_distribution_agrees_with_numpy_reference(baseline_table):
+    """A median cell ratio cannot detect misplaced or missing spectral mass."""
+    table, samples = baseline_table
+    tx = ty = np.linspace(-1e-4, 1e-4, 5)
+    s = np.linspace(0.2, 0.8, 8) * float(np.max(samples.gamma) ** 2)
+    cpu = angular_spectrum_from_table(table, tx, ty, s, backend="numpy")
+    gpu = angular_spectrum_from_table(table, tx, ty, s, backend="cupy")
+
+    def integral(cube):
+        return np.trapezoid(np.trapezoid(np.trapezoid(cube, s, axis=2), ty, axis=1), tx)
+
+    mass = integral(cpu)
+    assert mass > 0.0
+    assert abs(integral(gpu) / mass - 1.0) < 0.1
+    assert integral(np.abs(gpu - cpu)) / mass < 0.1
+
+
 def test_unsupported_polarization_with_backend_auto_routes_to_numpy(baseline_table):
     table, samples = baseline_table
     tx, ty, s = [0.0], [0.0], [float(np.mean(samples.gamma) ** 2)]
@@ -137,3 +155,5 @@ def test_xigma_engine_run_with_backend_cupy():
     assert col.distr.shape == (8, 4, 4)
     assert np.all(ang.distr >= 0.0)
     assert np.all(col.distr >= 0.0)
+    assert results.model_specific["stage2_backend"] == "cupy"
+    assert any("experimental" in warning for warning in results.model_specific["warnings"])

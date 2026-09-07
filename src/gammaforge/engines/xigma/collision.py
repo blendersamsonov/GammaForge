@@ -72,13 +72,16 @@ class Collision:
     def build_overlap(self) -> TrajectorySamples:
         """Stage 0, memoized: every other method funnels through this."""
         if self._samples is None:
-            object.__setattr__(self, "_samples", integrate_trajectories(
+            samples = integrate_trajectories(
                 self.interaction.bunch,
                 self.interaction.laser,
                 self.interaction.N_e,
                 n_steps=self.params.get_int("n_steps"),
                 threshold=self.params.get_float("threshold"),
-            ))
+            )
+            for values in (samples.gamma, samples.theta_x, samples.theta_y, samples.a0_shape, samples.luminosity):
+                values.setflags(write=False)
+            object.__setattr__(self, "_samples", samples)
         return self._samples
 
     def _shape(self) -> ShapeTable:
@@ -135,7 +138,7 @@ class Collision:
         backend: str | None = None,
     ) -> np.ndarray:
         """Stage 2, at the pulse's own peak a0: ``d3N / (ds dtheta_x dtheta_y)``."""
-        b = backend or (self.params.get_choice("backend") if "backend" in self.params else "auto")
+        b = backend or (self.params.get_choice("backend") if "backend" in self.params else "numpy")
         return angular_spectrum_from_table(
             self._table(), theta_x, theta_y, s,
             psi_pol=psi_pol, ellipticity=ellipticity,
@@ -157,7 +160,7 @@ class Collision:
         backend: str | None = None,
     ):
         """The windowed on-demand query (§4.2) — cheap once `build_overlap`/`_table` ran."""
-        b = backend or (self.params.get_choice("backend") if "backend" in self.params else "auto")
+        b = backend or (self.params.get_choice("backend") if "backend" in self.params else "numpy")
         return _spectrum_in_angular_range(
             self._table(),
             theta_x_range, theta_y_range, s_edges,
@@ -219,7 +222,7 @@ class Collision:
             OutputKind.ANGULAR_DISTRIBUTION in slices
             or OutputKind.COLLIMATED_SPECTRUM in slices
         ):
-            requested_backend = self.params.get_choice("backend") if "backend" in self.params else "auto"
+            requested_backend = self.params.get_choice("backend") if "backend" in self.params else "numpy"
             selected_backend = stage2_backend(
                 requested_backend,
                 ellipticity=ellipticity, theta_xz=theta_xz, theta_yz=theta_yz,
@@ -230,6 +233,10 @@ class Collision:
                     "samples_total": 256,
                     "subsampling": 32,
                 }
+                model_specific["warnings"] = (*warnings, (
+                    "CuPy Stage 2 is experimental: use backend='numpy' for validated "
+                    "results; GPU-versus-NumPy agreement remains an alpha blocker."
+                ))
         return Results(photon_slices=slices, model_specific=model_specific)
 
 

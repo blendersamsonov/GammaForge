@@ -545,4 +545,9 @@ def calculate_angular_spectrum_gpu(
     cp.cuda.Stream.null.synchronize()
 
     out = (KERNEL_NORMALIZATION_CONSTANT * spec).reshape((tx.size, ty.size, s_arr.size)).get()
+    if not np.all(np.isfinite(out)):
+        raise RuntimeError(
+            "calculate_angular_spectrum_gpu produced non-finite samples; use backend='numpy' "
+            "while the experimental CuPy sampler is under validation."
+        )
     return out
