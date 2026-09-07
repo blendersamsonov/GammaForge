@@ -1,0 +1,100 @@
+{
+  "generated_utc": "2026-09-07T07:06:31.637062+00:00",
+  "git_revision": "54e9132137af570c96809f3d569b8173ec128af0",
+  "python": "3.14.6 (main, Jun 15 2026, 11:36:54) [GCC 16.1.1 20260430]",
+  "platform": "Linux-6.18.39-1-MANJARO-x86_64-with-glibc2.43",
+  "numpy": "2.5.1",
+  "matplotlib": "3.11.1",
+  "configuration": {
+    "source": "/home/alexander/Work/Code/XIGMA/git-repo/example-config.toml",
+    "source_inputs": {
+      "electron": {
+        "charge": "10 nC",
+        "gamma": 2000.0,
+        "relative_energy_spread_to_gamma": 0.005,
+        "sigma_x": "10 um RMS",
+        "sigma_y": "10 um RMS",
+        "duration": "10 ps RMS",
+        "normalized_emit_x": "1e-4 cm rad",
+        "normalized_emit_y": "1e-6 cm rad"
+      },
+      "laser": {
+        "energy": "20 J",
+        "wavelength": "1030 nm",
+        "sigma_x": "10 um RMS",
+        "sigma_y": "10 um RMS",
+        "duration": "30 ps RMS",
+        "polarization_angle": "0 rad",
+        "beta_ff": 0.0
+      }
+    },
+    "gammaforge_mapping": {
+      "kinetic_energy_erg": 0.0016366024470148932,
+      "relative_energy_spread_to_kinetic_energy": 0.0050025012506253125,
+      "geometric_emit_x_cm_rad": 5.0000000000000004e-08,
+      "geometric_emit_y_cm_rad": 4.999999999999999e-10,
+      "sigma_z_cm": 0.29979245800000004,
+      "laser_duration_s": 3e-11
+    },
+    "peak_linear_equivalent_a0": 0.18117033964889395,
+    "angles_mrad": [
+      0.0,
+      5.0,
+      10.0,
+      15.0,
+      20.0,
+      25.0,
+      30.0,
+      35.0,
+      40.0
+    ],
+    "angle_definition": "theta_xz; 0 mrad is head-on (laser k along -z)",
+    "sampling": {
+      "n_particles": 15000,
+      "seeds": [
+        20260906,
+        20260907,
+        20260908
+      ],
+      "prefilter": 0.0001,
+      "particle_count_convergence": [
+        15000,
+        30000
+      ]
+    },
+    "xigma": {
+      "n_steps": 600,
+      "step_convergence": [
+        200,
+        400,
+        800
+      ]
+    },
+    "analytical": {
+      "n_quad": 401,
+      "plotted_n_quad_overlap": 12001,
+      "plotted_n_quad_u": 151,
+      "convergence": [
+        [
+          4001,
+          51
+        ],
+        [
+          8001,
+          101
+        ],
+        [
+          12001,
+          151
+        ]
+      ]
+    }
+  },
+  "agreement": {
+    "mean_abs_percent": 0.03418965657969607,
+    "max_abs_percent": 0.0919300455010541,
+    "head_on_relative_percent": -0.0919300455010541,
+    "largest_angle_relative_percent": 0.007845209316492685
+  },
+  "scope_and_limits": "Unnormalised total yield only: AnalyticalEngine's Gaussian-overlap integral versus XigmaEngine Stage-0 trajectory overlap. This comparison does not validate the angle-resolved Stage-2 emission kernel or a crossed spectrum shape."
+}
