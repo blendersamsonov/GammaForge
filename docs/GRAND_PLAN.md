@@ -759,6 +759,12 @@ state. Plot projections and the geometry sketch remain available headlessly.
 
 ## 7. Validation strategy (rebuilt from scratch)
 
+The script-first alpha has a restricted validation selector covering Gaussian
+analytical/xigma total yields and their common head-on weak-field spectrum regime.
+It runs the existing numerical gates unchanged and explicitly lists out-of-scope
+coverage. Full production validation keeps independent angular-emission and
+four-method coverage as blockers. GUI and kascade are outside alpha support.
+
 Guiding principle: **tests assert physics, not implementation**. No "detect if an
 assumption was broken" test zoo.
 
@@ -814,6 +820,16 @@ assumption was broken" test zoo.
 ---
 
 ## 8. Serialization and I/O
+
+For the script-first alpha, HDF5 results are versioned and preserve engine warnings
+and numerical metadata. An optional embedded YAML calculation request records Gaussian
+beam/laser inputs, target, sampling seed and engine settings; loading uses explicitly
+supplied engine schemas, never dynamic imports. Metadata supports plain values,
+arrays and dataclass field mappings (dataclasses load as mappings). Unknown metadata
+objects fail before writing, rather than silently disappearing. Legacy files remain
+readable with unknown provenance. Existing Bunch result payloads are preserved without
+settling the future final-electron class. GUI run export and kascade validation remain
+outside this alpha's supported scope.
 
 - **Results saving — HDF5** (h5py): slices (density arrays + axis values) + a YAML
   sidecar for parameters. Round-trip tested.
