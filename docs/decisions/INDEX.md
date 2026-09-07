@@ -67,3 +67,4 @@ cross-checks this table against the files on disk.
 | RES059 | minimal kascade ports the emission chain, not the predecessor's framework | feature | implemented | implemented/feature/RES059-minimal-kascade-emission-chain.md |
 | RES060 | Polarization uses each particle's field-free lab velocity | bug-fix | implemented | implemented/bug-fix/RES060-polarization-uses-per-particle-lab-velocity.md |
 | RES061 | Slice integration measure is explicit per axis | architecture | implemented | implemented/architecture/RES061-slice-measure-is-explicit-per-axis.md |
+| RES062 | CuPy ring/annulus importance sampler integrated as production path; NumPy grid quadrature retained for reference | architecture | implemented | implemented/architecture/RES062-cupy-importance-sampler-production-path.md |

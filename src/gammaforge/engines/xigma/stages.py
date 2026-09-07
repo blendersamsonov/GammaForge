@@ -38,6 +38,7 @@ import numpy as np
 from ...io.bunch import Bunch, illumination_window, overlap_time_window
 from ...io.laser import LaserField, fit_gaussian_paraxial
 from ...io.units import C_CGS, E_ESU, HBAR_CGS, ME_CGS, SIGMA_T_CGS
+from . import chunking
 from .chunking import run_in_chunks
 
 __all__ = [
@@ -61,6 +62,9 @@ __all__ = [
     "DEFAULT_AHAT_MIN",
     "DEFAULT_AHAT_MAX",
     "DEFAULT_AHAT_DECADES",
+    "SPECTRUM_WORKING_SET_BYTES",
+    "SPECTRUM_MAX_ENERGY_CHUNK",
+    "stage2_backend",
 ]
 
 #: Relative-velocity factor for the near-backscattering geometry: electron and photon
@@ -92,6 +96,19 @@ def relative_velocity(beta: float, theta_xz: float = 0.0, theta_yz: float = 0.0)
 #: Backward-compatible alias for code/docs that still reference the constant name.
 #: ``RELATIVE_VELOCITY = relative_velocity(1.0) == 2.0``
 RELATIVE_VELOCITY = 2.0
+
+#: The table-free spectrum has several live particle-by-energy temporaries. Its work is
+#: partitioned beneath this fixed ceiling even where the host cannot report available RAM;
+#: :mod:`chunking` further shrinks the particle side on constrained hosts.
+SPECTRUM_WORKING_SET_BYTES = 64 * 1024**2
+
+#: Energy is also an independent reduction axis. Capping it keeps a very long requested
+#: output grid from making even one particle chunk too large.
+SPECTRUM_MAX_ENERGY_CHUNK = 2048
+
+#: ``y``, its boolean mask, and the resulting spectral shape are live together. This
+#: intentionally overestimates their NumPy temporary footprint.
+_SPECTRUM_BYTES_PER_PARTICLE_ENERGY = 64
 
 
 def polarization_factor(
@@ -911,12 +928,27 @@ def angular_spectrum_from_table(
     ellipticity: float = 0.0,
     theta_xz: float = 0.0,
     theta_yz: float = 0.0,
+    backend: str = "numpy",
+    subsampling: int = 32,
 ) -> np.ndarray:
     """Stage 2: :func:`spectrum_from_table` evaluated over a grid of observation points.
 
     Feeds `OutputKind.COLLIMATED_SPECTRUM` (§3.4). Shape
     ``(len(theta_x_grid), len(theta_y_grid), len(s))``.
+
+    Dispatches to the CuPy ring/annulus importance-sampling rawkernel when ``backend``
+    is ``'cupy'`` or ``'auto'`` (and CuPy + CUDA are available for head-on linear
+    polarization). Falls back to the NumPy brute-force grid quadrature otherwise.
     """
+    selected_backend = stage2_backend(
+        backend, ellipticity=ellipticity, theta_xz=theta_xz, theta_yz=theta_yz,
+    )
+    if selected_backend == "cupy":
+        from .spectrum_sampler import calculate_angular_spectrum_gpu
+        return calculate_angular_spectrum_gpu(
+            table, theta_x_grid, theta_y_grid, s, psi_pol=psi_pol, subsampling=subsampling
+        )
+
     tx = np.atleast_1d(np.asarray(theta_x_grid, dtype=float))
     ty = np.atleast_1d(np.asarray(theta_y_grid, dtype=float))
     s_arr = np.atleast_1d(np.asarray(s, dtype=float))
@@ -929,6 +961,36 @@ def angular_spectrum_from_table(
                 theta_xz=theta_xz, theta_yz=theta_yz
             )
     return out
+
+
+def stage2_backend(
+    backend: str,
+    *,
+    ellipticity: float = 0.0,
+    theta_xz: float = 0.0,
+    theta_yz: float = 0.0,
+) -> str:
+    """Resolve a Stage-2 request to its actual supported compute path."""
+    if backend not in ("auto", "cupy", "numpy"):
+        raise ValueError(f"Unknown backend {backend!r}; expected 'auto', 'cupy', or 'numpy'.")
+    gpu_geometry = ellipticity == 0.0 and theta_xz == 0.0 and theta_yz == 0.0
+    if backend == "cupy":
+        if not gpu_geometry:
+            raise NotImplementedError(
+                "angular_spectrum_from_table(backend='cupy'): CuPy importance sampler only supports "
+                "head-on linear polarization today; non-zero ellipticity or crossing angles must use backend='numpy'."
+            )
+        from .spectrum_sampler import is_gpu_available
+        if not is_gpu_available():
+            raise RuntimeError(
+                "angular_spectrum_from_table(backend='cupy') requested but CuPy or a CUDA device is not available."
+            )
+        return "cupy"
+    if backend == "auto" and gpu_geometry:
+        from .spectrum_sampler import is_gpu_available
+        if is_gpu_available():
+            return "cupy"
+    return "numpy"
 
 
 def angle_integrated_spectrum(samples: TrajectorySamples, s) -> np.ndarray:
@@ -947,10 +1009,35 @@ def angle_integrated_spectrum(samples: TrajectorySamples, s) -> np.ndarray:
     this is a stated approximation, not the full physics (mirrors delta's own caveat).
     """
     s_values = np.atleast_1d(np.asarray(s, dtype=float))
-    gamma_squared = (samples.gamma**2)[:, None]
-    y = s_values[None, :] / gamma_squared
-    shape = np.where((y < 0.0) | (y > 1.0), 0.0, 1.5 * (1.0 - 2.0 * y * (1.0 - y)))
-    spectrum = np.sum(samples.luminosity[:, None] * shape / gamma_squared, axis=0)
+    output_bytes = s_values.size * np.dtype(float).itemsize
+    available = chunking.available_ram_bytes()
+    if available is not None and output_bytes > available * chunking.SAFETY_FRACTION["numpy"]:
+        raise MemoryError(
+            "angle_integrated_spectrum: requested output grid needs "
+            f"{output_bytes:,} bytes, exceeding the available-memory budget"
+        )
+
+    spectrum = np.zeros(s_values.shape, dtype=float)
+    for energy_start in range(0, s_values.size, SPECTRUM_MAX_ENERGY_CHUNK):
+        energy_stop = min(energy_start + SPECTRUM_MAX_ENERGY_CHUNK, s_values.size)
+        energy = s_values[energy_start:energy_stop]
+        bytes_per_particle = _SPECTRUM_BYTES_PER_PARTICLE_ENERGY * energy.size
+        particle_ceiling = max(1, SPECTRUM_WORKING_SET_BYTES // bytes_per_particle)
+
+        def integrate_particle_chunk(start: int, stop: int) -> np.ndarray:
+            gamma_squared = (samples.gamma[start:stop] ** 2)[:, None]
+            y = energy[None, :] / gamma_squared
+            shape = np.where((y < 0.0) | (y > 1.0), 0.0, 1.5 * (1.0 - 2.0 * y * (1.0 - y)))
+            return np.sum(samples.luminosity[start:stop, None] * shape / gamma_squared, axis=0)
+
+        partials = run_in_chunks(
+            samples.n_particles,
+            integrate_particle_chunk,
+            bytes_per_item=bytes_per_particle,
+            ceiling=particle_ceiling,
+        )
+        if partials:
+            spectrum[energy_start:energy_stop] = np.sum(partials, axis=0)
     return spectrum if np.ndim(s) else spectrum[0]
 
 
@@ -965,6 +1052,8 @@ def spectrum_in_angular_range(
     ellipticity: float = 0.0,
     theta_xz: float = 0.0,
     theta_yz: float = 0.0,
+    backend: str = "numpy",
+    subsampling: int = 32,
 ) -> tuple[np.ndarray, np.ndarray, float]:
     """Stage 2: the windowed on-demand query the `Collision` facade wraps.
 
@@ -981,7 +1070,8 @@ def spectrum_in_angular_range(
     cube = angular_spectrum_from_table(
         table, tx, ty, s_centers,
         psi_pol=psi_pol, ellipticity=ellipticity,
-        theta_xz=theta_xz, theta_yz=theta_yz
+        theta_xz=theta_xz, theta_yz=theta_yz,
+        backend=backend, subsampling=subsampling,
     )
     dN_ds = np.trapezoid(np.trapezoid(cube, ty, axis=1), tx, axis=0)
     n_photons = float(np.trapezoid(dN_ds, s_centers))

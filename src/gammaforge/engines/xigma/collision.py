@@ -15,7 +15,7 @@ replaced (RES030).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import math
 import numpy as np
@@ -33,10 +33,11 @@ from .stages import (
     deposit_shape_table,
     integrate_trajectories,
     retarget_ahat,
+    stage2_backend,
     spectrum_in_angular_range as _spectrum_in_angular_range,
 )
 
-__all__ = ["Collision"]
+__all__ = ["Collision", "SUPPORTED_OUTPUTS"]
 
 #: `OutputKind`s this Collision can fill today. `TEMPORAL_ENVELOPE`/`SPATIAL_DISTRIBUTION`
 #: need Stage 0 diagnostics `TrajectorySamples` does not carry (per-step position/time,
@@ -44,17 +45,22 @@ __all__ = ["Collision"]
 #: no photon-macroparticle population to dump (xigma is a tabulated-density engine, not an
 #: MC one). All three are omitted, not silently approximated — `run()` fills only what a
 #: request asks for and this set covers, same contract as any engine (P10).
-_SUPPORTED = frozenset({
+SUPPORTED_OUTPUTS: tuple[OutputKind, ...] = (
     OutputKind.TOTAL_YIELD,
     OutputKind.SPECTRUM,
     OutputKind.ANGULAR_DISTRIBUTION,
     OutputKind.COLLIMATED_SPECTRUM,
-})
+)
+_SUPPORTED = frozenset(SUPPORTED_OUTPUTS)
 
 
-@dataclass
+@dataclass(frozen=True)
 class Collision:
-    """One interaction, xigma's own knobs, and the stages they produce."""
+    """One fixed interaction/parameter snapshot and the stages it produces.
+
+    Public inputs cannot be replaced after memoization begins. The private cache fields
+    remain the facade's only mutable state (RES030).
+    """
 
     interaction: InteractionParameters
     params: Parameters
@@ -66,20 +72,20 @@ class Collision:
     def build_overlap(self) -> TrajectorySamples:
         """Stage 0, memoized: every other method funnels through this."""
         if self._samples is None:
-            self._samples = integrate_trajectories(
+            object.__setattr__(self, "_samples", integrate_trajectories(
                 self.interaction.bunch,
                 self.interaction.laser,
                 self.interaction.N_e,
                 n_steps=self.params.get_int("n_steps"),
                 threshold=self.params.get_float("threshold"),
-            )
+            ))
         return self._samples
 
     def _shape(self) -> ShapeTable:
         """Stage 1, memoized: peak-a0-agnostic, so this runs at most once per `Collision`
         regardless of how many distinct peak a0 values `_table()` is asked for."""
         if self._shape_table is None:
-            self._shape_table = deposit_shape_table(
+            object.__setattr__(self, "_shape_table", deposit_shape_table(
                 self.build_overlap(),
                 n_bins=(
                     self.params.get_int("n_bins_gamma"),
@@ -88,7 +94,7 @@ class Collision:
                     self.params.get_int("n_bins_a0_shape"),
                 ),
                 scheme=self.params.get_choice("scheme"),
-            )
+            ))
         return self._shape_table
 
     def _table(self, intensity_peak: float | None = None) -> Table:
@@ -126,12 +132,15 @@ class Collision:
         ellipticity: float = 0.0,
         theta_xz: float = 0.0,
         theta_yz: float = 0.0,
+        backend: str | None = None,
     ) -> np.ndarray:
         """Stage 2, at the pulse's own peak a0: ``d3N / (ds dtheta_x dtheta_y)``."""
+        b = backend or (self.params.get_choice("backend") if "backend" in self.params else "auto")
         return angular_spectrum_from_table(
             self._table(), theta_x, theta_y, s,
             psi_pol=psi_pol, ellipticity=ellipticity,
-            theta_xz=theta_xz, theta_yz=theta_yz
+            theta_xz=theta_xz, theta_yz=theta_yz,
+            backend=b,
         )
 
     def spectrum_in_angular_range(
@@ -145,21 +154,32 @@ class Collision:
         ellipticity: float = 0.0,
         theta_xz: float = 0.0,
         theta_yz: float = 0.0,
+        backend: str | None = None,
     ):
         """The windowed on-demand query (§4.2) — cheap once `build_overlap`/`_table` ran."""
+        b = backend or (self.params.get_choice("backend") if "backend" in self.params else "auto")
         return _spectrum_in_angular_range(
             self._table(),
             theta_x_range, theta_y_range, s_edges,
             resolution=resolution,
             psi_pol=psi_pol, ellipticity=ellipticity,
-            theta_xz=theta_xz, theta_yz=theta_yz
+            theta_xz=theta_xz, theta_yz=theta_yz,
+            backend=b,
         )
 
     # -- Results assembly -------------------------------------------------
     def run(self, requests: tuple[OutputRequest, ...]) -> Results:
         """Fill every requested output this Collision supports; skip the rest (P10)."""
         target = self.interaction.target
-        ranges = auto_ranges(target, self.interaction.beam, self.interaction.laser, self.interaction.bunch)
+        supported_requests = tuple(request for request in requests if request.kind in _SUPPORTED)
+        if not supported_requests:
+            return Results(photon_slices={}, model_specific={"warnings": ()})
+        ranges = auto_ranges(
+            replace(target, outputs=supported_requests),
+            self.interaction.beam,
+            self.interaction.laser,
+            self.interaction.bunch,
+        )
         metrics = fit_gaussian_paraxial(self.interaction.laser)
         # Photon energy with crossing angle factor cos²(α/2) per DER005 §2.2
         photon_energy = metrics.photon_energy()
@@ -175,14 +195,42 @@ class Collision:
         ellipticity = metrics.ellipticity
 
         slices: dict[OutputKind, PhasespaceSlice] = {}
-        for request in requests:
-            if request.kind not in _SUPPORTED:
-                continue
-            slices[request.kind] = self._fill(
-                request, ranges[request.kind], photon_energy, psi_pol, ellipticity,
-                theta_xz, theta_yz
+        if self.build_overlap().n_particles == 0:
+            for request in supported_requests:
+                values = slice_axis_values(request, ranges[request.kind])
+                slices[request.kind] = PhasespaceSlice(
+                    axes=values,
+                    distr=np.zeros(tuple(value.size for value in values.values())),
+                )
+        else:
+            for request in supported_requests:
+                slices[request.kind] = self._fill(
+                    request, ranges[request.kind], photon_energy, psi_pol, ellipticity,
+                    theta_xz, theta_yz
+                )
+        warnings = ()
+        if OutputKind.SPECTRUM in slices:
+            warnings = (
+                "SPECTRUM uses xigma's table-free linear-Compton shape and omits the "
+                "nonlinear redshift carried by the tabulated angular kernel.",
             )
-        return Results(photon_slices=slices)
+        model_specific: dict[str, object] = {"warnings": warnings}
+        if self.build_overlap().n_particles and (
+            OutputKind.ANGULAR_DISTRIBUTION in slices
+            or OutputKind.COLLIMATED_SPECTRUM in slices
+        ):
+            requested_backend = self.params.get_choice("backend") if "backend" in self.params else "auto"
+            selected_backend = stage2_backend(
+                requested_backend,
+                ellipticity=ellipticity, theta_xz=theta_xz, theta_yz=theta_yz,
+            )
+            model_specific["stage2_backend"] = selected_backend
+            if selected_backend == "cupy":
+                model_specific["stage2_sampler"] = {
+                    "samples_total": 256,
+                    "subsampling": 32,
+                }
+        return Results(photon_slices=slices, model_specific=model_specific)
 
 
     def _fill(

@@ -13,3 +13,4 @@ same change as any new derivation file or any status move —
 | DER005 | Crossing angle in the emission kernel | verified | verified/DER005-crossing-angle-in-the-emission-kernel.md |
 | DER006 | Polarization matrix with ellipticity and crossing angle | verified | verified/DER006-polarization-matrix-with-ellipticity-and-crossing-angle.md |
 | DER007 | Stokes parameters of scattered Compton photons | verified | verified/DER007-stokes-parameters-of-scattered-compton-photons.md |
+| DER008 | Ring/annulus importance sampling spectrum kernel | derived | derived/DER008-ring-annulus-importance-sampling-spectrum-kernel.md |

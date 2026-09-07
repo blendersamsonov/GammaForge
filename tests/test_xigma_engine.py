@@ -18,6 +18,7 @@ from gammaforge.engines.xigma.collision import Collision
 from gammaforge.engines.xigma.engine import XigmaEngine
 from gammaforge.engines.xigma.stages import integrate_trajectories
 from gammaforge.io.bunch import sample_gaussian_bunch
+from gammaforge.io.interaction import SamplingSpec
 from gammaforge.io.results import Axis
 from gammaforge.io.target import OutputKind, OutputRequest
 from gammaforge.io.units import Quantity as Q
@@ -36,6 +37,21 @@ def _interaction(n_particles=4000, outputs=()):
 
 def _engine_params(**overrides):
     return XigmaEngine.schema.with_values(**_SMALL_BINS, **overrides)
+
+
+def _empty_interaction(outputs, *, through_prefilter: bool):
+    if not through_prefilter:
+        interaction = _interaction(n_particles=64, outputs=outputs)
+        return replace(interaction, bunch=interaction.bunch.select(np.zeros(64, dtype=bool)))
+
+    scenario = replace(
+        scenarios.BASELINE,
+        laser=replace(scenarios.BASELINE.laser, x_off=Q(1.0, "cm")),
+        sampling=SamplingSpec(n_particles=64, seed=0, prefilter=1e-3),
+    )
+    interaction = scenarios.build(scenario)
+    assert interaction.bunch.n_particles == 0
+    return replace(interaction, target=replace(interaction.target, outputs=outputs))
 
 
 def test_xigma_engine_conforms_to_the_engine_protocol():
@@ -62,12 +78,59 @@ def test_unsupported_output_kinds_are_silently_omitted_not_errored():
     assert set(results.photon_slices) == {OutputKind.TOTAL_YIELD}
 
 
+@pytest.mark.parametrize("through_prefilter", [False, True])
+def test_empty_bunch_returns_zero_for_every_supported_output(through_prefilter):
+    requests = (
+        OutputRequest(OutputKind.TOTAL_YIELD),
+        OutputRequest(OutputKind.SPECTRUM, resolution=(3,)),
+        OutputRequest(OutputKind.ANGULAR_DISTRIBUTION, resolution=(2, 2)),
+        OutputRequest(OutputKind.COLLIMATED_SPECTRUM, resolution=(3, 2, 2)),
+    )
+    results = XigmaEngine().run(
+        _empty_interaction(requests, through_prefilter=through_prefilter), _engine_params()
+    )
+    assert set(results.photon_slices) == set(XigmaEngine.supported_outputs)
+    assert all(np.all(slice_.distr == 0.0) for slice_ in results.photon_slices.values())
+
+
+def test_unsupported_temporal_output_cannot_autorange_an_empty_interaction():
+    requests = (
+        OutputRequest(OutputKind.TOTAL_YIELD),
+        OutputRequest(OutputKind.TEMPORAL_ENVELOPE, resolution=(3,)),
+    )
+    results = XigmaEngine().run(_empty_interaction(requests, through_prefilter=True), _engine_params())
+    assert set(results.photon_slices) == {OutputKind.TOTAL_YIELD}
+
+
+def test_table_free_spectrum_limitation_is_reported_in_results():
+    results = XigmaEngine().run(
+        _interaction(outputs=(OutputRequest(OutputKind.SPECTRUM, resolution=(3,)),)), _engine_params()
+    )
+    assert results.model_specific["warnings"] == (
+        "SPECTRUM uses xigma's table-free linear-Compton shape and omits the "
+        "nonlinear redshift carried by the tabulated angular kernel.",
+    )
+
+
 def test_build_overlap_is_memoized():
     interaction = _interaction()
     collision = Collision(interaction=interaction, params=_engine_params())
     first = collision.build_overlap()
     second = collision.build_overlap()
     assert first is second
+
+
+def test_collision_rejects_replacement_of_fixed_cache_inputs():
+    interaction = _interaction()
+    collision = Collision(interaction=interaction, params=_engine_params())
+    collision.build_overlap()
+
+    with pytest.raises(AttributeError):
+        collision.interaction = interaction.with_charge(Q(2.0, "nC"))
+    with pytest.raises(AttributeError):
+        collision.params = _engine_params(n_steps=32)
+
+    assert collision.build_overlap().total_yield() > 0.0
 
 
 def test_shape_is_memoized():
@@ -145,7 +208,7 @@ def test_the_two_normalization_paths_inside_one_results_object_agree():
     interaction = replace(interaction, target=target)
     params = XigmaEngine.schema.with_values(
         n_bins_gamma=32, n_bins_theta_x=24, n_bins_theta_y=24,
-        n_bins_a0_shape=64, n_bins_ahat=8, scheme="cic",
+        n_bins_a0_shape=64, n_bins_ahat=8, scheme="cic", backend="numpy",
     )
     results = XigmaEngine().run(interaction, params)
 
@@ -169,6 +232,7 @@ def test_angular_and_collimated_slices_are_nonnegative():
     results = XigmaEngine().run(interaction, _engine_params())
     for kind in (OutputKind.ANGULAR_DISTRIBUTION, OutputKind.COLLIMATED_SPECTRUM):
         assert np.all(results.photon_slices[kind].distr >= 0.0)
+    assert results.model_specific["stage2_backend"] == "numpy"
 
 
 # ---------------------------------------------------------------------------
