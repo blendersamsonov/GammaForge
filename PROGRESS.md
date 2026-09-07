@@ -18,16 +18,18 @@ unfinished or waiting on someone*.
 | 1. Core (`gammaforge.io`) | 🟢 done |
 | 2. Validation harness | 🟢 done |
 | 2.5. Stage 0 + minimal delta | 🟢 done |
-| 3a. xigma engineering | 🟢 done — Stage 0/1/2, `Collision`, `XigmaEngine`. Stage 2 CuPy ring/annulus importance sampler integrated for production; NumPy grid quadrature retained for reference (RES062). |
+| 3a. xigma engineering | 🟢 NumPy Stage 0/1/2, `Collision`, `XigmaEngine`. CuPy port merged but experimental: GPU/reference discrepancy blocks promotion (RES062). |
 | 3b. Physics closure | 🟡 §9.1 closed (RES033). The author-approved per-particle lab-frame polarization projection is implemented (RES060); independent arbitrary-angle emission validation remains open. |
 | 4. analytical engine | 🟢 landed and merged to `main`; general overlap-integral yield, width breakdown, quadrature spectrum, flying focus, crossing angle for the yield. Open: collimated-spectrum construction |
 | 5. kascade port + delta full role | 🟡 minimal `KascadeEngine`, Thomson sanity anchor, and opt-in GUI integration landed (RES059); four-method validation wiring remains open |
 | 6. GUI | 🟡 NiceGUI local browser UI implemented (RES058, `docs/UI_SPEC.md`): Inputs/Results, split panes, schema forms, preview, worker execution, plots/exports. Cross-run xigma stage reuse remains open; no LAN executor yet. |
-| 7. Validation completion | ⚪ not started |
-| 8. Polish | ⚪ not started |
+| 7. Validation completion | 🟡 restricted headless alpha gate implemented; full independent angular/four-method coverage remains open |
+| 8. Polish | 🟡 script alpha 0.1.0a1: explicit-input example, figure/data, request/result persistence and installation guide; broader release work remains open |
 
 **Suite:** `pytest` green; `python -m gammaforge.validation.run` passes its runnable
-core/identity/golden checks. `python -m gammaforge.validation.run --production` runs the
+core/identity/golden checks. `python -m gammaforge.validation.run --alpha` adds reduced
+analytical/xigma comparisons within the release scope (RES065).
+`python -m gammaforge.validation.run --production` runs the
 reduced xigma/analytical yield and spectral gates over the shared bank, then exits nonzero
 for its explicit angular, kascade, and arbitrary-angle-emission coverage blockers.
 
@@ -49,6 +51,11 @@ Ordered by who is blocked. Each names the file that carries the detail.
   tests are a one-commit deletion.
 ### Available to pick up (no external dependency)
 
+- **Resolve CuPy/reference distribution disagreement.** The kernel executes on GTX
+  1660 Ti, but a baseline cube gives an integrated ratio of 1.419 and neither method's
+  convergence has been established. NumPy remains the alpha default. Reproducer and
+  strict expected-failure test: `docs/ALPHA_GPU_VALIDATION.md`.
+
 - **Independently validate arbitrary-angle emission.** RES060 implements the author-approved
   lab-frame polarization projection and checks it directly against Eq. `udef`, but no
   independent arbitrary-angle emission method has yet checked the resulting observables.
@@ -61,12 +68,13 @@ Ordered by who is blocked. Each names the file that carries the detail.
 - **Finish Phase 5 validation wiring.** `KascadeEngine` supplies the independent
   overlap/emission leg and passes its Thomson-limit anchor. Delta's full role and the
   four-method scenario-bank comparison still need wiring into `run_suite()`.
-- **Finish MC export.** Kascade photon macroparticles round-trip through HDF5 and the GUI
-  reports final-electron statistics, but final-electron HDF5 and elegant-compatible
-  export remain the format/typing items in GRAND_PLAN.md §8/§10.8.
-- **Wire engines into `run_suite()`.** `validation.run.main()` still passes none (RES031), so
-  the suite's green never exercises the cross-engine comparison; the xigma-vs-analytical
-  agreement (0.31% on `ahat`, 0.32% on yield) has to be measured by hand.
+- **Finish MC export.** Current Bunch/photon payloads round-trip through HDF5 (RES063);
+  elegant-compatible final-electron export and future typing remain the format items
+  in GRAND_PLAN.md §8/§10.8. Kascade is outside alpha support.
+- **Extend production coverage.** Reduced analytical/xigma yield and spectral comparisons
+  run through the alpha/production selectors. Independent angular distributions and
+  four-method comparisons remain unwired; the default command still runs only core,
+  identity and scalar-golden checks.
 - **Cross-run xigma stage reuse.** The GUI uses the public `LocalRunner`, which enumerates
   available engines and reuses the sampled bunch, but xigma still creates one `Collision`
   per run (RES030). Only charge is currently declared cheap; engine-side stage caching

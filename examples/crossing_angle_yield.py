@@ -26,6 +26,7 @@ import subprocess
 import sys
 from dataclasses import replace
 from datetime import datetime, timezone
+from importlib.metadata import version
 from pathlib import Path
 
 import matplotlib
@@ -141,7 +142,7 @@ def xigma_yield(
 
 def write_csv(path: Path, rows: list[dict]) -> None:
     with path.open("w", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
+        writer = csv.DictWriter(stream, fieldnames=list(rows[0]), lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 
@@ -324,6 +325,8 @@ def main() -> None:
     provenance = {
         "generated_utc": datetime.now(timezone.utc).isoformat(),
         "git_revision": _git_revision(),
+        "gammaforge": version("gammaforge"),
+        "pint": version("pint"),
         "python": sys.version,
         "platform": platform.platform(),
         "numpy": np.__version__,

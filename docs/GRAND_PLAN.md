@@ -1,6 +1,6 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.29 — 2026-09-06
+**Status:** draft v0.30 — 2026-09-07
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 
@@ -473,6 +473,17 @@ class Engine(Protocol):
   or the GUI needs to enumerate them.
 
 ### 4.2 xigma engine (`engines/xigma/`) — first-class
+
+**Script alpha update (RES062):** Stage 0/1 remain NumPy. Stage 2 now dispatches
+head-on, linearly polarized angular queries to the ported CuPy ring/annulus sampler
+when explicitly selected and CUDA is available. NumPy is the alpha default: the
+GPU port remains experimental because its density/integral comparison has not closed
+(see `docs/ALPHA_GPU_VALIDATION.md`). Other geometries use the NumPy quadrature;
+explicit unsupported CuPy requests raise. The alpha exception to the v0.18 target
+below keeps deterministic CPU quadrature in production until a validated CPU sampler
+exists. Numerical kernel comparison does not close independent emission validation.
+`Collision` fixes its public inputs at construction (RES064); cached intermediates
+are per-instance, with no new cross-run cache.
 
 The tabulated-overlap pipeline, restructured into composable stages:
 
@@ -994,6 +1005,15 @@ duplicated (C4).
 ---
 
 ## Changelog
+
+- **v0.30**: Author-scoped script alpha (`0.1.0a1`) covers Gaussian analytical/xigma
+  calculations and a reproducible crossing-angle yield figure, excluding GUI/kascade
+  support. CuPy angular sampling is integrated experimentally for head-on linear
+  polarization; NumPy remains the default after GPU/reference disagreement (RES062).
+  Shared input snapshots reject invalid construction and
+  isolate caller arrays (RES064). Versioned HDF5 preserves metadata and an optional
+  replayable submitted request (RES063). A restricted alpha gate retains numerical
+  failures while reporting deferred full-production coverage (RES065).
 
 - **v0.29**: Slice integration now carries an explicit per-axis histogram measure.
   Histogram cell densities use their stored widths, while smooth point samples retain

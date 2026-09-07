@@ -5,7 +5,15 @@ from __future__ import annotations
 import runpy
 import subprocess
 import sys
+from importlib.util import find_spec
 from pathlib import Path
+
+import pytest
+
+
+if find_spec("sympy") is None:
+    pytest.skip("requires the symbolic extra (sympy)", allow_module_level=True)
+import sympy  # noqa: F401 -- fail on a broken declared symbolic installation
 
 
 SCRIPTS = Path(__file__).parents[1] / "scripts" / "verifications"

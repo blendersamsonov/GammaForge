@@ -1,4 +1,12 @@
+from importlib.util import find_spec
+
 import numpy as np
+import pytest
+
+
+if find_spec("plotly") is None:
+    pytest.skip("requires the gui extra (plotly)", allow_module_level=True)
+import plotly.graph_objects  # noqa: F401 -- fail on a broken declared GUI installation
 
 from gammaforge.io.bunch import Bunch, GaussianElectronBeam
 from gammaforge.io.drawing import geometry_model

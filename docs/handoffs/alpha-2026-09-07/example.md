@@ -1,5 +1,7 @@
 # Crossing-angle yield example handoff
 
+Integrated into main; the script and artifacts are under examples/.
+
 **Status:** complete and measured on 2026-09-06 UTC.  This worktree was created from
 `main` at `54e9132`; it is intentionally isolated from the runtime fixes currently
 uncommitted in the primary checkout.

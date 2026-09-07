@@ -1,6 +1,7 @@
 """Opt-in real browser smoke test: GAMMAFORGE_BROWSER_TEST=1 pytest -q ... ."""
 
 import os
+from importlib.util import find_spec
 from pathlib import Path
 import shutil
 import socket
@@ -16,10 +17,9 @@ pytestmark = pytest.mark.skipif(os.environ.get("GAMMAFORGE_BROWSER_TEST") != "1"
 
 
 def test_browser_layout_and_calculation(tmp_path):
-    playwright = pytest.importorskip("playwright.sync_api")
-    browser_path = shutil.which("chromium") or shutil.which("chromium-browser")
-    if not browser_path:
-        pytest.skip("Chromium is not installed")
+    if find_spec("playwright.sync_api") is None:
+        pytest.fail("browser tier requires playwright; install the browser extra")
+    from playwright import sync_api as playwright
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -45,6 +45,13 @@ def test_browser_layout_and_calculation(tmp_path):
                 log.seek(0)
                 pytest.fail(f"Server did not start: {log.read()}")
             with playwright.sync_playwright() as p:
+                browser_path = (
+                    shutil.which("chromium")
+                    or shutil.which("chromium-browser")
+                    or p.chromium.executable_path
+                )
+                if not Path(browser_path).is_file():
+                    pytest.fail("Chromium is not installed; run `python -m playwright install chromium`")
                 browser = p.chromium.launch(executable_path=browser_path, headless=True,
                                             args=["--no-sandbox", "--enable-unsafe-swiftshader"])
                 page = browser.new_page(viewport={"width": 1600, "height": 1200})
@@ -105,7 +112,7 @@ def test_browser_layout_and_calculation(tmp_path):
                     hdf5_button.click()
                 from gammaforge.io.formats.hdf5 import load_results
                 from gammaforge.io.target import OutputKind
-                assert OutputKind.SPECTRUM.value in load_results(download.value.path()).photon_slices
+                assert OutputKind.SPECTRUM in load_results(download.value.path()).photon_slices
                 with page.expect_download() as download:
                     page.get_by_role("button", name="PNG", exact=True).click()
                 assert Path(download.value.path()).read_bytes().startswith(b"\x89PNG")

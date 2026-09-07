@@ -1,4 +1,4 @@
-# RES062 — CuPy ring/annulus importance sampler integrated as production path; NumPy grid quadrature retained for reference
+# RES062 — CuPy ring/annulus sampler integrated experimentally; NumPy remains the alpha default
 
 Status: implemented
 Class: architecture
@@ -32,15 +32,15 @@ milliseconds on a modern GPU.
    - Normalize with `KERNEL_NORMALIZATION_CONSTANT = 1.5 / (2 pi)` (RES033).
    - Consume 1D device arrays `ahat_centers` and `ahat_widths` supporting the non-uniform
      log-spaced target grid (RES032), replacing the predecessor's uniform `a0` linspace assumption.
-3. Expose compute backend selection via `backend: Choice("auto", "cupy", "numpy", default="auto")`
+3. Expose compute backend selection via `backend: Choice("auto", "cupy", "numpy", default="numpy")`
    in `XigmaEngine.schema` (`XIGMA_SPECS`) and optional arguments to Stage 2 functions:
-   - `"auto"` (default): Dispatches to CuPy importance sampling if CuPy and a CUDA device are
+   - `"auto"` (experimental opt-in): Dispatches to CuPy importance sampling if CuPy and a CUDA device are
      available, and the interaction has head-on linear polarization. Otherwise falls back
      gracefully to NumPy brute force.
    - `"cupy"`: Explicitly requests the CuPy kernel. If CuPy or a CUDA device is unavailable, raises
      `RuntimeError`. If non-zero ellipticity or crossing angles are requested, raises
      `NotImplementedError`.
-   - `"numpy"`: Always executes the deterministic brute-force grid quadrature.
+   - `"numpy"` (default): Always executes the deterministic brute-force grid quadrature.
 4. Retain the NumPy brute-force grid quadrature as the golden reference for testing and validation.
 
 ## Alternatives considered

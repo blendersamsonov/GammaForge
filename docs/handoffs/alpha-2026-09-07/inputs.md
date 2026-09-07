@@ -1,5 +1,8 @@
 # Alpha inputs handoff
 
+Integrated into main. Collision replacement and returned-sample mutation are now
+guarded by the sampler integration; arbitrary mutable fields remain outside alpha.
+
 Worktree: `/tmp/gammaforge-alpha-inputs`
 Branch: `work/alpha-inputs` (based on `main`)
 
@@ -35,8 +38,8 @@ PYTHONPATH=src /home/alexander/Work/Code/GammaForge/.venv/bin/pytest -q \
   tests/test_target_results_interaction.py tests/test_calculation_runner.py
 ```
 
-`tests/test_doc_staleness.py` passes. `tests/test_decision_format.py` has one expected
-integration failure until root adds the `RES064` row to `docs/decisions/INDEX.md`.
+`tests/test_doc_staleness.py` passes. The integration added the `RES064` index row;
+the decision-format guard now passes as well.
 
 ## Resume commands
 

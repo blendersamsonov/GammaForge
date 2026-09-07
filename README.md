@@ -9,9 +9,18 @@ contract is in [docs/UI_SPEC.md](docs/UI_SPEC.md).
 
 ## Status
 
-- Shared CGS-Gaussian inputs, xigma, and the analytical engine are available.
-- The optional local NiceGUI workspace runs xigma and the validation-only kascade port;
-  analytical estimates are always available.
+- **0.1.0a1: script-first alpha** for Gaussian calculations with analytical and xigma.
+  Start with the [alpha guide](docs/ALPHA.md) and the
+  [crossing-angle yield example](examples/crossing_angle_yield.py).
+- NumPy is the validated default. The merged CuPy angular sampler remains experimental
+  pending [numerical agreement](docs/ALPHA_GPU_VALIDATION.md).
+- GUI and kascade remain available for development, outside alpha release support.
+
+```bash
+python -m pip install -e .
+python -m gammaforge.validation.run --alpha
+python examples/crossing_angle_yield.py
+```
 
 ## Layout
 
@@ -23,20 +32,45 @@ src/gammaforge/
 └── gui/           # optional local NiceGUI browser workspace
 ```
 
-## Dev install
+## Development setup
+
+Core development and tests require no browser dependencies:
 
 ```bash
-pip install -e .
-pytest
+python -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -e '.[dev]'
+make check PYTHON=.venv/bin/python
 ```
+
+The reusable library ranges live in `pyproject.toml`.
+`requirements/developer.lock` pins the recorded CPython 3.14/Linux developer set for
+the core, GUI, browser, and symbolic tiers. To reproduce it, first install the local
+project without resolving dependencies, then install the pinned set:
+
+```bash
+.venv/bin/python -m pip install -e . --no-deps
+.venv/bin/python -m pip install -r requirements/developer.lock
+```
+
+The lock is intentionally not a cross-platform promise. Regenerate it after dependency
+changes in a clean virtual environment with:
+
+```bash
+.venv/bin/python -m pip install -e '.[dev,gui,browser,symbolic]'
+.venv/bin/python -m pip freeze --exclude-editable > requirements/developer.lock
+```
+
+CI separately exercises the declared lower bounds on Python 3.12 and the current
+dependency ranges on Python 3.14.
 
 ## Local browser workspace
 
-Install the optional browser dependencies, then start a loopback server:
+Install the optional GUI dependencies, then start a loopback server:
 
 ```bash
-pip install -e '.[gui]'
-python -m gammaforge.gui
+.venv/bin/python -m pip install -e '.[dev,gui]'
+.venv/bin/python -m gammaforge.gui
 ```
 
 For this checkout's virtual environment and a fixed port:
@@ -63,13 +97,27 @@ browser refreshes are deferred.
 
 ## Tests
 
-```bash
-.venv/bin/python -m pytest
-```
-
-An optional browser test can be run where Playwright and a system Chromium are
-available:
+`make check` is the local counterpart to CI's core tier. The optional tiers are explicit:
 
 ```bash
-GAMMAFORGE_BROWSER_TEST=1 .venv/bin/pytest -q tests/test_gui_browser.py
+# GUI plotting and import-boundary tests
+.venv/bin/python -m pytest -q tests/test_gui_boundary.py tests/test_gui_controller.py tests/test_gui_inputs.py tests/test_gui_plotting.py
+
+# Symbolic derivation checks
+.venv/bin/python -m pip install -e '.[dev,symbolic]'
+.venv/bin/python -m pytest -q tests/test_verifications.py
+.venv/bin/python scripts/verifications/verify_all.py der004
 ```
+
+The browser tier also needs Playwright's separate browser binary installation:
+
+```bash
+.venv/bin/python -m pip install -e '.[dev,gui,browser]'
+.venv/bin/python -m playwright install chromium
+GAMMAFORGE_BROWSER_TEST=1 .venv/bin/python -m pytest -q tests/test_gui_browser.py
+```
+
+The `gpu` extra installs the experimental head-on linear-polarization CuPy angular
+sampler. It is opt-in and has an unresolved numerical validation discrepancy; see the
+alpha guide before use. The `jit` extra remains a dependency placeholder for an
+unimplemented backend.

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib.util
+
 import pytest
 
 from gammaforge.engines.analytical.engine import AnalyticalEngine
@@ -100,6 +102,7 @@ def test_correcting_a_cross_field_error_clears_the_request_blocker():
     assert state.request().target.m("theta_x_col") == pytest.approx(1e-3)
 
 
+@pytest.mark.skipif(importlib.util.find_spec("nicegui") is None, reason="requires GUI extra")
 def test_unit_event_reformats_value_without_physical_change_callback():
     state = InputState({"analytical": AnalyticalEngine()})
     calls: list[tuple[str, str]] = []

@@ -1,10 +1,12 @@
 """The UI can call the public runner but cannot reach engine implementation code."""
 
 import ast
-from importlib.util import resolve_name
+from importlib.util import find_spec, resolve_name
 from pathlib import Path
 import subprocess
 import sys
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -49,3 +51,11 @@ def test_importing_gui_does_not_start_or_import_web_server():
     subprocess.run([sys.executable, "-c",
                     "import sys; import gammaforge.gui; assert 'nicegui' not in sys.modules"],
                    check=True, cwd=ROOT, timeout=10)
+
+
+def test_gui_extra_imports_when_installed():
+    if find_spec("nicegui") is None:
+        pytest.skip("requires the gui extra (nicegui)")
+    from nicegui import ui
+
+    assert ui is not None
