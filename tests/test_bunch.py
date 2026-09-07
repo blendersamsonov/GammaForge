@@ -193,6 +193,32 @@ def test_sampling_validates_the_beam():
         sample_gaussian_bunch(make_beam(), 0, seed=0)
 
 
+@pytest.mark.parametrize("field", ["rel_energy_spread", "rho_x_gamma", "alpha_x"])
+@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
+def test_beam_rejects_nonfinite_scalar_inputs(field, value):
+    with pytest.raises(ValueError, match=field):
+        make_beam(**{field: value})
+
+
+def test_bunch_takes_ownership_of_particle_arrays_and_keeps_empty_vectors():
+    source = np.arange(3.0)
+    bunch = Bunch(source, source, source, source, source, source + 2.0, np.ones(3))
+    source[0] = 99.0
+    assert bunch.x[0] == 0.0
+    with pytest.raises(ValueError):
+        bunch.x[0] = 1.0
+
+    empty = np.empty(0)
+    assert Bunch(empty, empty, empty, empty, empty, empty, empty).n_particles == 0
+
+
+def test_bunch_rejects_non_vector_or_unequal_particle_arrays():
+    with pytest.raises(ValueError, match="one-dimensional"):
+        Bunch(np.zeros((2, 1)), np.zeros(2), np.zeros(2), np.zeros(2), np.zeros(2), np.zeros(2), np.zeros(2))
+    with pytest.raises(ValueError, match="equal lengths"):
+        Bunch(np.zeros(2), np.zeros(1), np.zeros(2), np.zeros(2), np.zeros(2), np.zeros(2), np.zeros(2))
+
+
 # -- fitting (P8: same type in and out) --------------------------------------
 def test_fit_recovers_the_beam_it_was_sampled_from():
     beam = make_beam(rho_x_gamma=0.25, rho_z_gamma=0.4, alpha_x=0.8, alpha_y=-0.3)

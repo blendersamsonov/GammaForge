@@ -39,8 +39,9 @@ disagree with a refit.
 from __future__ import annotations
 
 import math
+import numbers
 from dataclasses import dataclass, field, replace
-from typing import Iterator
+from typing import Iterator, Mapping
 
 import numpy as np
 
@@ -159,6 +160,17 @@ class GaussianElectronBeam:
                     getattr(self, name), unit, name, light_time=name in self.LIGHT_TIME_FIELDS
                 ),
             )
+        scalar_fields = (
+            "rel_energy_spread", "rho_x_gamma", "rho_y_gamma", "rho_z_gamma",
+            "rho_thx_gamma", "rho_thy_gamma", "alpha_x", "alpha_y",
+        )
+        for name in scalar_fields:
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, numbers.Real) or not math.isfinite(float(value)):
+                raise ValueError(f"GaussianElectronBeam: {name} must be a finite scalar, got {value!r}")
+        for name in self.UNITS:
+            if not math.isfinite(self.m(name)):
+                raise ValueError(f"GaussianElectronBeam: {name} must be finite, got {getattr(self, name)!r}")
 
     def m(self, name: str) -> float:
         """Magnitude of a dimensioned field in its canonical CGS unit.
@@ -350,6 +362,66 @@ class Bunch:
         "gamma": "1", "weight": "1",
     }
 
+    def __post_init__(self) -> None:
+        """Take ownership of particle vectors and freeze their shape/content.
+
+        A frozen dataclass does not freeze ndarray payloads. Copying at this boundary
+        prevents a caller's later mutation from changing an interaction held by a
+        runner/cache; read-only flags prevent mutation through the returned Bunch.
+        Empty vectors remain valid, which is required by analytical and filtered paths.
+        """
+        names = ("x", "y", "z", "thx", "thy", "gamma", "weight")
+        arrays: dict[str, np.ndarray] = {}
+        lengths: dict[str, int] = {}
+        for name in names:
+            values = np.asarray(getattr(self, name))
+            if values.ndim != 1:
+                raise ValueError(f"Bunch: {name} must be a one-dimensional particle array")
+            copied = np.array(values, dtype=float, copy=True)
+            copied.setflags(write=False)
+            arrays[name] = copied
+            lengths[name] = copied.shape[0]
+        if len(set(lengths.values())) != 1:
+            detail = ", ".join(f"{name}={length}" for name, length in lengths.items())
+            raise ValueError(f"Bunch: particle arrays must have equal lengths ({detail})")
+        for name, values in arrays.items():
+            object.__setattr__(self, name, values)
+        object.__setattr__(self, "meta", dict(self.meta))
+
+    @classmethod
+    def _from_owned(
+        cls,
+        *,
+        x: np.ndarray,
+        y: np.ndarray,
+        z: np.ndarray,
+        thx: np.ndarray,
+        thy: np.ndarray,
+        gamma: np.ndarray,
+        weight: np.ndarray,
+        meta: Mapping | None = None,
+        gaussian_fit: GaussianElectronBeam | None = None,
+    ) -> "Bunch":
+        """Construct from fresh internal arrays without another large defensive copy.
+
+        This is private: public construction always snapshots caller-owned arrays. The
+        sampler and pure Bunch transforms use it only after creating fresh arrays, then
+        mark those arrays read-only just as the public boundary does.
+        """
+        arrays = {name: np.asarray(values) for name, values in {
+            "x": x, "y": y, "z": z, "thx": thx, "thy": thy, "gamma": gamma, "weight": weight,
+        }.items()}
+        lengths = {name: values.shape[0] for name, values in arrays.items() if values.ndim == 1}
+        if len(lengths) != len(arrays) or len(set(lengths.values())) != 1:
+            raise ValueError("Bunch: owned particle arrays must be one-dimensional and equally sized")
+        result = object.__new__(cls)
+        for name, values in arrays.items():
+            values.setflags(write=False)
+            object.__setattr__(result, name, values)
+        object.__setattr__(result, "meta", dict(meta or {}))
+        object.__setattr__(result, "gaussian_fit", gaussian_fit)
+        return result
+
     def get(self, name: str, unit: str) -> np.ndarray:
         """One array, converted to ``unit`` — the dimensionally checked way in.
 
@@ -377,8 +449,7 @@ class Bunch:
     def select(self, mask) -> "Bunch":
         """A new bunch keeping only ``mask``-selected particles. Weights are untouched."""
         mask = np.asarray(mask)
-        return replace(
-            self,
+        return type(self)._from_owned(
             x=self.x[mask],
             y=self.y[mask],
             z=self.z[mask],
@@ -386,6 +457,8 @@ class Bunch:
             thy=self.thy[mask],
             gamma=self.gamma[mask],
             weight=self.weight[mask],
+            meta=self.meta,
+            gaussian_fit=self.gaussian_fit,
         )
 
 
@@ -458,7 +531,7 @@ def sample_gaussian_bunch(beam: GaussianElectronBeam, n_particles: int, seed: in
     )
 
     weight = np.full(n_particles, 1.0 / n_particles)
-    return Bunch(
+    return Bunch._from_owned(
         x=x, y=y, z=z, thx=thx, thy=thy, gamma=gamma, weight=weight,
         meta={"seed": seed, "n_particles": n_particles},
         gaussian_fit=beam,
@@ -897,10 +970,15 @@ def drift(bunch: Bunch, length) -> Bunch:
     new_fit = bunch.gaussian_fit
     if new_fit is not None and length_arr.ndim == 0:
         new_fit = _drift_fit(new_fit, float(length_arr))
-    return replace(
-        bunch,
+    return Bunch._from_owned(
         x=bunch.x + bunch.thx * length_arr,
         y=bunch.y + bunch.thy * length_arr,
+        z=bunch.z,
+        thx=bunch.thx,
+        thy=bunch.thy,
+        gamma=bunch.gamma,
+        weight=bunch.weight,
+        meta=bunch.meta,
         gaussian_fit=new_fit,
     )
 
@@ -920,7 +998,17 @@ def propagate(bunch: Bunch, dt) -> Bunch:
     new_fit = moved.gaussian_fit
     if new_fit is not None:
         new_fit = _drift_fit(new_fit, C_CGS * float(np.mean(np.asarray(dt, dtype=float))))
-    return replace(moved, z=bunch.z + length, gaussian_fit=new_fit)
+    return Bunch._from_owned(
+        x=moved.x,
+        y=moved.y,
+        z=bunch.z + length,
+        thx=moved.thx,
+        thy=moved.thy,
+        gamma=moved.gamma,
+        weight=moved.weight,
+        meta=moved.meta,
+        gaussian_fit=new_fit,
+    )
 
 
 def stream(bunch: Bunch, t_grid) -> Iterator[Bunch]:

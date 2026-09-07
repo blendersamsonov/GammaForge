@@ -22,6 +22,7 @@ solely from an engine's declared ``recompute_costs`` (§3.1, §5).
 from __future__ import annotations
 
 import math
+import numbers
 from dataclasses import dataclass, replace
 from enum import Enum
 from types import MappingProxyType
@@ -157,7 +158,7 @@ class FieldSpec:
                 raise SchemaError(f"{self.key}: {value!r} is not one of {self.choices}")
             return value
 
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
+        if isinstance(value, bool) or not isinstance(value, numbers.Real):
             raise SchemaError(f"{self.key}: expected a number, got {value!r}")
         value = float(value)
         if not math.isfinite(value):

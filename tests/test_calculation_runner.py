@@ -151,6 +151,16 @@ def test_unknown_engine_names_are_rejected_before_sampling():
         runner.calculate(_request(engine_params={"missing": Parameters.from_specs(())}))
 
 
+def test_calculation_request_snapshots_engine_parameter_mapping():
+    params = Parameters.from_specs(())
+    supplied = {"first": params}
+    request = _request(engine_params=supplied)
+    supplied["second"] = params
+    assert dict(request.engine_params) == {"first": params}
+    with pytest.raises(TypeError):
+        request.engine_params["third"] = params  # type: ignore[index]
+
+
 def test_small_real_xigma_execution():
     scenario = scenarios.BASELINE
     params = XigmaEngine.schema.with_values(

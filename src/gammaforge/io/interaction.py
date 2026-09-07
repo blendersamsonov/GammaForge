@@ -19,6 +19,8 @@ anything, and why the prefilter never touches ``N_e``.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import math
+import numbers
 
 from .bunch import Bunch, GaussianElectronBeam, prefilter_bunch, sample_gaussian_bunch
 from .laser import LaserField
@@ -50,8 +52,16 @@ class SamplingSpec:
     prefilter: float = 1e-3
 
     def __post_init__(self) -> None:
+        if isinstance(self.n_particles, bool) or not isinstance(self.n_particles, numbers.Integral):
+            raise ValueError(f"SamplingSpec: n_particles must be an integer, got {self.n_particles!r}")
         if self.n_particles < 1:
             raise ValueError(f"SamplingSpec: n_particles must be >= 1, got {self.n_particles}")
+        if isinstance(self.seed, bool) or not isinstance(self.seed, numbers.Integral):
+            raise ValueError(f"SamplingSpec: seed must be an integer in [0, 2**31 - 1], got {self.seed!r}")
+        if not 0 <= self.seed <= 2**31 - 1:
+            raise ValueError(f"SamplingSpec: seed must be in [0, 2**31 - 1], got {self.seed}")
+        if isinstance(self.prefilter, bool) or not isinstance(self.prefilter, numbers.Real) or not math.isfinite(float(self.prefilter)):
+            raise ValueError(f"SamplingSpec: prefilter must be finite, got {self.prefilter!r}")
         if not 0.0 <= self.prefilter < 1.0:
             raise ValueError(
                 f"SamplingSpec: prefilter must be in [0, 1) — a fraction of peak a0, with "
@@ -73,6 +83,12 @@ class InteractionParameters:
     target: Target
     N_e: float
     sampling: SamplingSpec
+
+    def __post_init__(self) -> None:
+        if isinstance(self.N_e, bool) or not isinstance(self.N_e, numbers.Real) or not math.isfinite(float(self.N_e)):
+            raise ValueError(f"InteractionParameters: N_e must be a finite scalar, got {self.N_e!r}")
+        if self.N_e <= 0:
+            raise ValueError(f"InteractionParameters: N_e must be > 0, got {self.N_e}")
 
     def with_charge(self, bunch_charge: Quantity) -> "InteractionParameters":
         """A copy with a new bunch charge — the one edit that reuses the bunch verbatim.
