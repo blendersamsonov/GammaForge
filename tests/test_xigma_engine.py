@@ -120,6 +120,19 @@ def test_build_overlap_is_memoized():
     assert first is second
 
 
+def test_collision_rejects_replacement_of_fixed_cache_inputs():
+    interaction = _interaction()
+    collision = Collision(interaction=interaction, params=_engine_params())
+    collision.build_overlap()
+
+    with pytest.raises(AttributeError):
+        collision.interaction = interaction.with_charge(Q(2.0, "nC"))
+    with pytest.raises(AttributeError):
+        collision.params = _engine_params(n_steps=32)
+
+    assert collision.build_overlap().total_yield() > 0.0
+
+
 def test_shape_is_memoized():
     """Stage 1's shape deposit runs at most once per `Collision`, regardless of how many
     distinct peak a0 values `_table()` is later asked for (RES032)."""
@@ -195,7 +208,7 @@ def test_the_two_normalization_paths_inside_one_results_object_agree():
     interaction = replace(interaction, target=target)
     params = XigmaEngine.schema.with_values(
         n_bins_gamma=32, n_bins_theta_x=24, n_bins_theta_y=24,
-        n_bins_a0_shape=64, n_bins_ahat=8, scheme="cic",
+        n_bins_a0_shape=64, n_bins_ahat=8, scheme="cic", backend="numpy",
     )
     results = XigmaEngine().run(interaction, params)
 
@@ -219,6 +232,7 @@ def test_angular_and_collimated_slices_are_nonnegative():
     results = XigmaEngine().run(interaction, _engine_params())
     for kind in (OutputKind.ANGULAR_DISTRIBUTION, OutputKind.COLLIMATED_SPECTRUM):
         assert np.all(results.photon_slices[kind].distr >= 0.0)
+    assert results.model_specific["stage2_backend"] == "numpy"
 
 
 # ---------------------------------------------------------------------------

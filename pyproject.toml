@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gammaforge"
-version = "0.0.0"
+version = "0.1.0a1"
 description = "Compton-photon simulation toolkit: electron-bunch / laser-pulse interaction."
 readme = "README.md"
 requires-python = ">=3.12"

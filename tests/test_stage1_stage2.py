@@ -125,6 +125,23 @@ def test_angle_integrated_spectrum_rejects_an_output_larger_than_the_memory_budg
         angle_integrated_spectrum(_synthetic_samples(n=4), np.linspace(0.0, 1.0, 20))
 
 
+def test_cupy_request_rejects_geometry_it_does_not_implement():
+    table = _table(_synthetic_samples(n=100), shape_bins=(4, 4, 4, 4))
+    with pytest.raises(NotImplementedError, match="non-zero ellipticity or crossing angles"):
+        angular_spectrum_from_table(
+            table, [0.0], [0.0], [table.gamma_centers[1] ** 2],
+            backend="cupy", ellipticity=0.5,
+        )
+
+
+def test_auto_uses_the_numpy_reference_for_unsupported_cupy_geometry():
+    table = _table(_synthetic_samples(n=100), shape_bins=(4, 4, 4, 4))
+    args = (table, [0.0], [0.0], [table.gamma_centers[1] ** 2])
+    expected = angular_spectrum_from_table(*args, backend="numpy", theta_xz=0.01)
+    actual = angular_spectrum_from_table(*args, backend="auto", theta_xz=0.01)
+    assert actual == pytest.approx(expected)
+
+
 # ---------------------------------------------------------------------------
 # Stage 1: deposit_shape_table / ShapeTable
 # ---------------------------------------------------------------------------

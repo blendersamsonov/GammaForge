@@ -181,9 +181,8 @@ def production_checks(scenarios: Sequence[Scenario]) -> tuple[list[Check], list[
 
     Analytical and xigma agree only in their documented head-on, weakly nonlinear common
     regime. Those yield and spectrum checks are gates. Angular checks are deliberately
-    absent: `PhasespaceSlice` has no histogram-integration contract yet, so values at bin
-    centres cannot support a scientific comparison (handoff 02). Kascade is also absent
-    until that contract supports the Phase-5 four-method comparison.
+    absent: the histogram measure contract exists (RES061), but the independent angular
+    comparisons have not been wired. Kascade's Phase-5 four-method comparison is also open.
     """
     from ..engines.analytical.engine import AnalyticalEngine
     from ..engines.xigma.engine import XigmaEngine
@@ -192,10 +191,9 @@ def production_checks(scenarios: Sequence[Scenario]) -> tuple[list[Check], list[
     checks: list[Check] = []
     notes: list[str] = []
     blockers = [
-        "angular xigma/delta validation was not run: histogram-centre integration has no "
-        "measure contract (handoff 02)",
-        "kascade is not part of this tier: its independent histogram comparison awaits "
-        "the same measure contract",
+        "angular xigma/delta validation was not run: the histogram measure contract is "
+        "implemented (RES061), but the distribution comparison remains unwired",
+        "kascade is not part of this tier: the independent four-method comparison remains unwired",
         "arbitrary-angle emission is not independently validated: the approved per-particle "
         "lab-frame polarization projection has only its direct Eq. udef implementation check",
     ]
@@ -235,7 +233,8 @@ def production_checks(scenarios: Sequence[Scenario]) -> tuple[list[Check], list[
     notes.append(
         "The xigma/analytical gates share scenario inputs and the head-on regime, but use "
         "separate overlap/intensity and spectrum constructions. They do not independently "
-        "validate Stage 0, the polarization factor, or a crossing-angle emission formula."
+        "validate the polarization factor or a crossing-angle emission formula. The yield "
+        "comparison checks Stage 0 against analytical overlap, while sharing the Gaussian inputs."
     )
     return checks, notes, blockers
 
@@ -327,6 +326,7 @@ def run_suite(
     scenarios: Sequence[Scenario] = SCENARIOS,
     *,
     production: bool = False,
+    alpha: bool = False,
 ) -> Report:
     report = Report()
     engines = list(engines)
@@ -347,14 +347,23 @@ def run_suite(
         report.check(check)
 
     report.section("production engine validation (opt-in)")
-    if production:
+    if production or alpha:
+        if alpha:
+            report.note(
+                "HEADLESS ALPHA SCOPE: Gaussian analytical/xigma total yields and head-on "
+                "weak-field spectrum checks. GUI, kascade and independent arbitrary-angle "
+                "emission certification are outside this release gate (RES065)."
+            )
         checks, notes, blockers = production_checks(scenarios)
         for check in checks:
             report.check(check)
         for note in notes:
             report.note(note)
         for blocker in blockers:
-            report.blocked(blocker)
+            if alpha:
+                report.note("outside alpha validation scope: " + blocker)
+            else:
+                report.blocked(blocker)
     else:
         report.note(
             "not run — use `python -m gammaforge.validation.run --production`; this opt-in "
@@ -393,10 +402,10 @@ def run_suite(
 
 def main(argv=None, *, engines: Iterable[Engine] = (), scenarios: Sequence[Scenario] = SCENARIOS) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    if set(argv) - {"--production"}:
-        print("usage: python -m gammaforge.validation.run [--production]", file=sys.stderr)
+    if set(argv) - {"--production", "--alpha"} or {"--production", "--alpha"} <= set(argv):
+        print("usage: python -m gammaforge.validation.run [--production | --alpha]", file=sys.stderr)
         return 2
-    report = run_suite(engines, scenarios, production="--production" in argv)
+    report = run_suite(engines, scenarios, production="--production" in argv, alpha="--alpha" in argv)
     print(report)
     return 0 if report.failures == 0 and report.blockers == 0 else 1
 
