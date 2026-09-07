@@ -15,6 +15,14 @@ because its stronger distribution comparison fails; see `docs/ALPHA_GPU_VALIDATI
 
 ## Verification on 2026-09-07
 
+- Clean committed release tree at c090909, Python 3.14 with CUDA available:
+  **561 passed, 3 skipped, 1 strict expected failure in 165.42 s**. Reproducer:
+  `PYTHONPATH=src /home/alexander/Work/Code/GammaForge/.venv/bin/pytest -q`
+  from `/tmp/gammaforge-alpha-integration`.
+- The final wheel was rebuilt from that clean tree, then reinstalled into the isolated
+  wheel environment. Alpha validation and the guide's full calculation/save/reload
+  example pass again. SHA-256:
+  `2ec1f2affe3498b1b2a16b0ecdff44fd8dbc28e8a845209723f39e197f35a13d`.
 - Main working-tree development environment, Python 3.14: 567 passed, 3 skipped,
   1 strict expected failure in 187.47 s. This includes the pre-existing local kascade
   changes; those changes are not part of the alpha integration commits.
