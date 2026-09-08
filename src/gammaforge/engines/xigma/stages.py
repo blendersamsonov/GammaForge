@@ -965,16 +965,25 @@ def angular_spectrum_from_table(
     ``(len(theta_x_grid), len(theta_y_grid), len(s))``.
 
     Dispatches to the CuPy ring/annulus importance-sampling rawkernel when ``backend``
-    is ``'cupy'`` or ``'auto'`` (and CuPy + CUDA are available for head-on linear
-    polarization). Falls back to the NumPy brute-force grid quadrature otherwise.
+    is ``'cupy'`` or ``'auto'`` (and CuPy + CUDA are available). Falls back to the
+    NumPy brute-force grid quadrature otherwise.
     """
+    try:
+        psi_pol = float(psi_pol)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Stage-2 psi_pol must be a real scalar") from exc
+    if not math.isfinite(psi_pol):
+        raise ValueError("Stage-2 psi_pol must be finite")
     selected_backend = stage2_backend(
         backend, ellipticity=ellipticity, theta_xz=theta_xz, theta_yz=theta_yz,
     )
     if selected_backend == "cupy":
         from .spectrum_sampler import calculate_angular_spectrum_gpu
         return calculate_angular_spectrum_gpu(
-            table, theta_x_grid, theta_y_grid, s, psi_pol=psi_pol, subsampling=subsampling
+            table, theta_x_grid, theta_y_grid, s,
+            psi_pol=psi_pol, ellipticity=ellipticity,
+            theta_xz=theta_xz, theta_yz=theta_yz,
+            subsampling=subsampling,
         )
 
     tx = np.atleast_1d(np.asarray(theta_x_grid, dtype=float))
@@ -1001,20 +1010,24 @@ def stage2_backend(
     """Resolve a Stage-2 request to its actual supported compute path."""
     if backend not in ("auto", "cupy", "numpy"):
         raise ValueError(f"Unknown backend {backend!r}; expected 'auto', 'cupy', or 'numpy'.")
-    gpu_geometry = ellipticity == 0.0 and theta_xz == 0.0 and theta_yz == 0.0
+    try:
+        ellipticity = float(ellipticity)
+        theta_xz = float(theta_xz)
+        theta_yz = float(theta_yz)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Stage-2 polarization geometry must be real scalars") from exc
+    if not all(math.isfinite(value) for value in (ellipticity, theta_xz, theta_yz)):
+        raise ValueError("Stage-2 polarization geometry angles and ellipticity must be finite")
+    if not 0.0 <= ellipticity <= 1.0:
+        raise ValueError("Stage-2 ellipticity must be in [0, 1]")
     if backend == "cupy":
-        if not gpu_geometry:
-            raise NotImplementedError(
-                "angular_spectrum_from_table(backend='cupy'): CuPy importance sampler only supports "
-                "head-on linear polarization today; non-zero ellipticity or crossing angles must use backend='numpy'."
-            )
         from .spectrum_sampler import is_gpu_available
         if not is_gpu_available():
             raise RuntimeError(
                 "angular_spectrum_from_table(backend='cupy') requested but CuPy or a CUDA device is not available."
             )
         return "cupy"
-    if backend == "auto" and gpu_geometry:
+    if backend == "auto":
         from .spectrum_sampler import is_gpu_available
         if is_gpu_available():
             return "cupy"

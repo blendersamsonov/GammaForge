@@ -86,6 +86,61 @@ else:
     _cdf_cell = None
 
 
+if _HAS_CUPY:
+    @jit.rawkernel(device=True)
+    def _polarization_factor_device(
+        gamma,
+        xe,
+        ye,
+        xo,
+        yo,
+        e0x,
+        e0y,
+        e0z,
+        e1x,
+        e1y,
+        e1z,
+        xi00,
+        xi11,
+    ):
+        """Stable Eq. ``udef`` factor from lab-frame slopes (RES069)."""
+        ve = cp.sqrt(CP_ONE + xe * xe + ye * ye)
+        no = cp.sqrt(CP_ONE + xo * xo + yo * yo)
+
+        # Delta = n - u, with the nearly equal longitudinal component evaluated from
+        # the slope norms rather than as ``1/no - 1/ve``.
+        delta_z = ((xe - xo) * (xe + xo) + (ye - yo) * (ye + yo)) / (ve * no * (ve + no))
+        delta_x = (xo - xe) / no + xe * delta_z
+        delta_y = (yo - ye) / no + ye * delta_z
+
+        gamma_sq = gamma * gamma
+        beta = cp.sqrt(CP_ONE - CP_ONE / gamma_sq)
+        delta = CP_ONE / (gamma_sq * (CP_ONE + beta))
+        d = delta + CP_FLOAT(0.5) * beta * (delta_x * delta_x + delta_y * delta_y + delta_z * delta_z)
+
+        # n - beta*u = (n-u) + delta*u, where u is the unit electron direction.
+        ux = xe / ve
+        uy = ye / ve
+        uz = CP_ONE / ve
+        qx = (delta_x + delta * ux) / d
+        qy = (delta_y + delta * uy) / d
+        qz = (delta_z + delta * uz) / d
+
+        a0 = (xo * e0x + yo * e0y + e0z) / no
+        a1 = (xo * e1x + yo * e1y + e1z) / no
+        u0x = qx * a0 - e0x
+        u0y = qy * a0 - e0y
+        u0z = qz * a0 - e0z
+        u1x = qx * a1 - e1x
+        u1y = qy * a1 - e1y
+        u1z = qz * a1 - e1z
+        norm0_sq = u0x * u0x + u0y * u0y + u0z * u0z
+        norm1_sq = u1x * u1x + u1y * u1y + u1z * u1z
+        return xi00 * norm0_sq + xi11 * norm1_sq
+else:
+    _polarization_factor_device = None
+
+
 def is_gpu_available() -> bool:
     """Return True if CuPy is importable and at least one CUDA device is accessible."""
     if not _HAS_CUPY:
@@ -124,7 +179,14 @@ def _define_kernel():
         gamma_hi,
         dx,
         dy,
-        phi_pol,
+        e0x,
+        e0y,
+        e0z,
+        e1x,
+        e1y,
+        e1z,
+        xi00,
+        xi11,
         subsampling,
     ):
         thread_idx = jit.threadIdx.x
@@ -387,32 +449,14 @@ def _define_kernel():
 
                                     if g >= gamma_min + gamma_width / 2 and g <= gamma_min + gamma_width * (CP_FLOAT(n_gamma) - CP_FLOAT(0.5)):
                                         gth_sq_inv = CP_ONE / (CP_ONE + theta_sq * g_sq) ** 2
-                                        # Head-on, linearly polarized specialization of the
-                                        # lab-frame per-electron projection (RES060/DER006).
-                                        # ``x``/``y`` are the sampled electron angles and
-                                        # ``x0``/``y0`` are the observer direction.
-                                        n_norm = cp.sqrt(CP_ONE + x0**2 + y0**2)
-                                        nx = x0 / n_norm
-                                        ny = y0 / n_norm
-                                        nz = CP_ONE / n_norm
-                                        v_norm = cp.sqrt(CP_ONE + x**2 + y**2)
-                                        beta = cp.sqrt(CP_ONE - CP_ONE / g_sq)
-                                        vx = beta * x / v_norm
-                                        vy = beta * y / v_norm
-                                        # Stable exact lab-vector identity (RES060); no 1 - near-1 subtraction.
-                                        one_minus_vn = CP_ONE / (g_sq * (CP_ONE + beta)) + beta * CP_FLOAT(0.5) * (
-                                            (x / v_norm - nx)**2 + (y / v_norm - ny)**2 + (CP_ONE / v_norm - nz)**2
+                                        # Stable per-particle lab-vector projection (RES060, RES069).
+                                        pol_factor = _polarization_factor_device(
+                                            g, x, y, x0, y0,
+                                            e0x, e0y, e0z, e1x, e1y, e1z,
+                                            xi00, xi11,
                                         )
-                                        cos_pol = cp.cos(phi_pol)
-                                        sin_pol = cp.sin(phi_pol)
-                                        n_e0 = nx * cos_pol + ny * sin_pol
-                                        v_e0 = vx * cos_pol + vy * sin_pol
-                                        pol_factor = (
-                                            CP_ONE
-                                            - n_e0**2 / (g_sq * one_minus_vn**2)
-                                            + CP_FLOAT(2.0) * n_e0 * v_e0 / one_minus_vn
-                                        )
-                                        prefac = pol_factor * g**5 * gth_sq_inv / (CP_ONE + a0_val)
+                                        # Energy scaling precedes H multiplication to avoid overflow (RES069).
+                                        prefac = (g**5 / (s * s)) * pol_factor * gth_sq_inv / (CP_ONE + a0_val)
 
                                         Gf = (g - gamma_min) / gamma_width - CP_FLOAT(0.5)
                                         gi2 = CP_INT(cp.floor(Gf))
@@ -441,7 +485,7 @@ def _define_kernel():
                             f = h_sum
                             f_tot += f * sample_area
 
-            jit.atomic_add(output, out_idx, f_tot / s**2)
+            jit.atomic_add(output, out_idx, f_tot)
 
     return _spectrum_kernel_4d_impl
 
@@ -461,6 +505,49 @@ def gamma_bracket(table: Table, q: float = 1e-4) -> tuple[float, float]:
     return max(lo, 1.0), max(hi, 1.0)
 
 
+def _polarization_parameters(
+    psi_pol: float, ellipticity: float, theta_xz: float, theta_yz: float
+) -> tuple[float, ...]:
+    """Return the rotated basis components and scalar ellipse weights for the device.
+
+    ``psi_pol`` is defined in the head-on transverse plane.  The basis is transported
+    by the pinned ``R_y(theta_xz) @ R_x(theta_yz)`` rotation once per query; no geometry
+    trigonometry is repeated for every sampled ring point or ahat cell.
+    """
+    values = {
+        "psi_pol": psi_pol,
+        "ellipticity": ellipticity,
+        "theta_xz": theta_xz,
+        "theta_yz": theta_yz,
+    }
+    try:
+        values = {name: float(value) for name, value in values.items()}
+    except (TypeError, ValueError) as exc:
+        raise ValueError("CuPy polarization geometry must be real scalars") from exc
+    if not all(math.isfinite(value) for value in values.values()):
+        raise ValueError("CuPy polarization geometry angles and ellipticity must be finite")
+    if not 0.0 <= values["ellipticity"] <= 1.0:
+        raise ValueError("CuPy ellipticity must be in [0, 1]")
+
+    psi = values["psi_pol"]
+    txz = values["theta_xz"]
+    tyz = values["theta_yz"]
+    cp_psi, sp_psi = math.cos(psi), math.sin(psi)
+    cx, sx = math.cos(tyz), math.sin(tyz)
+    cy, sy = math.cos(txz), math.sin(txz)
+    # R_y(theta_xz) @ R_x(theta_yz), applied to the head-on x/y basis.
+    e0x = cy * cp_psi + sy * sx * sp_psi
+    e0y = cx * sp_psi
+    e0z = -sy * cp_psi + cy * sx * sp_psi
+    e1x = -cy * sp_psi + sy * sx * cp_psi
+    e1y = cx * cp_psi
+    e1z = sy * sp_psi + cy * sx * cp_psi
+    eps2 = values["ellipticity"] ** 2
+    xi00 = 1.0 / (1.0 + eps2)
+    xi11 = eps2 * xi00
+    return (e0x, e0y, e0z, e1x, e1y, e1z, xi00, xi11)
+
+
 def calculate_angular_spectrum_gpu(
     table: Table,
     theta_x,
@@ -468,6 +555,9 @@ def calculate_angular_spectrum_gpu(
     s,
     *,
     psi_pol: float = 0.0,
+    ellipticity: float = 0.0,
+    theta_xz: float = 0.0,
+    theta_yz: float = 0.0,
     subsampling: int = 32,
 ) -> np.ndarray:
     """Compute `d3N / (ds dtheta_x dtheta_y)` on CUDA device via importance sampling.
@@ -478,8 +568,9 @@ def calculate_angular_spectrum_gpu(
         raise RuntimeError("calculate_angular_spectrum_gpu: CuPy or a CUDA device is not available")
     if isinstance(subsampling, bool) or not isinstance(subsampling, Integral) or not 1 <= subsampling <= np.iinfo(CP_UINT).max // SAMPLES_TOTAL:
         raise ValueError("subsampling must be a positive integer with uint32-safe sample indices")
-    if not math.isfinite(psi_pol):
-        raise ValueError("psi_pol must be finite")
+    polarization_parameters = _polarization_parameters(
+        psi_pol, ellipticity, theta_xz, theta_yz
+    )
     for edges in (table.gamma_edges, table.theta_x_edges, table.theta_y_edges):
         widths = np.diff(edges)
         if len(widths) < 2 or not np.allclose(widths, widths[0], rtol=1e-10, atol=0.0):
@@ -555,7 +646,7 @@ def calculate_angular_spectrum_gpu(
         CP_FLOAT(gamma_hi),
         CP_FLOAT(dx),
         CP_FLOAT(dy),
-        CP_FLOAT(psi_pol),
+        *(CP_FLOAT(value) for value in polarization_parameters),
         CP_UINT(subsampling),
     )
     cp.cuda.Stream.null.synchronize()

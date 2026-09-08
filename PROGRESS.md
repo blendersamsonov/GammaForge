@@ -18,7 +18,7 @@ unfinished or waiting on someone*.
 | 1. Core (`gammaforge.io`) | 🟢 done |
 | 2. Validation harness | 🟢 done |
 | 2.5. Stage 0 + minimal delta | 🟢 done |
-| 3a. xigma engineering | 🟢 NumPy Stage 0/1/2, `Collision`, `XigmaEngine`. CuPy sampling/precision defects repaired and head-on numerical gates pass; still experimental (RES062, RES068). |
+| 3a. xigma engineering | 🟢 NumPy Stage 0/1/2, `Collision`, `XigmaEngine`. CuPy supports incident polarization and two-plane crossing geometry with stable arithmetic and numerical checks; still experimental (RES062, RES068, RES069). |
 | 3b. Physics closure | 🟡 §9.1 closed (RES033). The author-approved per-particle lab-frame polarization projection is implemented (RES060); independent arbitrary-angle emission validation remains open. |
 | 4. analytical engine | 🟢 landed and merged to `main`; general overlap-integral yield, width breakdown, quadrature spectrum, flying focus, crossing angle for the yield. Open: collimated-spectrum construction |
 | 5. kascade port + delta full role | 🟡 minimal `KascadeEngine`, Thomson sanity anchor, and opt-in GUI integration landed (RES059); four-method validation wiring remains open |
@@ -54,9 +54,19 @@ Ordered by who is blocked. Each names the file that carries the detail.
 
 ### Available to pick up (no external dependency)
 
+- **Stabilize the NumPy polarization reference at high gamma.** Its expanded
+  float64 expression loses accuracy for nearly collinear electron/observer rays
+  with a longitudinal laser basis. At gamma 10000 and crossing 0.3 rad, the exact
+  collinear factor is 0.9126678 but NumPy returns 1.3886977. CuPy's RES069 vector
+  evaluation passes this limit. Port that stable arithmetic to NumPy with a
+  regression; do not alter the lab-frame physics. Stage-0 total yields are unaffected.
+  Reproducer and scope: `docs/ALPHA_GPU_VALIDATION.md`.
+
 - **Broaden CuPy convergence coverage before promotion.** Corrected proposal weighting,
   stable polarization, and support handling pass the original distribution gate and
-  refined-input CPU comparisons over the head-on scenario bank (RES068). Fixed ring
+  refined-input CPU comparisons over the head-on scenario bank (RES068). Incident
+  ellipticity and crossed-geometry checks also pass with stable vector evaluation
+  and early energy scaling (RES069). Fixed ring
   quadrature and new parameter regimes still need convergence checks; NumPy remains
   the alpha default. Measurements and benchmarks: `docs/ALPHA_GPU_VALIDATION.md`.
 

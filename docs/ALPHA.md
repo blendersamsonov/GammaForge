@@ -2,8 +2,8 @@
 
 This alpha supports Gaussian-beam calculations with the analytical and xigma engines
 through their Python APIs. GUI and kascade are outside release support. The library
-defaults to NumPy. The CuPy angular sampler's numerical defects are repaired and head-on
-reference checks pass; it remains experimental pending broader convergence coverage. See
+defaults to NumPy. The CuPy angular sampler supports incident polarization and crossing
+angles; it remains experimental pending broader convergence and emission validation. See
 [the GPU validation record](ALPHA_GPU_VALIDATION.md).
 
 ## Install and check
@@ -122,7 +122,7 @@ angle-resolved Stage-2 emission accuracy or a universal sub-0.1% error bound.
 | Analytical spectrum | Includes its luminosity-weighted nonlinear redshift; crossed-spectrum shape still uses head-on kinematics and reports a warning |
 | Xigma `SPECTRUM` | Table-free linear spectrum; omits the nonlinear redshift and reports a warning |
 | Xigma angular/collimated output | NumPy table quadrature by default; retains tabulated nonlinear physics, but independent arbitrary-angle emission validation remains open |
-| CuPy | Explicit experimental `backend="cupy"` or `"auto"`; head-on linear polarization only, with recorded backend/settings and a warning |
+| CuPy | Explicit experimental `backend="cupy"` or `"auto"`; uniform incident linear/elliptical/circular polarization and two-plane crossing geometry, with recorded backend/settings and a warning |
 
 Request collimated output with
 `OutputRequest(OutputKind.COLLIMATED_SPECTRUM, (n_energy, n_theta_x, n_theta_y))`.
@@ -130,6 +130,9 @@ The result density has axes `(ENERGY, THETA_X, THETA_Y)` and integrates using
 `slice.integrate()`. Start with modest grids: CPU angular quadrature is expensive.
 Installing `.[gpu]` only adds CUDA 12 CuPy dependencies; it does not change the default
 or establish convergence for a new calculation. Numba remains unimplemented.
+The NumPy polarization factor has a known high-gamma, nearly collinear crossed-ray
+precision limitation; see the [numerical record](ALPHA_GPU_VALIDATION.md). This does
+not affect Stage-0 total-yield overlap calculations.
 
 The historical `ahat_decades=1.0` default remains unchanged; the tracked roughly 1%
 centroid-grid bias is still an author decision. The validation tier uses an explicit

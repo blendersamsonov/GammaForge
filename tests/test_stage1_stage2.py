@@ -124,20 +124,33 @@ def test_angle_integrated_spectrum_rejects_an_output_larger_than_the_memory_budg
         angle_integrated_spectrum(_synthetic_samples(n=4), np.linspace(0.0, 1.0, 20))
 
 
-def test_cupy_request_rejects_geometry_it_does_not_implement():
+def test_cupy_request_accepts_geometry_when_cuda_is_available(monkeypatch):
     table = _table(_synthetic_samples(n=100), shape_bins=(4, 4, 4, 4))
-    with pytest.raises(NotImplementedError, match="non-zero ellipticity or crossing angles"):
-        angular_spectrum_from_table(
-            table, [0.0], [0.0], [table.gamma_centers[1] ** 2],
-            backend="cupy", ellipticity=0.5,
-        )
+    import gammaforge.engines.xigma.spectrum_sampler as sampler
+
+    if not sampler.is_gpu_available():
+        pytest.skip("CuPy or CUDA GPU unavailable")
+    result = angular_spectrum_from_table(
+        table, [0.0], [0.0], [table.gamma_centers[1] ** 2],
+        backend="cupy", ellipticity=0.5, theta_xz=0.01, theta_yz=-0.02,
+    )
+    assert result.shape == (1, 1, 1)
+    assert np.all(np.isfinite(result))
+    assert np.all(result >= 0.0)
 
 
-def test_auto_uses_the_numpy_reference_for_unsupported_cupy_geometry():
+def test_auto_uses_the_numpy_reference_for_geometry_when_gpu_is_missing(monkeypatch):
     table = _table(_synthetic_samples(n=100), shape_bins=(4, 4, 4, 4))
+    import gammaforge.engines.xigma.spectrum_sampler as sampler
+
+    monkeypatch.setattr(sampler, "is_gpu_available", lambda: False)
     args = (table, [0.0], [0.0], [table.gamma_centers[1] ** 2])
-    expected = angular_spectrum_from_table(*args, backend="numpy", theta_xz=0.01)
-    actual = angular_spectrum_from_table(*args, backend="auto", theta_xz=0.01)
+    expected = angular_spectrum_from_table(
+        *args, backend="numpy", ellipticity=0.5, theta_xz=0.01, theta_yz=-0.02
+    )
+    actual = angular_spectrum_from_table(
+        *args, backend="auto", ellipticity=0.5, theta_xz=0.01, theta_yz=-0.02
+    )
     assert actual == pytest.approx(expected)
 
 

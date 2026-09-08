@@ -4,8 +4,8 @@ Verifies:
 - Hardware/CuPy detection (`is_gpu_available`).
 - Execution and shape conformance for `angular_spectrum_from_table(backend='cupy')`.
 - Numerical agreement with the reference NumPy brute-force grid quadrature.
-- Graceful routing: `backend='auto'` falls back to NumPy for non-zero ellipticity or
-  crossing angles, while `backend='cupy'` raises NotImplementedError.
+- Geometry is supported by the CUDA path; `backend='auto'` falls back only when CUDA is
+  unavailable, while an explicit `backend='cupy'` request reports missing CUDA.
 - End-to-end `XigmaEngine.run(..., backend='cupy')`.
 """
 
@@ -30,9 +30,7 @@ from gammaforge.engines.xigma.stages import (
 from gammaforge.io.target import OutputKind, OutputRequest
 from gammaforge.validation import scenarios
 
-pytestmark = pytest.mark.skipif(
-    not is_gpu_available(), reason="CuPy or CUDA GPU not available on host"
-)
+gpu = pytest.mark.skipif(not is_gpu_available(), reason="CuPy or CUDA GPU not available on host")
 
 
 @pytest.fixture(scope="module")
@@ -48,10 +46,12 @@ def baseline_table():
     return table, samples
 
 
+@gpu
 def test_gpu_is_available():
     assert is_gpu_available() is True
 
 
+@gpu
 def test_angular_spectrum_gpu_shape_and_nonnegativity(baseline_table):
     table, samples = baseline_table
     tx = np.linspace(-1e-4, 1e-4, 5)
@@ -66,6 +66,7 @@ def test_angular_spectrum_gpu_shape_and_nonnegativity(baseline_table):
     assert np.sum(cube) > 0.0
 
 
+@gpu
 def test_angular_spectrum_from_table_backend_cupy(baseline_table):
     table, samples = baseline_table
     tx = np.linspace(-1e-4, 1e-4, 5)
@@ -87,17 +88,25 @@ def test_angular_spectrum_from_table_backend_cupy(baseline_table):
     assert 0.70 < median_ratio < 1.30
 
 
-def test_unsupported_polarization_with_backend_cupy_raises(baseline_table):
+@gpu
+def test_angular_spectrum_from_table_backend_cupy_supports_geometry(baseline_table):
     table, samples = baseline_table
-    tx, ty, s = [0.0], [0.0], [float(np.mean(samples.gamma) ** 2)]
+    tx, ty, s = [0.0], [0.0], [0.6 * float(np.mean(samples.gamma) ** 2)]
 
-    with pytest.raises(NotImplementedError, match="ellipticity or crossing angles"):
-        angular_spectrum_from_table(table, tx, ty, s, backend="cupy", ellipticity=0.5)
+    gpu_cube = angular_spectrum_from_table(
+        table, tx, ty, s, backend="cupy", ellipticity=0.4, theta_xz=0.05, theta_yz=-0.03
+    )
+    cpu_cube = angular_spectrum_from_table(
+        table, tx, ty, s, backend="numpy", ellipticity=0.4, theta_xz=0.05, theta_yz=-0.03
+    )
+    assert gpu_cube.shape == (1, 1, 1)
+    assert np.all(np.isfinite(gpu_cube))
+    assert np.all(gpu_cube >= 0.0)
+    assert np.all(np.isfinite(cpu_cube))
+    assert float(gpu_cube[0, 0, 0]) == pytest.approx(float(cpu_cube[0, 0, 0]), rel=0.1)
 
-    with pytest.raises(NotImplementedError, match="ellipticity or crossing angles"):
-        angular_spectrum_from_table(table, tx, ty, s, backend="cupy", theta_xz=0.05)
 
-
+@gpu
 def test_gpu_distribution_agrees_with_numpy_reference(baseline_table):
     """A median cell ratio cannot detect misplaced or missing spectral mass."""
     table, samples = baseline_table
@@ -115,16 +124,35 @@ def test_gpu_distribution_agrees_with_numpy_reference(baseline_table):
     assert integral(np.abs(gpu - cpu)) / mass < 0.1
 
 
-def test_unsupported_polarization_with_backend_auto_routes_to_numpy(baseline_table):
+def test_auto_routes_geometry_to_numpy_when_gpu_is_missing(baseline_table, monkeypatch):
+    import gammaforge.engines.xigma.spectrum_sampler as sampler
+
     table, samples = baseline_table
-    tx, ty, s = [0.0], [0.0], [float(np.mean(samples.gamma) ** 2)]
+    tx, ty, s = [0.0], [0.0], [0.6 * float(np.mean(samples.gamma) ** 2)]
 
-    # Auto routes to numpy when ellipticity is nonzero and succeeds
-    res = angular_spectrum_from_table(table, tx, ty, s, backend="auto", ellipticity=0.5)
-    assert res.shape == (1, 1, 1)
-    assert res[0, 0, 0] >= 0.0
+    monkeypatch.setattr(sampler, "is_gpu_available", lambda: False)
+    expected = angular_spectrum_from_table(
+        table, tx, ty, s, backend="numpy", ellipticity=0.5, theta_xz=0.05, theta_yz=-0.03
+    )
+    actual = angular_spectrum_from_table(
+        table, tx, ty, s, backend="auto", ellipticity=0.5, theta_xz=0.05, theta_yz=-0.03
+    )
+    assert actual == pytest.approx(expected)
 
 
+def test_explicit_cupy_reports_missing_gpu_even_for_supported_geometry(baseline_table, monkeypatch):
+    import gammaforge.engines.xigma.spectrum_sampler as sampler
+
+    table, samples = baseline_table
+    monkeypatch.setattr(sampler, "is_gpu_available", lambda: False)
+    with pytest.raises(RuntimeError, match="not available"):
+        angular_spectrum_from_table(
+            table, [0.0], [0.0], [float(np.mean(samples.gamma) ** 2)],
+            backend="cupy", ellipticity=0.4, theta_xz=0.05, theta_yz=-0.03,
+        )
+
+
+@gpu
 def test_xigma_engine_run_with_backend_cupy():
     interaction = scenarios.build(
         replace(scenarios.BASELINE, sampling=replace(scenarios.BASELINE.sampling, n_particles=5000))

@@ -261,3 +261,13 @@ Implemented for the polarization projection by `stages.py`; its vectorized path 
 each Stage-2 table cell's electron angles. `validation.references.delta` supplies each
 sample's angles to the same projection. The broader crossing-angle emission validation is
 outside this derivation's implementation check.
+
+## CUDA evaluation amendment (2026-09-08)
+
+RES069 implements the same Eq. udef projection for the CuPy sampler with incident
+ellipticity and both laser-crossing angles. It evaluates weighted squared vector
+norms directly, using stable slope differences for the relativistic denominator
+and vector numerator. The expanded expression in §4 is algebraically equivalent
+but suffers severe cancellation in float32 for a longitudinal laser basis.
+This numerical evaluation choice does not change the derivation's physics or close
+independent arbitrary-angle emission validation.

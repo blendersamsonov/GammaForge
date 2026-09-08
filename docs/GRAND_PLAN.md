@@ -1,6 +1,6 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.30 — 2026-09-07
+**Status:** draft v0.31 — 2026-09-08
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 
@@ -474,17 +474,28 @@ class Engine(Protocol):
 
 ### 4.2 xigma engine (`engines/xigma/`) — first-class
 
-**Script alpha update (RES062):** Stage 0/1 remain NumPy. Stage 2 now dispatches
-head-on, linearly polarized angular queries to the ported CuPy ring/annulus sampler
-when explicitly selected and CUDA is available. NumPy is the alpha default: the
-GPU port remains experimental. Numerical sampling defects are repaired and head-on
-density/integral gates pass (RES068; `docs/ALPHA_GPU_VALIDATION.md`), but broader
-convergence coverage remains open. Other geometries use the NumPy quadrature;
-explicit unsupported CuPy requests raise. The alpha exception to the v0.18 target
+**Script alpha update (RES062, RES069):** Stage 0/1 remain NumPy. Stage 2 dispatches
+angular queries with uniform incident linear/elliptical/circular polarization and
+the existing two-plane crossing geometry to CuPy when selected and CUDA is available.
+NumPy is the alpha default; CuPy remains experimental. Numerical sampling defects
+are repaired (RES068), and direct polarization/refined-input density gates cover the
+extension (RES069; `docs/ALPHA_GPU_VALIDATION.md`). Broader convergence coverage
+remains open. Explicit CuPy requests without CUDA raise; auto falls back to NumPy.
+The alpha exception to the v0.18 target
 below keeps deterministic CPU quadrature in production until a validated CPU sampler
 exists. Numerical kernel comparison does not close independent emission validation.
 `Collision` fixes its public inputs at construction (RES064); cached intermediates
 are per-instance, with no new cross-run cache.
+
+**Extension contract (v0.31, RES069):** CuPy follows the existing NumPy
+incident-polarization and crossing-angle contract (DER004–DER006, RES060), retaining
+NumPy as default and the experimental warning. Elliptical/circular intensity
+weighting and the once-rotated lab basis preserve the existing Stage-0 flux and
+shared photon-energy conversion without applying either correction twice. Stable
+evaluation of the manuscript's polarization vectors, refined CPU/GPU density
+agreement, public routing and timing are the extension's acceptance checks.
+Outgoing Stokes outputs, spatially varying polarization, GUI and kascade work are
+outside this extension. Numerical parity is not independent emission-physics closure.
 
 The tabulated-overlap pipeline, restructured into composable stages:
 
@@ -1006,6 +1017,11 @@ duplicated (C4).
 ---
 
 ## Changelog
+
+- **v0.31**: approve a bounded CuPy extension to the existing incident-polarization
+  and crossing-angle contract, with stable-vector precision checks and refined
+  CPU/GPU comparisons required before widening dispatch. NumPy remains default;
+  outgoing Stokes and independent arbitrary-angle emission validation remain separate.
 
 - **v0.30**: Author-scoped script alpha (`0.1.0a1`) covers Gaussian analytical/xigma
   calculations and a reproducible crossing-angle yield figure, excluding GUI/kascade

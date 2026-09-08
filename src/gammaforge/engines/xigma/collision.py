@@ -265,7 +265,8 @@ class Collision:
                 }
                 model_specific["warnings"] = (*warnings, (
                     "CuPy Stage 2 is experimental: refine sampler and table resolution; "
-                    "head-on numerical checks do not establish independent emission validation."
+                    "GPU numerical checks do not establish independent arbitrary-angle "
+                    "emission validation."
                 ))
         return Results(photon_slices=slices, model_specific=model_specific)
 
