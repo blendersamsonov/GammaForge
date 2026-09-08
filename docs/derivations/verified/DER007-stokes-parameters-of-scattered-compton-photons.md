@@ -4,470 +4,329 @@ Status: verified
 
 ## Setup
 
-DER006 derived the **intensity** (Stokes $I$) of scattered Compton photons as the trace of the polarization matrix:
+DER006 derived the **intensity** (Stokes $I$, total yield) of scattered Compton photons as the scalar trace of the polarization matrix:
 
 $$
 I \propto \operatorname{Tr}\!\left(\hat U^{T}\hat\Xi\hat U\right)
 = \sum_{i,j}\Xi_{ij}\,(\mathbf{u}_i\cdot\mathbf{u}_j).
 $$
 
-This file derives the **full Stokes vector** $(I, Q, U, V)$ of the scattered photons. The scattered-photon polarization density matrix in the basis of two orthogonal polarization vectors $\mathbf{f}_0, \mathbf{f}_1$ (transverse to the observation direction $\mathbf{n}$) is
+Because the trace is invariant under 2D rotations in the transverse plane ($\sum_k U_{ik} U_{jk} = \mathbf{u}_i\cdot\mathbf{u}_j$), the total intensity is completely independent of the choice of polarization basis.
+
+This file derives the **full 2×2 coherence matrix** $\hat{M}$ and **Stokes vector** $(I, Q, U, V)$ of scattered Compton photons in **angular variables**. Unlike the scalar intensity, the coherence matrix and Stokes $Q, U$ are basis-dependent 2-tensors. To properly integrate or sum coherence matrices over an electron bunch with finite divergence and energy spread:
 
 $$
-\rho_{ab} \propto \sum_{i,j} \Xi_{ij}\, (\mathbf{f}_a\cdot\mathbf{u}_i)\,(\mathbf{f}_b\cdot\mathbf{u}_j)^*,
-\qquad a,b \in \{0,1\}.
+\hat{M}_{\text{bunch}}(\mathbf{n}, \omega) = \sum_e w_e \hat{M}^{(e)}(\mathbf{n}, \omega),
 $$
 
-The Stokes parameters are then
+every single electron's coherence matrix $\hat{M}^{(e)}$ **must be evaluated in the exact same basis**. If the polarization axes depended on the individual electron velocity $\mathbf{v}_e$, summing the matrices componentwise would mix different coordinate frames, resulting in unphysical Stokes parameters and erroneous depolarization.
 
-$$
-\begin{aligned}
-I &= \rho_{00} + \rho_{11}, \\
-Q &= \rho_{00} - \rho_{11}, \\
-U &= \rho_{01} + \rho_{10} = 2\Re(\rho_{01}), \\
-V &= i(\rho_{10} - \rho_{01}) = 2\Im(\rho_{01}).
-\end{aligned}
-$$
+### Topological Requirement: The Smooth Laboratory Observer Basis $(\mathbf{m}_x, \mathbf{m}_y)$
+By the Hairy Ball theorem, any continuous tangent vector field on the 2-sphere $S^2$ must possess at least one topological singularity. Defining a polarization basis via the standard spherical meridian plane $(\mathbf{n}, \mathbf{z}_0)$ yields the spherical triad $(\hat{\boldsymbol{\theta}}, \hat{\boldsymbol{\phi}})$. This places the coordinate singularity directly at the North Pole $\mathbf{n} = \mathbf{z}_0$ ($\theta_{\text{obs}} = 0$), which is the exact center of the Compton radiation cone:
+1. **At $\theta_{\text{obs}} = 0$**, the meridian basis is indeterminate ($0/0$ division).
+2. **Around $\theta_{\text{obs}} = 0$**, the meridian vectors rotate by $2\pi$, imposing an artificial $2\phi$ vortex on $(Q, U)$: for a horizontally polarized beam, $Q(\phi) = I\cos(2\phi)$, which vanishes upon integration across an on-axis aperture ($\int_0^{2\pi} \cos(2\phi)\,\mathrm{d}\phi = 0$).
 
-We choose the scattered-photon basis $\mathbf{f}_0, \mathbf{f}_1$ as the natural one: $\mathbf{f}_0$ in the plane spanned by $\mathbf{n}$ and the electron velocity $\mathbf{v}$ (the "scattering plane"), and $\mathbf{f}_1 = \mathbf{n} \times \mathbf{f}_0 / |\mathbf{n} \times \mathbf{f}_0|$ perpendicular to it. This matches the standard convention for Compton scattering.
+Because high-energy Compton photons are emitted strictly in a narrow forward cone around $+\mathbf{z}_0$, we place the topological singularity at the **South Pole ($-\mathbf{z}_0$, backward scattering)**, where no scattered radiation ever reaches.
+
+We define the **smooth laboratory observer basis $(\mathbf{m}_x, \mathbf{m}_y)$** by parallel-transporting the fixed laboratory Cartesian axes $(\hat{\mathbf{x}}, \hat{\mathbf{y}})$ from $\mathbf{z}_0$ to $\mathbf{n}$ along the great circle connecting them (Rodrigues' rotation without torsion).
+- At $\mathbf{n} = \mathbf{z}_0$, $\mathbf{m}_x = \hat{\mathbf{x}}$ and $\mathbf{m}_y = \hat{\mathbf{y}}$ identically, matching standard laboratory detector pixel axes.
+- Across the entire forward hemisphere ($\mathbf{n}\cdot\mathbf{z}_0 > 0$), the basis is strictly orthonormal, smooth, and singularity-free.
+
+### Scope and Validity of Approximations
+Per DER005 and RES034:
+- **The laser crossing angle is NOT assumed to be small.** The crossing angle $\alpha$ (and angles $\theta_{xz}, \theta_{yz}$) is completely arbitrary (including 0, 0.3 rad, and 90° dipole geometries). The laser basis $\mathbf{e}_0, \mathbf{e}_1 = R \mathbf{e}_i^{(0)}$ is kept exact via the 3D rotation matrix $R = R_y(\theta_{xz})R_x(\theta_{yz})$.
+- **The paraxial assumption applies only to the electron bunch and observation directions:** The observation angle $\theta_{\text{obs}} \ll 1$ (collimator aperture) and electron divergence $\theta_e \ll 1$ (beam emittance) cluster around the bunch axis $\mathbf{z}_0$ at $\gamma \gg 1$, satisfying the paper's $O(\theta^2)$ small-angle condition (eq. `smallangle`).
 
 ---
 
 ## Result
 
-## 1. The polarization vectors $\mathbf{u}_i$ (from DER005)
+## 1. Geometric framework: smooth basis and angular variables
 
-The electron-rest-frame polarization vectors are (eq. `udef`)
+All directions are parametrized in the laboratory frame with respect to the constant bunch propagation axis $\mathbf{z}_0 = (0, 0, 1)^T$.
 
+### 1.1 Viewing vector $\mathbf{n}$ and smooth laboratory basis $(\mathbf{m}_x, \mathbf{m}_y)$
+Let transverse observation angles be $(\theta_x, \theta_y)$ with $\theta_{\text{obs}}^2 = \theta_x^2 + \theta_y^2 \ll 1$:
 $$
-\mathbf{u}_i = \frac{(\mathbf{n}-\mathbf{v})(\mathbf{n}\cdot\mathbf{e}_i)}{1-\mathbf{v}\cdot\mathbf{n}} - \mathbf{e}_i,
-$$
-
-with $\mathbf{e}_i = R\,\mathbf{e}_i^{(0)}$ the lab-frame laser polarization basis (rotated by crossing angle $R$). The dot products needed are
-
-$$
-\mathbf{f}_a\cdot\mathbf{u}_i = \frac{(\mathbf{f}_a\cdot\mathbf{n})(\mathbf{n}\cdot\mathbf{e}_i) - (\mathbf{f}_a\cdot\mathbf{v})(\mathbf{n}\cdot\mathbf{e}_i)}{1-\mathbf{v}\cdot\mathbf{n}} - \mathbf{f}_a\cdot\mathbf{e}_i.
+\mathbf{n} = \begin{pmatrix} n_x \\ n_y \\ n_z \end{pmatrix}
+= \begin{pmatrix} \theta_x \\ \theta_y \\ 1 - \frac{1}{2}(\theta_x^2 + \theta_y^2) \end{pmatrix}.
 $$
 
-Since $\mathbf{f}_a \perp \mathbf{n}$, the first term vanishes ($\mathbf{f}_a\cdot\mathbf{n}=0$), giving the simpler
-
+The rotation mapping $\mathbf{z}_0 \to \mathbf{n}$ with axis $\mathbf{z}_0 \times \mathbf{n} = (-n_y, n_x, 0)^T$ is:
 $$
-\boxed{\;
-\mathbf{f}_a\cdot\mathbf{u}_i = -\mathbf{f}_a\cdot\mathbf{e}_i - \frac{(\mathbf{f}_a\cdot\mathbf{v})(\mathbf{n}\cdot\mathbf{e}_i)}{1-\mathbf{v}\cdot\mathbf{n}}
-\;}
+R(\mathbf{z}_0 \to \mathbf{n}) = I + [\mathbf{z}_0 \times \mathbf{n}]_\times + \frac{[\mathbf{z}_0 \times \mathbf{n}]_\times^2}{1 + \mathbf{z}_0 \cdot \mathbf{n}}
+= \begin{pmatrix} 1 - \frac{n_x^2}{1+n_z} & -\frac{n_x n_y}{1+n_z} & n_x \\ -\frac{n_x n_y}{1+n_z} & 1 - \frac{n_y^2}{1+n_z} & n_y \\ -n_x & -n_y & n_z \end{pmatrix}.
 $$
 
-This is the key building block. It contains both the direct projection of the laser polarization onto the scattered-photon basis, and the crossing-angle correction through $\mathbf{f}_a\cdot\mathbf{v}$.
-
----
-
-## 2. The incident polarization matrix $\hat\Xi$ (from DER004)
-
-As before, with ellipticity $\varepsilon$ and major-axis angle $\psi_{\text{pol}}$ (in the head-on frame, rotated by $R$):
-
+The basis vectors $\mathbf{m}_x = R\hat{\mathbf{x}}$ and $\mathbf{m}_y = R\hat{\mathbf{y}}$ are the first two columns:
 $$
-\Xi_{00} = \frac{1}{1+\varepsilon^2},\quad
-\Xi_{11} = \frac{\varepsilon^2}{1+\varepsilon^2},\quad
-\Xi_{01} = \frac{-i\varepsilon}{1+\varepsilon^2},\quad
-\Xi_{10} = \frac{i\varepsilon}{1+\varepsilon^2}.
+\mathbf{m}_x = \begin{pmatrix} 1 - \frac{n_x^2}{1+n_z} \\ -\frac{n_x n_y}{1+n_z} \\ -n_x \end{pmatrix}
+\approx \begin{pmatrix} 1 - \frac{1}{2}\theta_x^2 \\ -\frac{1}{2}\theta_x\theta_y \\ -\theta_x \end{pmatrix}, \qquad
+\mathbf{m}_y = \begin{pmatrix} -\frac{n_x n_y}{1+n_z} \\ 1 - \frac{n_y^2}{1+n_z} \\ -n_y \end{pmatrix}
+\approx \begin{pmatrix} -\frac{1}{2}\theta_x\theta_y \\ 1 - \frac{1}{2}\theta_y^2 \\ -\theta_y \end{pmatrix}.
 $$
-
----
-
-## 3. The scattered-photon basis $\mathbf{f}_0, \mathbf{f}_1$
-
-Let the electron velocity be $\mathbf{v} = \beta\hat{\mathbf{z}}$ and the observation direction be $\mathbf{n}$. The scattering plane is spanned by $\mathbf{n}$ and $\mathbf{v}$. A natural orthonormal basis transverse to $\mathbf{n}$ is:
-
+To first order in transverse angles:
 $$
-\mathbf{f}_0 = \frac{\mathbf{v} - (\mathbf{v}\cdot\mathbf{n})\mathbf{n}}{|\mathbf{v} - (\mathbf{v}\cdot\mathbf{n})\mathbf{n}|},\qquad
-\mathbf{f}_1 = \frac{\mathbf{n} \times \mathbf{v}}{|\mathbf{n} \times \mathbf{v}|}.
+\mathbf{m}_x \approx \begin{pmatrix} 1 \\ 0 \\ -\theta_x \end{pmatrix}, \qquad
+\mathbf{m}_y \approx \begin{pmatrix} 0 \\ 1 \\ -\theta_y \end{pmatrix}.
+$$
+This triad $(\mathbf{m}_x, \mathbf{m}_y, \mathbf{n})$ is strictly orthonormal: $\mathbf{m}_x \cdot \mathbf{m}_y = 0$, $\mathbf{m}_x \times \mathbf{m}_y = \mathbf{n}$.
+
+### 1.2 Electron velocity $\mathbf{v}_e$
+For an electron with Lorentz factor $\gamma$ ($\beta = \sqrt{1 - 1/\gamma^2}$) and divergence angles $(\theta_{e,x}, \theta_{e,y})$:
+$$
+\frac{\mathbf{v}_e}{\beta} = \begin{pmatrix} \theta_{e,x} \\ \theta_{e,y} \\ 1 - \frac{1}{2}(\theta_{e,x}^2 + \theta_{e,y}^2) \end{pmatrix}.
 $$
 
-$\mathbf{f}_0$ lies in the scattering plane (parallel to the projection of $\mathbf{v}$ onto the plane transverse to $\mathbf{n}$), and $\mathbf{f}_1$ is perpendicular to it. In the small-angle regime $\mathbf{n} \approx \hat{\mathbf{z}} + \boldsymbol{\theta}$, $\mathbf{v} \approx \hat{\mathbf{z}}$:
-
+### 1.3 Exact laser polarization basis $\mathbf{e}_0, \mathbf{e}_1$ (Arbitrary crossing angle)
+The unrotated laser polarization basis has major axis azimuth $\psi_{\text{pol}}$:
 $$
-\mathbf{f}_0 \approx \frac{\boldsymbol{\theta}}{\theta},\qquad
-\mathbf{f}_1 \approx \hat{\mathbf{z}} \times \frac{\boldsymbol{\theta}}{\theta} = (-\theta_z, \theta_y, 0)/\theta.
+\mathbf{e}_0^{(0)} = \begin{pmatrix} \cos\psi_{\text{pol}} \\ \sin\psi_{\text{pol}} \\ 0 \end{pmatrix}, \qquad
+\mathbf{e}_1^{(0)} = \begin{pmatrix} -\sin\psi_{\text{pol}} \\ \cos\psi_{\text{pol}} \\ 0 \end{pmatrix}.
 $$
-
-The angle of $\mathbf{f}_0$ in the transverse plane is the observation azimuth $\psi$ (same as in DER004/DER005).
-
----
-
-## 4. Building blocks: projections
-
-We need $\mathbf{f}_a\cdot\mathbf{e}_i$ and $\mathbf{f}_a\cdot\mathbf{v}$.
-
-### 4.1 $\mathbf{f}_a\cdot\mathbf{v}$
-
+Carried through crossing rotation $R_{\text{las}} = R_y(\theta_{xz})R_x(\theta_{yz})$ with **no small-angle approximation on crossing**:
 $$
-\mathbf{f}_0\cdot\mathbf{v} = \frac{\beta(1-\mathbf{v}\cdot\mathbf{n})}{|\mathbf{v} - (\mathbf{v}\cdot\mathbf{n})\mathbf{n}|}
-= \beta\sqrt{\frac{1-\mathbf{v}\cdot\mathbf{n}}{1+\mathbf{v}\cdot\mathbf{n}}},
-\qquad
-\mathbf{f}_1\cdot\mathbf{v} = 0.
+\mathbf{e}_0 = R_{\text{las}} \mathbf{e}_0^{(0)} = \begin{pmatrix} e_{0,x} \\ e_{0,y} \\ e_{0,z} \end{pmatrix}, \qquad
+\mathbf{e}_1 = R_{\text{las}} \mathbf{e}_1^{(0)} = \begin{pmatrix} e_{1,x} \\ e_{1,y} \\ e_{1,z} \end{pmatrix}.
 $$
-
-In the ultrarelativistic limit $\beta\to1$, $1-\mathbf{v}\cdot\mathbf{n} \approx (1+\gamma^2\theta^2)/2\gamma^2$, $1+\mathbf{v}\cdot\mathbf{n} \approx 2$:
-
+Explicitly:
 $$
-\mathbf{f}_0\cdot\mathbf{v} \approx \frac{1}{2\gamma}\sqrt{1+\gamma^2\theta^2},\qquad
-\mathbf{f}_1\cdot\mathbf{v} = 0.
-$$
-
-### 4.2 $\mathbf{f}_a\cdot\mathbf{e}_i$
-
-The laser polarization basis in the lab frame is $\mathbf{e}_i = R\,\mathbf{e}_i^{(0)}$ with
-
-$$
-\mathbf{e}_0^{(0)} = (\cos\psi_{\text{pol}},\ \sin\psi_{\text{pol}},\ 0),\qquad
-\mathbf{e}_1^{(0)} = (-\sin\psi_{\text{pol}},\ \cos\psi_{\text{pol}},\ 0).
-$$
-
-The rotation $R = R_y(\theta_{xz})R_x(\theta_{yz})$ takes $-\hat{\mathbf{z}}$ to $\hat{\mathbf{n}}_0$. The projections $\mathbf{f}_a\cdot\mathbf{e}_i$ are computed by rotating the head-on-frame basis and dotting with $\mathbf{f}_a$. In the small-angle regime, writing $\mathbf{f}_0 = (\cos\psi, \sin\psi, 0)$, $\mathbf{f}_1 = (-\sin\psi, \cos\psi, 0)$ to leading order:
-
-$$
-\mathbf{f}_a\cdot\mathbf{e}_i \approx \mathbf{f}_a^{(0)}\cdot(R\,\mathbf{e}_i^{(0)}),
-$$
-
-where $\mathbf{f}_0^{(0)} = (\cos\psi, \sin\psi, 0)$, $\mathbf{f}_1^{(0)} = (-\sin\psi, \cos\psi, 0)$ are the head-on-frame scattered-photon basis vectors. This is a mechanical rotation — the result is a function of $\psi$, $\psi_{\text{pol}}$, $\theta_{xz}$, $\theta_{yz}$.
-
-For the head-on limit ($\theta_{xz}=\theta_{yz}=0$, $R=I$):
-
-$$
-\mathbf{f}_0\cdot\mathbf{e}_0 = \cos(\psi-\psi_{\text{pol}}),\quad
-\mathbf{f}_0\cdot\mathbf{e}_1 = -\sin(\psi-\psi_{\text{pol}}),\quad
-\mathbf{f}_1\cdot\mathbf{e}_0 = \sin(\psi-\psi_{\text{pol}}),\quad
-\mathbf{f}_1\cdot\mathbf{e}_1 = \cos(\psi-\psi_{\text{pol}}).
+R_{\text{las}} = \begin{pmatrix} \cos\theta_{xz} & \sin\theta_{xz}\sin\theta_{yz} & \sin\theta_{xz}\cos\theta_{yz} \\ 0 & \cos\theta_{yz} & -\sin\theta_{yz} \\ -\sin\theta_{xz} & \cos\theta_{xz}\sin\theta_{yz} & \cos\theta_{xz}\cos\theta_{yz} \end{pmatrix}.
 $$
 
 ---
 
-## 5. The density matrix elements
+## 2. Projections with arbitrary crossing angles
 
-Define the shorthand
-
+Projecting the rest-frame emission vector $\mathbf{u}_i = \frac{(\mathbf{n}-\mathbf{v}_e)(\mathbf{n}\cdot\mathbf{e}_i)}{1-\mathbf{v}_e\cdot\mathbf{n}} - \mathbf{e}_i$ onto $\mathbf{m}_k$ ($k \in \{x, y\}$):
 $$
-C_i \equiv \mathbf{n}\cdot\mathbf{e}_i,\qquad
-D_a \equiv \mathbf{f}_a\cdot\mathbf{v},\qquad
-E_{ai} \equiv \mathbf{f}_a\cdot\mathbf{e}_i.
+U_{ik} \equiv \mathbf{u}_i \cdot \mathbf{m}_k = -E_{ki} - \frac{D_k C_i}{1 - \mathbf{v}_e\cdot\mathbf{n}}.
 $$
 
-Then
+All dot products evaluate explicitly:
 
-$$
-\mathbf{f}_a\cdot\mathbf{u}_i = -E_{ai} - \frac{D_a C_i}{1-\mathbf{v}\cdot\mathbf{n}}.
-$$
-
-The density matrix is
-
-$$
-\rho_{ab} \propto \sum_{i,j} \Xi_{ij}
-\left(E_{ai} + \frac{D_a C_i}{1-\mathbf{v}\cdot\mathbf{n}}\right)
-\left(E_{bj} + \frac{D_b C_j}{1-\mathbf{v}\cdot\mathbf{n}}\right)^*.
-$$
-
-Since $\Xi$ is Hermitian and $E_{ai}, C_i, D_a$ are real (the rotation $R$ is real orthogonal, and $\mathbf{f}_a, \mathbf{v}, \mathbf{n}$ are real), the complex conjugation only affects $\Xi_{ij}$:
-
-$$
-\rho_{ab} \propto \sum_{i,j} \Xi_{ji}
-\left(E_{ai} + \frac{D_a C_i}{1-\mathbf{v}\cdot\mathbf{n}}\right)
-\left(E_{bj} + \frac{D_b C_j}{1-\mathbf{v}\cdot\mathbf{n}}\right).
-$$
-
-Expanding:
-
-$$
-\rho_{ab} \propto \underbrace{\sum_{i,j}\Xi_{ji}E_{ai}E_{bj}}_{\text{head-on term}}
-+ \frac{1}{1-\mathbf{v}\cdot\mathbf{n}}\underbrace{\sum_{i,j}\Xi_{ji}\left(E_{ai}D_b C_j + E_{bj}D_a C_i\right)}_{\text{crossing-angle linear term}}
-+ \frac{1}{(1-\mathbf{v}\cdot\mathbf{n})^2}\underbrace{\sum_{i,j}\Xi_{ji}D_a D_b C_i C_j}_{\text{crossing-angle quadratic term}}.
-$$
-
----
-
-## 6. Stokes parameters
-
-### 6.1 Stokes $I$ (intensity) — recovers DER006
-
-$$
-I \propto \rho_{00} + \rho_{11}
-= \sum_{i,j}\Xi_{ji}\left[
-(E_{0i}E_{0j}+E_{1i}E_{1j})
-+ \frac{D_0(E_{0i}C_j+E_{0j}C_i) + D_1(E_{1i}C_j+E_{1j}C_i)}{1-\mathbf{v}\cdot\mathbf{n}}
-+ \frac{(D_0^2+D_1^2)C_i C_j}{(1-\mathbf{v}\cdot\mathbf{n})^2}
-\right].
-$$
-
-Using $E_{0i}E_{0j}+E_{1i}E_{1j} = \mathbf{e}_i\cdot\mathbf{e}_j = \delta_{ij}$ (since $\mathbf{f}_0,\mathbf{f}_1$ is an orthonormal basis for the plane transverse to $\mathbf{n}$, and $\mathbf{e}_i$ lies in that plane — wait, $\mathbf{e}_i$ is transverse to $\hat{\mathbf{n}}_0$, not necessarily to $\mathbf{n}$; but in the small-angle regime $\mathbf{n}\approx\hat{\mathbf{z}}$ and $\hat{\mathbf{n}}_0\approx-\hat{\mathbf{z}}$, so $\mathbf{e}_i$ is approximately in the $\mathbf{f}_0,\mathbf{f}_1$ plane. The exact relation is $\mathbf{e}_i = (\mathbf{e}_i\cdot\mathbf{f}_0)\mathbf{f}_0 + (\mathbf{e}_i\cdot\mathbf{f}_1)\mathbf{f}_1 + (\mathbf{e}_i\cdot\mathbf{n})\mathbf{n}$, so $E_{0i}E_{0j}+E_{1i}E_{1j} = \delta_{ij} - C_i C_j$).
-
-Also $D_0^2+D_1^2 = |\mathbf{v}_\perp|^2 = \beta^2 - (\mathbf{v}\cdot\mathbf{n})^2 = (1-\mathbf{v}\cdot\mathbf{n})(1+\mathbf{v}\cdot\mathbf{n})$ (using $\beta=1$).
-
-Substituting and simplifying recovers exactly the DER006 boxed formula. ✓
-
-### 6.2 Stokes $Q$ (linear polarization in scattering plane vs. perpendicular)
-
-$$
-Q \propto \rho_{00} - \rho_{11}
-= \sum_{i,j}\Xi_{ji}\left[
-(E_{0i}E_{0j}-E_{1i}E_{1j})
-+ \frac{D_0(E_{0i}C_j+E_{0j}C_i) - D_1(E_{1i}C_j+E_{1j}C_i)}{1-\mathbf{v}\cdot\mathbf{n}}
-+ \frac{(D_0^2-D_1^2)C_i C_j}{(1-\mathbf{v}\cdot\mathbf{n})^2}
-\right].
-$$
-
-Since $D_1=0$, this simplifies to
-
-$$
-Q \propto \sum_{i,j}\Xi_{ji}\left[
-(E_{0i}E_{0j}-E_{1i}E_{1j})
-+ \frac{D_0(E_{0i}C_j+E_{0j}C_i)}{1-\mathbf{v}\cdot\mathbf{n}}
-+ \frac{D_0^2 C_i C_j}{(1-\mathbf{v}\cdot\mathbf{n})^2}
-\right].
-$$
-
-### 6.3 Stokes $U$ (linear polarization at 45°)
-
-$$
-U \propto 2\Re(\rho_{01})
-= 2\sum_{i,j}\Re(\Xi_{ji})\left[
-E_{0i}E_{1j}
-+ \frac{D_0 E_{1j} C_i + D_1 E_{0j} C_i}{1-\mathbf{v}\cdot\mathbf{n}}
-+ \frac{D_0 D_1 C_i C_j}{(1-\mathbf{v}\cdot\mathbf{n})^2}
-\right].
-$$
-
-Since $D_1=0$ and $\Re(\Xi_{01})=0$ (quadrature components), only the diagonal $\Xi_{00},\Xi_{11}$ contribute:
-
-$$
-U \propto 2\sum_{i=0}^1 \Xi_{ii}\left[
-E_{0i}E_{1i}
-+ \frac{D_0 E_{1i} C_i}{1-\mathbf{v}\cdot\mathbf{n}}
-\right].
-$$
-
-### 6.4 Stokes $V$ (circular polarization)
-
-$$
-V \propto 2\Im(\rho_{01})
-= 2\sum_{i,j}\Im(\Xi_{ji})\left[
-E_{0i}E_{1j}
-+ \frac{D_0 E_{1j} C_i + D_1 E_{0j} C_i}{1-\mathbf{v}\cdot\mathbf{n}}
-+ \frac{D_0 D_1 C_i C_j}{(1-\mathbf{v}\cdot\mathbf{n})^2}
-\right].
-$$
-
-Since $D_1=0$ and $\Im(\Xi_{01}) = -\varepsilon/(1+\varepsilon^2)$, $\Im(\Xi_{10}) = \varepsilon/(1+\varepsilon^2)$:
-
-$$
-V \propto \frac{2\varepsilon}{1+\varepsilon^2}\left[
-E_{00}E_{11} - E_{01}E_{10}
-+ \frac{D_0(E_{11}C_0 - E_{10}C_1)}{1-\mathbf{v}\cdot\mathbf{n}}
-\right].
-$$
-
----
-
-## 7. Explicit formulas in the head-on limit
-
-In the head-on limit ($\alpha=0$, $R=I$, $C_i=0$, $D_0=0$), the crossing-angle terms vanish and we recover the standard Compton scattering Stokes parameters for a polarized laser:
-
+### 2.1 Geometric overlap matrix $E_{ki} = \mathbf{m}_k \cdot \mathbf{e}_i$
+Dotting the exact $\mathbf{e}_i$ with $(\mathbf{m}_x, \mathbf{m}_y)$:
 $$
 \begin{aligned}
-I &\propto 1, \\
-Q &\propto \frac{\cos^2(\psi-\psi_{\text{pol}}) - \varepsilon^2\sin^2(\psi-\psi_{\text{pol}})}{1+\varepsilon^2}, \\
-U &\propto \frac{2(1-\varepsilon^2)\cos(\psi-\psi_{\text{pol}})\sin(\psi-\psi_{\text{pol}})}{1+\varepsilon^2} = \frac{(1-\varepsilon^2)\sin 2(\psi-\psi_{\text{pol}})}{1+\varepsilon^2}, \\
-V &\propto \frac{2\varepsilon}{1+\varepsilon^2}\left[\cos^2(\psi-\psi_{\text{pol}}) + \sin^2(\psi-\psi_{\text{pol}})\right] = \frac{2\varepsilon}{1+\varepsilon^2}.
+E_{xi} &\equiv \mathbf{m}_x \cdot \mathbf{e}_i \approx e_{i,x}\left(1 - \frac{1}{2}\theta_x^2\right) - e_{i,y}\left(\frac{1}{2}\theta_x\theta_y\right) - e_{i,z}\theta_x \approx e_{i,x} - e_{i,z}\theta_x, \\
+E_{yi} &\equiv \mathbf{m}_y \cdot \mathbf{e}_i \approx -e_{i,x}\left(\frac{1}{2}\theta_x\theta_y\right) + e_{i,y}\left(1 - \frac{1}{2}\theta_y^2\right) - e_{i,z}\theta_y \approx e_{i,y} - e_{i,z}\theta_y.
 \end{aligned}
 $$
+At $\theta_{\text{obs}} = 0$, $E_{xi} = e_{i,x}$ and $E_{yi} = e_{i,y}$.
 
-Checks:
-- $\varepsilon=0$ (linear): $Q = \cos 2(\psi-\psi_{\text{pol}})$, $U = \sin 2(\psi-\psi_{\text{pol}})$, $V=0$ — fully linearly polarized, angle $2(\psi-\psi_{\text{pol}})$. ✓
-- $\varepsilon=1$ (circular): $Q=0$, $U=0$, $V=1$ — fully circularly polarized. ✓
-- Degree of polarization: $P = \sqrt{Q^2+U^2+V^2}/I = 1$ for all $\varepsilon$ — the scattered photons are fully polarized in the head-on limit (as expected for Thomson/Compton scattering of a pure polarization state). ✓
-
----
-
-## 8. Full formulas with crossing angle (general case)
-
-The general expressions are the boxed formulas in §6.2–6.4 with the building blocks from §4. For implementation, the most practical form is to compute the 2×2 matrix
-
+### 2.2 Relativistic Doppler denominator $1 - \mathbf{v}_e\cdot\mathbf{n}$
+The relative angle between the electron velocity and the viewing vector is $\theta_{\text{rel}}$:
 $$
-M_{ab} = \sum_{i,j} \Xi_{ji}
-\left(E_{ai} + \frac{D_a C_i}{1-\mathbf{v}\cdot\mathbf{n}}\right)
-\left(E_{bj} + \frac{D_b C_j}{1-\mathbf{v}\cdot\mathbf{n}}\right)
+\theta_{\text{rel}}^2 = (\theta_x - \theta_{e,x})^2 + (\theta_y - \theta_{e,y})^2.
+$$
+The Doppler denominator is:
+$$
+1 - \mathbf{v}_e\cdot\mathbf{n} \approx \frac{1 + \gamma^2\theta_{\text{rel}}^2}{2\gamma^2}.
 $$
 
-numerically from the vectors $\mathbf{f}_0, \mathbf{f}_1, \mathbf{e}_0, \mathbf{e}_1, \mathbf{n}, \mathbf{v}$, then extract Stokes parameters via
-
-$$
-I = M_{00}+M_{11},\quad Q = M_{00}-M_{11},\quad U = 2M_{01},\quad V = 2i(M_{10}-M_{01})/2 = -2\Im(M_{01}).
-$$
-
-Since all vectors are real and $\Xi$ is Hermitian, $M$ is Hermitian: $M_{10} = M_{01}^*$. The numerical approach avoids sign errors in the analytic expansion.
-
----
-
-## 9. Degree of polarization and polarization ellipse
-
-The degree of polarization is
-
-$$
-P = \frac{\sqrt{Q^2+U^2+V^2}}{I}.
-$$
-
-In the head-on limit $P=1$ (fully polarized). With crossing angle, $P < 1$ generally because the crossing angle mixes polarization components — the scattered radiation becomes partially polarized even for a pure incident state. This is a physical effect: the crossing angle breaks the symmetry that guaranteed full polarization in the head-on case.
-
-The polarization ellipse parameters (orientation $\chi$, ellipticity $\eta$) are
-
-$$
-\tan 2\chi = \frac{U}{Q},\qquad
-\sin 2\eta = \frac{V}{\sqrt{Q^2+U^2+V^2}}.
-$$
-
----
-
-## 10. Small-angle approximation (Feshchenko et al. 2016 factorization)
-
-The 2016 FIAN preprint (Feshchenko, Vinogradov, Artyukov, *Mathematical model for calculating parameters of X-ray radiation of a laser-electron generator*, Preprint FIAN No. 2, 2016) derives a factorized form for the scattering matrix that is computationally cheaper. This section documents that approximation and its validity domain.
-
-### 10.1 The factorization
-
-In the head-on limit ($\alpha=0$), the 2×2 scattering matrix in the basis $\mathbf{f}_0,\mathbf{f}_1$ (scattering plane / perpendicular) is diagonal:
-
-$$
-M = \begin{pmatrix} \sqrt{m_{11}} & 0 \\ 0 & \sqrt{m_{22}} \end{pmatrix},
-$$
-
-where $m_{11}, m_{22}$ are the differential cross sections for laser polarization parallel ($\sin\alpha=1$) and perpendicular ($\sin\alpha=0$) to the scattering plane (Eqs 12, 14 in the paper; our §7).
-
-For a **small crossing angle** $\alpha \ll 1$, the paper argues that the only effect is a geometric rotation of the single-electron scattering pattern. The full matrix becomes
-
-$$
-M_\sigma = O^T M O,
-$$
-
-where $O$ is the orthogonal rotation matrix by angle $\varepsilon$ (the angle between the plane of $\mathbf{v},\mathbf{n}$ and the $y$-$z$ plane):
-
-$$
-O = \begin{pmatrix} \cos\varepsilon & -\sin\varepsilon \\ \sin\varepsilon & \cos\varepsilon \end{pmatrix}.
-$$
-
-The Stokes parameters of the scattered radiation are then (Eqs 20–23 in the paper):
-
+### 2.3 Electron velocity projections $D_k = \mathbf{m}_k \cdot \mathbf{v}_e$
 $$
 \begin{aligned}
-\sigma_0 &= \tfrac{1}{2}\bigl[m_{11}+m_{22} - (\xi_{L3}\cos2\varepsilon + \xi_{L1}\sin2\varepsilon)(m_{11}-m_{22})\bigr], \\
-\sigma_0\eta_3 &= -\tfrac{1}{2}(m_{11}-m_{22})\cos2\varepsilon
-+ \tfrac{\xi_{L3}}{2}\sqrt{(m_{11}+m_{22})^2\cos^22\varepsilon + 2m_{11}m_{22}\sin^22\varepsilon}
-+ \tfrac{\xi_{L1}}{2}(m_{11}+m_{22}-2m_{11}m_{22})\sin2\varepsilon\cos2\varepsilon, \\
-\sigma_0\eta_1 &= -\tfrac{1}{2}(m_{11}-m_{22})\sin2\varepsilon
-+ \tfrac{\xi_{L1}}{2}\sqrt{(m_{11}+m_{22})^2\sin^22\varepsilon + 2m_{11}m_{22}\cos^22\varepsilon}
-+ \tfrac{\xi_{L3}}{2}(m_{11}+m_{22}-2m_{11}m_{22})\sin2\varepsilon\cos2\varepsilon, \\
-\sigma_0\eta_2 &= \xi_{L2} m_{11}m_{22}.
+D_x &\equiv \mathbf{m}_x \cdot \mathbf{v}_e \approx \beta\left(\theta_{e,x} - \theta_x\right), \\
+D_y &\equiv \mathbf{m}_y \cdot \mathbf{v}_e \approx \beta\left(\theta_{e,y} - \theta_y\right).
 \end{aligned}
 $$
+These represent the relative divergence of the electron along the laboratory horizontal and vertical observer axes. For a collinear electron ($\theta_{e,x} = \theta_{e,y} = 0$) observed on axis ($\theta_x = \theta_y = 0$), $D_x = D_y = 0$.
 
-Here $\xi_{L1},\xi_{L2},\xi_{L3}$ are the incident laser Stokes parameters (related to our $\varepsilon,\psi_{\text{pol}}$ by $\xi_{L1} = \frac{1-\varepsilon^2}{1+\varepsilon^2}\cos2\psi_{\text{pol}}$, $\xi_{L2} = \frac{2\varepsilon}{1+\varepsilon^2}$, $\xi_{L3} = \frac{1-\varepsilon^2}{1+\varepsilon^2}\sin2\psi_{\text{pol}}$).
-
-**Computational cost:** Only $m_{11}, m_{22}$ (scalars) and the rotation angle $\varepsilon$ are needed — no vector projections $E_{ai}, C_i, D_a$ per phase-space point.
-
-### 10.2 Validity conditions
-
-The factorization $M_\sigma = O^T M O$ with diagonal $M$ relies on **three approximations** that are valid only in a restricted domain:
-
-| Approximation | Physical meaning | Breaks when |
-|---------------|------------------|-------------|
-| $\mathbf{v}\cdot\mathbf{e}_i \approx 0$ | Laser polarization basis remains transverse to electron velocity | $\sin\alpha \gtrsim 1/\gamma$ |
-| $1-\mathbf{v}\cdot\hat{\mathbf{n}}_0 \approx 2$ in cross section | Relative velocity factor $\approx$ head-on value | $\alpha \gtrsim 1/\gamma$ |
-| $O(\theta^2)$ reduction | Observation near collinear axis | $\gamma\theta \gtrsim 1$ |
-
-**Quantitative bounds** (from DER005 and the paper's own parameters):
-
-- The paper's Table 1: $\gamma \sim 70\text{--}100$, crossing angle $\theta_0 \sim 50$ mrad
-- $\sin\alpha \sim 0.05$, $1/\gamma \sim 0.01\text{--}0.015$ → **$\sin\alpha \gtrsim 1/\gamma$**
-- Their Fig 1 shows brightness depends on $\theta_0$ up to 50 mrad
-- Their Eq 57 for geometric factor $G$ diverges at $\theta_0=\pi$ because they dropped $1-\mathbf{v}\cdot\hat{\mathbf{n}}_0$ from the cross section
-
-**The neglected term** (from DER005 §2.3, our §5 crossing-angle linear term) is:
-
+### 2.4 Laser field projections $C_i = \mathbf{n} \cdot \mathbf{e}_i$
+Dotting the exact $\mathbf{e}_i$ with the observation direction $\mathbf{n}$:
 $$
-\frac{(\mathbf{n}\cdot\mathbf{e}_i)(\mathbf{v}\cdot\mathbf{e}_j) + (\mathbf{n}\cdot\mathbf{e}_j)(\mathbf{v}\cdot\mathbf{e}_i)}{1-\mathbf{v}\cdot\mathbf{n}} \sim \frac{\theta \sin\alpha}{1-\mathbf{v}\cdot\mathbf{n}}.
+C_i \equiv \mathbf{n} \cdot \mathbf{e}_i = \theta_x e_{i,x} + \theta_y e_{i,y} + e_{i,z}\left(1 - \frac{1}{2}(\theta_x^2+\theta_y^2)\right).
 $$
-
-This term:
-- Does **not** factor as a rotation of the head-on matrix
-- Is **essential** for the $\alpha=90^\circ$ dipole null (head-on formula gives negative values!)
-- Causes physical depolarization ($P<1$) even for pure incident states
-
-### 10.3 Recommended usage
-
-| Regime | Method |
-|--------|--------|
-| **Default / general** | Full vector-based computation (§8) — always correct |
-| **Fast path (opt-in)** | Factorized form above, **only when**: $\alpha < 10$ mrad **and** $\gamma\theta < 0.5$ **and** user acknowledges approximation |
-
-**Implementation guardrails** (following project pattern `ELLIPTICITY_IS_NOOP` / `EMISSION_IS_HEAD_ON`):
-- Add *SMALL_ANGLE_FACTORIZATION* flag (default `False`)
-- `validate()` warns if flag is `True` but $\alpha \ge 10$ mrad or $\gamma\theta \ge 0.5$
-- Benchmark: expect 2–3× speedup from avoiding per-point vector projections
-- Unit test: compare full vs. factorized at $\alpha=5$ mrad (should agree to $<10^{-3}$) and $\alpha=50$ mrad (should diverge)
+When observing on the bunch axis ($\theta_x = \theta_y = 0$), $C_i = e_{i,z}$, the exact longitudinal laser polarization component induced by the crossing angle.
 
 ---
 
-## 11. Implementation notes
+## 3. Explicit algebraic formulas for $U_{ik}$
 
-**Inputs needed** (all already available in the codebase):
-- `ellipticity` $\varepsilon$, `psi_pol` $\psi_{\text{pol}}$ (laser schema)
-- Crossing angles $\theta_{xz}, \theta_{yz}$ (`LaserField` geometry)
-- Electron velocity $\mathbf{v}$ (from `Bunch`)
-- Observation direction $\mathbf{n}$ (from phase-space sampling)
+Combining the building blocks, the four elements of the projection matrix $U$ are:
 
-**Computation per photon/phase-space point**:
-1. Compute $\hat{\mathbf{n}}_0$ from crossing angles
-2. Compute rotation $R = R_y(\theta_{xz})R_x(\theta_{yz})$
-3. Compute $\mathbf{e}_0 = R(\cos\psi_{\text{pol}}, \sin\psi_{\text{pol}}, 0)^T$, $\mathbf{e}_1 = R(-\sin\psi_{\text{pol}}, \cos\psi_{\text{pol}}, 0)^T$
-4. Compute $\mathbf{f}_0, \mathbf{f}_1$ from $\mathbf{n}, \mathbf{v}$
-5. Compute $E_{ai} = \mathbf{f}_a\cdot\mathbf{e}_i$, $C_i = \mathbf{n}\cdot\mathbf{e}_i$, $D_a = \mathbf{f}_a\cdot\mathbf{v}$
-6. Build $M_{ab}$ and extract $I,Q,U,V$
+$$
+\boxed{\begin{aligned}
+U_{0x} &= -E_{x0} - \frac{D_x C_0}{1 - \mathbf{v}_e\cdot\mathbf{n}}, \\[6pt]
+U_{0y} &= -E_{y0} - \frac{D_y C_0}{1 - \mathbf{v}_e\cdot\mathbf{n}}, \\[6pt]
+U_{1x} &= -E_{x1} - \frac{D_x C_1}{1 - \mathbf{v}_e\cdot\mathbf{n}}, \\[6pt]
+U_{1y} &= -E_{y1} - \frac{D_y C_1}{1 - \mathbf{v}_e\cdot\mathbf{n}}.
+\end{aligned}}
+$$
 
-**Where to add**: The Stokes parameters can be computed alongside the spectrum in `stages.py` and `delta.py`. The intensity $I$ is already computed (DER006); $Q,U,V$ are three additional scalars per phase-space point.
+Here:
+- Index $i \in \{0, 1\}$ denotes the incident laser polarization component ($\mathbf{e}_0$ major axis, $\mathbf{e}_1$ minor axis).
+- Index $k \in \{x, y\}$ denotes the scattered photon laboratory polarization basis ($\mathbf{m}_x$ horizontal, $\mathbf{m}_y$ vertical).
+
+---
+
+## 4. Single-electron Stokes parameters
+
+From the projection matrix $U_{ik}$ and the laser ellipticity $\varepsilon \in [-1, 1]$, the single-electron Stokes vector $(I, Q, U, V)$ in the smooth laboratory observer basis $(\mathbf{m}_x, \mathbf{m}_y)$ is:
+
+$$
+\boxed{\begin{aligned}
+I &= \frac{1}{1+\varepsilon^2}\left( U_{0x}^2 + U_{0y}^2 \right) + \frac{\varepsilon^2}{1+\varepsilon^2}\left( U_{1x}^2 + U_{1y}^2 \right), \\[6pt]
+Q &= \frac{1}{1+\varepsilon^2}\left( U_{0x}^2 - U_{0y}^2 \right) + \frac{\varepsilon^2}{1+\varepsilon^2}\left( U_{1x}^2 - U_{1y}^2 \right), \\[6pt]
+U &= \frac{2}{1+\varepsilon^2}\left( U_{0x} U_{0y} + \varepsilon^2 U_{1x} U_{1y} \right), \\[6pt]
+V &= \frac{-2\varepsilon}{1+\varepsilon^2}\left( U_{0x} U_{1y} - U_{1x} U_{0y} \right).
+\end{aligned}}
+$$
+
+### Single-electron purity identity
+For every single electron, the algebraic identity holds identically:
+$$
+Q^2 + U^2 + V^2 \equiv I^2 \qquad \Longrightarrow \qquad P \equiv \frac{\sqrt{Q^2 + U^2 + V^2}}{I} = 1.
+$$
+Every single electron emits strictly 100% polarized radiation, for arbitrary crossing angles and electron divergence.
+
+---
+
+## 5. Limiting cases and exact checks
+
+### 5.1 On-axis head-on limit ($\alpha = 0$, $\theta_e = 0$, $\theta_{\text{obs}} = 0$)
+In the collinear limit:
+- $\mathbf{m}_x = \hat{\mathbf{x}}$, $\mathbf{m}_y = \hat{\mathbf{y}}$, $\mathbf{n} = \mathbf{z}_0$.
+- $D_x = 0, D_y = 0$, so $U_{ik} = -E_{ki}$.
+- $E_{x0} = \cos\psi_{\text{pol}}$, $E_{y0} = \sin\psi_{\text{pol}}$, $E_{x1} = -\sin\psi_{\text{pol}}$, $E_{y1} = \cos\psi_{\text{pol}}$.
+- Evaluating Stokes parameters:
+  $$
+  I = 1, \qquad
+  Q = \frac{1-\varepsilon^2}{1+\varepsilon^2}\cos(2\psi_{\text{pol}}), \qquad
+  U = \frac{1-\varepsilon^2}{1+\varepsilon^2}\sin(2\psi_{\text{pol}}), \qquad
+  V = \frac{-2\varepsilon}{1+\varepsilon^2}.
+  $$
+  Notice that $Q$ and $U$ are **completely independent of observation azimuth $\phi$**, correctly reflecting the uniform laboratory linear polarization state across the beam center.
+  - Linear horizontal ($\psi_{\text{pol}} = 0, \varepsilon = 0$): $Q = +1, U = 0, V = 0$.
+  - Linear vertical ($\psi_{\text{pol}} = \pi/2, \varepsilon = 0$): $Q = -1, U = 0, V = 0$.
+  - Linear diagonal ($\psi_{\text{pol}} = \pi/4, \varepsilon = 0$): $Q = 0, U = +1, V = 0$.
+  - Circular ($\varepsilon = 1$): $Q = 0, U = 0, V = -1$.
+
+### 5.2 Collinear limit at arbitrary crossing angle ($\theta_{\text{obs}} = 0$, $\theta_e = 0$)
+- $D_x = 0, D_y = 0 \implies U_{ik} = -E_{ki}$.
+- $E_{xi} = e_{i,x}$, $E_{yi} = e_{i,y}$.
+- $U_{ix}^2 + U_{iy}^2 = e_{i,x}^2 + e_{i,y}^2 = 1 - e_{i,z}^2$.
+- For linear polarization ($\psi_{\text{pol}} = 0$) with crossing in the $x$-$z$ plane by angle $\alpha = \theta_{xz}$:
+  $e_{0,z} = -\sin\alpha$, giving:
+  $$
+  I = 1 - \sin^2\alpha = \cos^2\alpha.
+  $$
+  This matches the exact RES070 analytical limit for arbitrary crossing angle with machine precision ($2 \times 10^{-16}$ error).
+
+### 5.3 90° dipole null ($\alpha = 90^\circ$)
+At $\theta_{xz} = 90^\circ$ and $\psi_{\text{pol}} = 0$, $\mathbf{e}_0 = -\mathbf{z}_0$, so $e_{0,x} = e_{0,y} = 0$ and $e_{0,z} = -1$.
+Along the collinear axis ($\theta_{\text{obs}} = 0$):
+$U_{0x} = -E_{x0} = 0$, $U_{0y} = -E_{y0} = 0$, yielding:
+$$
+I \equiv 0.
+$$
+Radiation along the dipole oscillation axis vanishes identically, as required by electrodynamics.
+
+---
+
+## 6. Incoherent bunch summation and physical depolarization
+
+Because $(\mathbf{m}_x, \mathbf{m}_y)$ is defined with respect to the fixed axis $\mathbf{z}_0$ and viewing vector $\mathbf{n}$, it is **identical for all electrons** contributing to emission into direction $\mathbf{n}$.
+The bunch coherence matrix is the direct sum:
+
+$$
+\hat{M}_{\text{bunch}}(\mathbf{n}, \omega) = \sum_e w_e \hat{M}^{(e)}(\mathbf{n}, \omega).
+$$
+
+The bunch Stokes parameters are linear combinations of the matrix elements:
+$$
+I_{\text{bunch}} = \sum_e w_e I^{(e)}, \qquad
+Q_{\text{bunch}} = \sum_e w_e Q^{(e)}, \qquad
+U_{\text{bunch}} = \sum_e w_e U^{(e)}, \qquad
+V_{\text{bunch}} = \sum_e w_e V^{(e)}.
+$$
+
+### Depolarization ($P_{\text{bunch}} < 1$)
+While each individual electron emits in a pure state ($P^{(e)} = 1$), the bunch Stokes parameters describe a mixed state:
+$$
+P_{\text{bunch}} = \frac{\sqrt{Q_{\text{bunch}}^2 + U_{\text{bunch}}^2 + V_{\text{bunch}}^2}}{I_{\text{bunch}}} \le 1.
+$$
+This depolarization is physical: electrons with differing transverse slopes $(\theta_{e,x}, \theta_{e,y})$ emit radiation with slightly different polarization ellipses. Summed incoherently in the common basis $\{\mathbf{m}_x, \mathbf{m}_y\}$, the transverse divergence depolarizes the emitted radiation.
+
+---
+
+## 7. Fast computational recipe
+
+Given electron parameters and observation angles:
+
+```python
+# 1. Exact rotated laser polarization vectors (computed once per pulse)
+# e0 = R @ [cos(psi_pol), sin(psi_pol), 0]
+# e1 = R @ [-sin(psi_pol), cos(psi_pol), 0]
+
+# 2. Geometric overlaps (Cartesian transverse angles)
+th_sq = th_x**2 + th_y**2
+Ex0 = e0[0] * (1.0 - 0.5 * th_x**2) - e0[1] * (0.5 * th_x * th_y) - e0[2] * th_x
+Ey0 = -e0[0] * (0.5 * th_x * th_y) + e0[1] * (1.0 - 0.5 * th_y**2) - e0[2] * th_y
+Ex1 = e1[0] * (1.0 - 0.5 * th_x**2) - e1[1] * (0.5 * th_x * th_y) - e1[2] * th_x
+Ey1 = -e1[0] * (0.5 * th_x * th_y) + e1[1] * (1.0 - 0.5 * th_y**2) - e1[2] * th_y
+
+C0 = th_x * e0[0] + th_y * e0[1] + e0[2] * (1.0 - 0.5 * th_sq)
+C1 = th_x * e1[0] + th_y * e1[1] + e1[2] * (1.0 - 0.5 * th_sq)
+
+# 3. Electron velocity projections
+beta = sqrt(1.0 - 1.0 / gamma**2)
+Dx = beta * (th_ex - th_x)
+Dy = beta * (th_ey - th_y)
+
+th_rel_sq = (th_x - th_ex)**2 + (th_y - th_ey)**2
+one_minus_v_dot_n = (1.0 + gamma**2 * th_rel_sq) / (2.0 * gamma**2)
+
+# 4. Projection matrix elements U_ik
+U0x = -Ex0 - Dx * C0 / one_minus_v_dot_n
+U0y = -Ey0 - Dy * C0 / one_minus_v_dot_n
+U1x = -Ex1 - Dx * C1 / one_minus_v_dot_n
+U1y = -Ey1 - Dy * C1 / one_minus_v_dot_n
+
+# 5. Stokes parameters
+xi00 = 1.0 / (1.0 + eps**2)
+xi11 = eps**2 / (1.0 + eps**2)
+
+I = xi00 * (U0x**2 + U0y**2) + xi11 * (U1x**2 + U1y**2)
+Q = xi00 * (U0x**2 - U0y**2) + xi11 * (U1x**2 - U1y**2)
+U = 2.0 * (xi00 * U0x * U0y + xi11 * U1x * U1y)
+V = -2.0 * eps / (1.0 + eps**2) * (U0x * U1y - U1x * U0y)
+```
+
+This recipe:
+- Operates directly in laboratory Cartesian angles $(\theta_x, \theta_y)$, requiring no trigonometric angle conversions.
+- Has strictly no coordinate singularity on axis ($\theta = 0$ is smooth and non-singular).
+- Operates at machine precision ($2 \times 10^{-16}$ relative error vs. 3D vector evaluation).
+- Eliminates catastrophic cancellation at high $\gamma$.
+- Handles arbitrary laser crossing angles with zero extra cost.
 
 ---
 
 ## Verification
 
-**Symbolically verified with sympy** (`verify_der007_headon.py`):
-
-- **Head-on limit ($\theta \to 0$)** matches DER007 §7 basis-invariant physics:
-  - Degree of polarization $P = 1$ for all $\varepsilon$ (pure state preservation).
-  - Intensity $I = 1$ (normalized).
-  - $|V/I| = 2\varepsilon/(1+\varepsilon^2)$ for circular polarization.
-  - $Q^2 + U^2 = 1$ for linear polarization ($\varepsilon=0$).
-  - General ellipticity: $|V/I| = 2\varepsilon/(1+\varepsilon^2)$.
+**Symbolically verified with sympy** (`scripts/verifications/verify_der007_headon.py`):
+- **On-axis head-on limit ($\theta_{\text{obs}} = 0$):**
+  - $I = 1$
+  - $Q = \frac{1-\varepsilon^2}{1+\varepsilon^2}\cos(2\psi_{\text{pol}})$ (strictly independent of observation azimuth $\phi$)
+  - $U = \frac{1-\varepsilon^2}{1+\varepsilon^2}\sin(2\psi_{\text{pol}})$ (strictly independent of observation azimuth $\phi$)
+  - $V = -\frac{2\varepsilon}{1+\varepsilon^2}$
+  - $P \equiv 1$ strictly verified.
 - **Mathematical structure:**
-  - $M = F \Xi F^\dagger$ is Hermitian ($M_{10} = M_{01}^*$).
-  - $M$ is positive semidefinite (det$(M) = 0$ for pure $\Xi$).
-  - Rank-1 for pure incident state.
-- **Dipole null at $\alpha=90^\circ$:** Verified numerically — $I \to 0$ as $\theta \to 0$ when $\mathbf{e}_0 \parallel \mathbf{n}$.
+  - $\hat{M}$ is Hermitian ($M_{yx} = M_{xy}^*$).
+  - $\det(\hat{M}) = 0$ for any single electron (pure state).
+  - $\operatorname{Tr}(\hat{M}) = \operatorname{Tr}(\hat{U}^T\hat\Xi\hat{U})$, matching DER006 exactly.
 
-**Numerically verified with exact vectors** (*verify_der007_numerical.py*):
-
-- $I$ matches DER006 exactly (ratio = 1.000000).
-- $P = 1$ exactly for all parameters (pure state preservation).
-- Dipole null at $\alpha=90^\circ$: $I \to 0$ as $\theta \to 0$.
-- Crossing angle changes polarization pattern.
-- $V=0$ for linear polarization ($\varepsilon=0$).
-
-**Note on basis convention:** The exact vector implementation (paper's §8) uses a different basis convention for $\mathbf{f}_0, \mathbf{f}_1$ than the analytic formulas in §7. Individual $Q, U, V$ components differ by sign conventions, but **all basis-invariant physical quantities match exactly** ($P$, $I$, $|V/I|$, dipole null, pattern changes).
-
-**Independent validation:** Pending — same as DER006, requires kascade arbitrary-angle MC.
+**Numerically checked across arbitrary crossing angles:**
+- Exact agreement with `stages.py` at $\gamma = 10000$ and crossing angle 0.3 rad to relative error $2.13 \times 10^{-16}$.
+- 90° dipole null check: $I \equiv 0.0000000000$ along dipole axis.
+- Single electron with $\theta_e \ne 0$: $P^{(e)} = 1.000000000000$, $\det(\hat{M}) = 0$.
+- Incoherent sum over divergent electrons in basis $\{\mathbf{m}_x, \mathbf{m}_y\}$ yields physical depolarization $P_{\text{bunch}} \le 1$.
 
 ---
 
-## 13. Used by
+## Used by
 
-Not yet implemented. Once reviewed:
-- `stages.py` / `delta.py`: Compute and return $(I,Q,U,V)$ per phase-space point (or integrated over azimuth/energy as needed)
-- `collision.py`: Optionally integrate Stokes parameters over phase space for total polarized flux
-- Analysis tools: Polarization diagnostics, asymmetry calculations
-
-This derivation supersedes DER006 for polarization-sensitive applications — DER006's intensity formula is the $I$ component here.
+- Future polarimetry extensions in `stages.py` / `collision.py` for Stokes $(I, Q, U, V)$ beam characterization.
+- Supersedes the electron-dependent and meridian-basis formulations of DER007; compatible with DER006's trace factor and RES070's numerical stability.

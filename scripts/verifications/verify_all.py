@@ -74,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
         verifications = [
             (script, description, complete)
             for script, description, complete in verifications
-            if script.stem.casefold() == f"verify_{target}"
+            if script.stem.casefold() == f"verify_{target}" or script.stem.casefold().startswith(f"verify_{target}_")
         ]
         if not verifications:
             print(f"Unknown derivation: {target}")
