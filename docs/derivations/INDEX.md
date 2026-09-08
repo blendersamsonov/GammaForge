@@ -14,3 +14,6 @@ same change as any new derivation file or any status move —
 | DER006 | Polarization matrix with ellipticity and crossing angle | verified | verified/DER006-polarization-matrix-with-ellipticity-and-crossing-angle.md |
 | DER007 | Stokes parameters of scattered Compton photons | verified | verified/DER007-stokes-parameters-of-scattered-compton-photons.md |
 | DER008 | Ring/annulus importance sampling spectrum kernel | derived | derived/DER008-ring-annulus-importance-sampling-spectrum-kernel.md |
+| DER009 | Reduced 3D emission kernel under the delta-resonance approximation | verified | verified/DER009-reduced-3d-emission-kernel-under-delta-resonance-approximation.md |
+| DER010 | Laser photon density scale and cycle-averaged field energy | verified | verified/DER010-laser-photon-density-scale-and-cycle-averaged-field-energy.md |
+| DER011 | Closed-form angle-integrated linear Thomson spectrum | verified | verified/DER011-closed-form-angle-integrated-linear-thomson-spectrum.md |
