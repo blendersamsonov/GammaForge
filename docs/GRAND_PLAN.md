@@ -477,8 +477,9 @@ class Engine(Protocol):
 **Script alpha update (RES062):** Stage 0/1 remain NumPy. Stage 2 now dispatches
 head-on, linearly polarized angular queries to the ported CuPy ring/annulus sampler
 when explicitly selected and CUDA is available. NumPy is the alpha default: the
-GPU port remains experimental because its density/integral comparison has not closed
-(see `docs/ALPHA_GPU_VALIDATION.md`). Other geometries use the NumPy quadrature;
+GPU port remains experimental. Numerical sampling defects are repaired and head-on
+density/integral gates pass (RES068; `docs/ALPHA_GPU_VALIDATION.md`), but broader
+convergence coverage remains open. Other geometries use the NumPy quadrature;
 explicit unsupported CuPy requests raise. The alpha exception to the v0.18 target
 below keeps deterministic CPU quadrature in production until a validated CPU sampler
 exists. Numerical kernel comparison does not close independent emission validation.
@@ -1009,7 +1010,8 @@ duplicated (C4).
 - **v0.30**: Author-scoped script alpha (`0.1.0a1`) covers Gaussian analytical/xigma
   calculations and a reproducible crossing-angle yield figure, excluding GUI/kascade
   support. CuPy angular sampling is integrated experimentally for head-on linear
-  polarization; NumPy remains the default after GPU/reference disagreement (RES062).
+  polarization; NumPy remains the default after numerical repairs and head-on
+  GPU/reference checks (RES062, RES068); broader convergence coverage remains open.
   Shared input snapshots reject invalid construction and
   isolate caller arrays (RES064). Versioned HDF5 preserves metadata and an optional
   replayable submitted request (RES063). A restricted alpha gate retains numerical

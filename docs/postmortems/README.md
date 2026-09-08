@@ -24,3 +24,4 @@ sections that follow.
 
 | # | Title |
 |---|-------|
+| 001 | [CuPy proposal/weight mismatch](001-cupy-proposal-weight-mismatch.md) |

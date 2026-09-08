@@ -98,7 +98,6 @@ def test_unsupported_polarization_with_backend_cupy_raises(baseline_table):
         angular_spectrum_from_table(table, tx, ty, s, backend="cupy", theta_xz=0.05)
 
 
-@pytest.mark.xfail(strict=True, reason="GPU density/integral discrepancy; docs/ALPHA_GPU_VALIDATION.md")
 def test_gpu_distribution_agrees_with_numpy_reference(baseline_table):
     """A median cell ratio cannot detect misplaced or missing spectral mass."""
     table, samples = baseline_table
@@ -156,4 +155,6 @@ def test_xigma_engine_run_with_backend_cupy():
     assert np.all(ang.distr >= 0.0)
     assert np.all(col.distr >= 0.0)
     assert results.model_specific["stage2_backend"] == "cupy"
+    assert results.model_specific["stage2_sampler"]["cdf_inversion"] == "exact_binary_search"
+    assert results.model_specific["stage2_sampler"]["proposal_floor_fraction"] == 1e-3
     assert any("experimental" in warning for warning in results.model_specific["warnings"])

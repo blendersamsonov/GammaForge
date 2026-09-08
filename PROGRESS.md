@@ -18,7 +18,7 @@ unfinished or waiting on someone*.
 | 1. Core (`gammaforge.io`) | 🟢 done |
 | 2. Validation harness | 🟢 done |
 | 2.5. Stage 0 + minimal delta | 🟢 done |
-| 3a. xigma engineering | 🟢 NumPy Stage 0/1/2, `Collision`, `XigmaEngine`. CuPy port merged but experimental: GPU/reference discrepancy blocks promotion (RES062). |
+| 3a. xigma engineering | 🟢 NumPy Stage 0/1/2, `Collision`, `XigmaEngine`. CuPy sampling/precision defects repaired and head-on numerical gates pass; still experimental (RES062, RES068). |
 | 3b. Physics closure | 🟡 §9.1 closed (RES033). The author-approved per-particle lab-frame polarization projection is implemented (RES060); independent arbitrary-angle emission validation remains open. |
 | 4. analytical engine | 🟢 landed and merged to `main`; general overlap-integral yield, width breakdown, quadrature spectrum, flying focus, crossing angle for the yield. Open: collimated-spectrum construction |
 | 5. kascade port + delta full role | 🟡 minimal `KascadeEngine`, Thomson sanity anchor, and opt-in GUI integration landed (RES059); four-method validation wiring remains open |
@@ -54,10 +54,11 @@ Ordered by who is blocked. Each names the file that carries the detail.
 
 ### Available to pick up (no external dependency)
 
-- **Resolve CuPy/reference distribution disagreement.** The kernel executes on GTX
-  1660 Ti, but a baseline cube gives an integrated ratio of 1.419 and neither method's
-  convergence has been established. NumPy remains the alpha default. Reproducer and
-  strict expected-failure test: `docs/ALPHA_GPU_VALIDATION.md`.
+- **Broaden CuPy convergence coverage before promotion.** Corrected proposal weighting,
+  stable polarization, and support handling pass the original distribution gate and
+  refined-input CPU comparisons over the head-on scenario bank (RES068). Fixed ring
+  quadrature and new parameter regimes still need convergence checks; NumPy remains
+  the alpha default. Measurements and benchmarks: `docs/ALPHA_GPU_VALIDATION.md`.
 
 - **Independently validate arbitrary-angle emission.** RES060 implements the author-approved
   lab-frame polarization projection and checks it directly against Eq. `udef`, but no

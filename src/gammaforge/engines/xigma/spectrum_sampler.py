@@ -12,6 +12,7 @@ architecture:
 from __future__ import annotations
 
 import math
+from numbers import Integral
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -54,21 +55,35 @@ MAX_ARCS = 4 * MAX_RINGS
 ARC_STRIDE = 3
 RING_STRIDE = 9
 RINGS_SIZE = CP_UINT(RING_STRIDE * MAX_RINGS)
+SCRATCH_SIZE = (RING_STRIDE + 2) * MAX_RINGS
 INVAL = CP_FLOAT(9999.0)
 
 PHI_EDGES = 32
 PHI_CELLS = PHI_EDGES - 1
 CUM_WEIGHTS_SIZE = MAX_ARCS * PHI_EDGES
 
-CDF_PHI_RESOLUTION = 32
-CDF_PHI_REPEAT = (CDF_PHI_RESOLUTION + X_THREADS - 1) // X_THREADS
-CDF_SIZE = CDF_PHI_RESOLUTION * MAX_ARCS
-
 SAMPLES_TOTAL = 256
 SAMPLES_REPEAT = (SAMPLES_TOTAL + X_THREADS - 1) // X_THREADS
 THREAD_STRIDE = 3 * SAMPLES_REPEAT + 1
-R_MAX_NUDGE = 128
 GOLDEN_PHI = 1.618033988749894848
+PROPOSAL_FLOOR_FRACTION = 1e-3
+
+
+if _HAS_CUPY:
+    @jit.rawkernel(device=True)
+    def _cdf_cell(cumulative, offset, target):
+        """Bracket a quantile in the same piecewise-constant PDF used for weighting."""
+        left = CP_UINT(0)
+        right = CP_UINT(PHI_CELLS)
+        while right - left > 1:
+            mid = (left + right) // 2
+            if cumulative[offset + mid] <= target:
+                left = mid
+            else:
+                right = mid
+        return left
+else:
+    _cdf_cell = None
 
 
 def is_gpu_available() -> bool:
@@ -115,8 +130,7 @@ def _define_kernel():
         thread_idx = jit.threadIdx.x
         out_idx = jit.blockIdx.x
 
-        inv_cdf = jit.shared_memory(CP_FLOAT, CDF_SIZE)
-        TMP_FLOAT_ARRAY = inv_cdf
+        TMP_FLOAT_ARRAY = jit.shared_memory(CP_FLOAT, SCRATCH_SIZE)
 
         n_arcs_shared = jit.shared_memory(CP_UINT, 1)
         arcs = jit.shared_memory(CP_FLOAT, ARC_STRIDE * MAX_ARCS)
@@ -126,6 +140,8 @@ def _define_kernel():
         x0 = params_Arr[out_idx, 0]
         y0 = params_Arr[out_idx, 1]
         s = params_Arr[out_idx, 2]
+        box_x0 = x0 - (theta_x_min + theta_x_width * n_theta_x / 2)
+        box_y0 = y0 - (theta_y_min + theta_y_width * n_theta_y / 2)
 
         if s <= CP_ZERO:
             skip = True
@@ -133,12 +149,12 @@ def _define_kernel():
             rmin_g = cp.sqrt(cp.maximum(CP_ZERO, CP_ONE / s - (CP_ONE + ahat_max) / gamma_lo**2))
             rmax_g = cp.sqrt(cp.maximum(CP_ZERO, CP_ONE / s - (CP_ONE + ahat_min) / gamma_hi**2))
 
-            rmin_r = cp.sqrt(max(cp.abs(x0) - dx, CP_ZERO) ** 2 + max(cp.abs(y0) - dy, CP_ZERO) ** 2)
+            rmin_r = cp.sqrt(max(cp.abs(box_x0) - dx, CP_ZERO) ** 2 + max(cp.abs(box_y0) - dy, CP_ZERO) ** 2)
 
             diam = 2 * cp.sqrt(dx**2 + dy**2)
-            xm = dx + cp.abs(x0)
-            ym = dy + cp.abs(y0)
-            rmax_r = cp.sqrt(xm**2 + ym**2) - diam / R_MAX_NUDGE
+            xm = dx + cp.abs(box_x0)
+            ym = dy + cp.abs(box_y0)
+            rmax_r = cp.sqrt(xm**2 + ym**2)
 
             rmin = max(rmin_g, rmin_r)
             rmax = min(rmax_g, rmax_r)
@@ -146,8 +162,8 @@ def _define_kernel():
             skip = rmin >= rmax
 
         if not skip:
-            r_inside = max(CP_ZERO, min(dx - cp.abs(x0), dy - cp.abs(y0)))
-            n_rings = max(N_RINGS_MIN, CP_UINT(MAX_RINGS * (rmax - rmin) / diam))
+            r_inside = max(CP_ZERO, min(dx - cp.abs(box_x0), dy - cp.abs(box_y0)))
+            n_rings = min(CP_UINT(MAX_RINGS), max(CP_UINT(N_RINGS_MIN), CP_UINT(MAX_RINGS * (rmax - rmin) / diam)))
             dr = (rmax - rmin) / n_rings
 
             rings = TMP_FLOAT_ARRAY
@@ -172,28 +188,28 @@ def _define_kernel():
                         sin_sign = CP_INT(2 * sin_pos - 1)
                         cos_sign = CP_INT(2 * cos_pos - 1)
 
-                        cos_0 = (dx - x0) / r
+                        cos_0 = (dx - box_x0) / r
                         sin_0 = cp.sqrt(CP_ONE - cos_0**2)
 
-                        cos_1 = (-dx - x0) / r
+                        cos_1 = (-dx - box_x0) / r
                         sin_1 = cp.sqrt(CP_ONE - cos_1**2)
 
-                        sin_2 = (dy - y0) / r
+                        sin_2 = (dy - box_y0) / r
                         cos_2 = cp.sqrt(CP_ONE - sin_2**2)
 
-                        sin_3 = (-dy - y0) / r
+                        sin_3 = (-dy - box_y0) / r
                         cos_3 = cp.sqrt(CP_ONE - sin_3**2)
 
-                        if cos_sign * cos_0 > 0 and cp.abs(y0 + r * sin_0 * sin_sign) < dy:
+                        if cos_sign * cos_0 > 0 and cp.abs(box_y0 + r * sin_0 * sin_sign) < dy:
                             phi_cur[RINGS_SIZE + 2 * thread_idx + (1 - sin_pos)] = cp.arctan2(sin_0 * sin_sign, cos_0)
 
-                        if cos_sign * cos_1 > 0 and cp.abs(y0 + r * sin_1 * sin_sign) < dy:
+                        if cos_sign * cos_1 > 0 and cp.abs(box_y0 + r * sin_1 * sin_sign) < dy:
                             phi_cur[RINGS_SIZE + 2 * thread_idx + (sin_pos)] = cp.arctan2(sin_1 * sin_sign, cos_1)
 
-                        if sin_sign * sin_2 > 0 and cp.abs(x0 + r * cos_2 * cos_sign) < dx:
+                        if sin_sign * sin_2 > 0 and cp.abs(box_x0 + r * cos_2 * cos_sign) < dx:
                             phi_cur[RINGS_SIZE + 2 * thread_idx + (cos_pos)] = cp.arctan2(sin_2, cos_2 * cos_sign)
 
-                        if sin_sign * sin_3 > 0 and cp.abs(x0 + r * cos_3 * cos_sign) < dx:
+                        if sin_sign * sin_3 > 0 and cp.abs(box_x0 + r * cos_3 * cos_sign) < dx:
                             phi_cur[RINGS_SIZE + 2 * thread_idx + (1 - cos_pos)] = cp.arctan2(sin_3, cos_3 * cos_sign)
 
                         if phi_cur[RINGS_SIZE + 2 * thread_idx + 1] < 1000.0:
@@ -265,10 +281,11 @@ def _define_kernel():
 
             if thread_idx < n_arcs:
                 total = CP_ZERO
-                for i in jit.range(PHI_EDGES):
+                for i in jit.range(PHI_CELLS):
                     tmp = cell_weights[thread_idx * PHI_EDGES + CP_UINT(i)]
                     cum_cell_weights[thread_idx * PHI_EDGES + CP_UINT(i)] = total
                     total += tmp
+                cum_cell_weights[thread_idx * PHI_EDGES + PHI_CELLS] = total
             jit.syncthreads()
 
             if thread_idx == 0:
@@ -278,12 +295,21 @@ def _define_kernel():
             jit.syncthreads()
 
             total_weight = TMP_FLOAT_ARRAY[0]
+            if total_weight <= CP_ZERO:
+                return  # Uniform block-wide decision after the reduction barrier.
             thread_samples[thread_idx * THREAD_STRIDE] = CP_UINT(0)
+            jit.syncthreads()
             if thread_idx == 0:
+                active_arcs = CP_UINT(0)
+                for k in jit.range(CP_INT(n_arcs)):
+                    if cum_cell_weights[k * PHI_EDGES + (PHI_EDGES - 1)] > CP_ZERO:
+                        active_arcs += CP_UINT(1)
                 cur_thread = CP_UINT(0)
                 for k in jit.range(CP_INT(n_arcs)):
                     arc_weight = cum_cell_weights[k * PHI_EDGES + (PHI_EDGES - 1)]
-                    s_add = CP_UINT(cp.floor(SAMPLES_TOTAL * arc_weight / total_weight))
+                    s_add = CP_UINT(0)
+                    if arc_weight > CP_ZERO:
+                        s_add = CP_UINT(1) + CP_UINT(cp.floor((SAMPLES_TOTAL - active_arcs) * arc_weight / total_weight))
                     for j in jit.range(CP_INT(s_add)):
                         n_samples = thread_samples[cur_thread * THREAD_STRIDE + 0]
                         thread_samples[cur_thread * THREAD_STRIDE + 1 + 3 * n_samples + 0] = CP_UINT(k)
@@ -291,32 +317,6 @@ def _define_kernel():
                         thread_samples[cur_thread * THREAD_STRIDE + 1 + 3 * n_samples + 2] = CP_UINT(s_add)
                         thread_samples[cur_thread * THREAD_STRIDE + 0] += CP_UINT(1)
                         cur_thread = (cur_thread + CP_UINT(1)) % X_THREADS
-            jit.syncthreads()
-
-            for arc_idx in jit.range(n_arcs):
-                phi_min = arcs[arc_idx * ARC_STRIDE + 1]
-                phi_max = arcs[arc_idx * ARC_STRIDE + 2]
-                dphi = (phi_max - phi_min) / PHI_CELLS
-                for k in jit.range(CDF_PHI_REPEAT):
-                    r_idx = CP_UINT(k * X_THREADS) + thread_idx
-                    if r_idx < CDF_PHI_RESOLUTION:
-                        r = cum_cell_weights[arc_idx * PHI_EDGES + (PHI_EDGES - 1)] * r_idx / (CDF_PHI_RESOLUTION - 1)
-                        left = CP_UINT(0)
-                        right = CP_UINT(PHI_EDGES - 1)
-                        while right - left > 1:
-                            mid = (left + right) // 2
-                            if cum_cell_weights[arc_idx * PHI_EDGES + mid] <= r:
-                                left = mid
-                            else:
-                                right = mid
-
-                        cdf_i = cum_cell_weights[arc_idx * PHI_EDGES + (left + 0)]
-                        cdf_ip1 = cum_cell_weights[arc_idx * PHI_EDGES + (left + 1)]
-                        cdf_span = cdf_ip1 - cdf_i
-                        fac = CP_ZERO
-                        if cdf_span > CP_ZERO:
-                            fac = (r - cdf_i) / cdf_span
-                        inv_cdf[arc_idx * CDF_PHI_RESOLUTION + r_idx] = phi_min + (CP_FLOAT(left) + fac) * dphi
             jit.syncthreads()
 
             f_tot = CP_ZERO
@@ -345,21 +345,18 @@ def _define_kernel():
                         theta_sq = theta_min**2 + fib * (theta_max**2 - theta_min**2)
                         theta = cp.sqrt(theta_sq)
 
-                        il = CP_UINT(cp.floor(reg * (CDF_PHI_RESOLUTION - 1)))
-                        fac = reg * (CDF_PHI_RESOLUTION - 1) - CP_FLOAT(il)
-                        phi = (
-                            inv_cdf[arc_idx * CDF_PHI_RESOLUTION + il] * (CP_ONE - fac)
-                            + inv_cdf[arc_idx * CDF_PHI_RESOLUTION + (il + 1)] * fac
-                        )
-
-                        phi_idx = min(PHI_CELLS - 1, CP_UINT(PHI_CELLS * (phi - phi_min) / (phi_max - phi_min)))
+                        target_cdf = reg * arc_total_weight
+                        phi_idx = _cdf_cell(cum_cell_weights, arc_idx * PHI_EDGES, target_cdf)
                         cell_weight = (
                             cum_cell_weights[arc_idx * PHI_EDGES + phi_idx + 1]
                             - cum_cell_weights[arc_idx * PHI_EDGES + phi_idx]
                         )
                         sample_area = CP_ZERO
+                        fraction = CP_ZERO
                         if cell_weight > CP_ZERO:
+                            fraction = (target_cdf - cum_cell_weights[arc_idx * PHI_EDGES + phi_idx]) / cell_weight
                             sample_area = arc_area / n_arc_samples / subsampling * arc_total_weight / cell_weight
+                        phi = phi_min + (CP_FLOAT(phi_idx) + fraction) * dphi_cell
 
                         x = x0 + theta * cp.cos(phi)
                         y = y0 + theta * cp.sin(phi)
@@ -370,14 +367,14 @@ def _define_kernel():
                             and y > theta_y_min
                             and y < theta_y_min + theta_y_width * n_theta_y
                         ):
-                            Xf = (x - theta_x_min) / theta_x_width - CP_FLOAT(0.5)
-                            Yf = (y - theta_y_min) / theta_y_width - CP_FLOAT(0.5)
+                            Xf = min(max((x - theta_x_min) / theta_x_width - CP_FLOAT(0.5), CP_ZERO), CP_FLOAT(n_theta_x - 1))
+                            Yf = min(max((y - theta_y_min) / theta_y_width - CP_FLOAT(0.5), CP_ZERO), CP_FLOAT(n_theta_y - 1))
                             xi2 = CP_INT(cp.floor(Xf))
                             yj2 = CP_INT(cp.floor(Yf))
-                            xw = Xf - CP_FLOAT(xi2)
-                            yw = Yf - CP_FLOAT(yj2)
                             xi2 = min(max(xi2, CP_INT(0)), CP_INT(n_theta_x - 2))
                             yj2 = min(max(yj2, CP_INT(0)), CP_INT(n_theta_y - 2))
+                            xw = Xf - CP_FLOAT(xi2)
+                            yw = Yf - CP_FLOAT(yj2)
 
                             inv_base = CP_ONE / s - theta_sq
                             h_sum = CP_ZERO
@@ -388,7 +385,7 @@ def _define_kernel():
                                     g_sq = (CP_ONE + a0_val) / inv_base
                                     g = cp.sqrt(g_sq)
 
-                                    if g > gamma_min and g < gamma_min + gamma_width * n_gamma:
+                                    if g >= gamma_min + gamma_width / 2 and g <= gamma_min + gamma_width * (CP_FLOAT(n_gamma) - CP_FLOAT(0.5)):
                                         gth_sq_inv = CP_ONE / (CP_ONE + theta_sq * g_sq) ** 2
                                         # Head-on, linearly polarized specialization of the
                                         # lab-frame per-electron projection (RES060/DER006).
@@ -402,8 +399,10 @@ def _define_kernel():
                                         beta = cp.sqrt(CP_ONE - CP_ONE / g_sq)
                                         vx = beta * x / v_norm
                                         vy = beta * y / v_norm
-                                        vz = beta / v_norm
-                                        one_minus_vn = CP_ONE - (vx * nx + vy * ny + vz * nz)
+                                        # Stable exact lab-vector identity (RES060); no 1 - near-1 subtraction.
+                                        one_minus_vn = CP_ONE / (g_sq * (CP_ONE + beta)) + beta * CP_FLOAT(0.5) * (
+                                            (x / v_norm - nx)**2 + (y / v_norm - ny)**2 + (CP_ONE / v_norm - nz)**2
+                                        )
                                         cos_pol = cp.cos(phi_pol)
                                         sin_pol = cp.sin(phi_pol)
                                         n_e0 = nx * cos_pol + ny * sin_pol
@@ -417,8 +416,8 @@ def _define_kernel():
 
                                         Gf = (g - gamma_min) / gamma_width - CP_FLOAT(0.5)
                                         gi2 = CP_INT(cp.floor(Gf))
-                                        gw = Gf - CP_FLOAT(gi2)
                                         gi2 = min(max(gi2, CP_INT(0)), CP_INT(n_gamma - 2))
+                                        gw = min(max(Gf - CP_FLOAT(gi2), CP_ZERO), CP_ONE)
 
                                         h000 = H[gi2, xi2, yj2, ai2]
                                         h100 = H[gi2 + 1, xi2, yj2, ai2]
@@ -477,12 +476,28 @@ def calculate_angular_spectrum_gpu(
     """
     if not is_gpu_available():
         raise RuntimeError("calculate_angular_spectrum_gpu: CuPy or a CUDA device is not available")
+    if isinstance(subsampling, bool) or not isinstance(subsampling, Integral) or not 1 <= subsampling <= np.iinfo(CP_UINT).max // SAMPLES_TOTAL:
+        raise ValueError("subsampling must be a positive integer with uint32-safe sample indices")
+    if not math.isfinite(psi_pol):
+        raise ValueError("psi_pol must be finite")
+    for edges in (table.gamma_edges, table.theta_x_edges, table.theta_y_edges):
+        widths = np.diff(edges)
+        if len(widths) < 2 or not np.allclose(widths, widths[0], rtol=1e-10, atol=0.0):
+            raise ValueError("CuPy requires at least two uniform bins on gamma and angular axes")
+    if table.gamma_centers[0] < 1.0 or table.ahat_edges[0] < 0.0:
+        raise ValueError("CuPy requires gamma >= 1 and nonnegative ahat")
+    if not np.all(np.isfinite(table.H)) or np.any(table.H < 0.0):
+        raise ValueError("CuPy table density must be finite and nonnegative")
 
     tx = np.atleast_1d(np.asarray(theta_x, dtype=np.float32))
     ty = np.atleast_1d(np.asarray(theta_y, dtype=np.float32))
     s_arr = np.atleast_1d(np.asarray(s, dtype=np.float32))
+    if any(values.ndim != 1 or not np.all(np.isfinite(values)) for values in (tx, ty, s_arr)):
+        raise ValueError("CuPy query axes must be finite one-dimensional arrays")
 
     grid_x = tx.size * ty.size * s_arr.size
+    if grid_x == 0 or not np.any(table.H):
+        return np.zeros((tx.size, ty.size, s_arr.size), dtype=CP_FLOAT)
     params = cp.stack(
         cp.meshgrid(cp.asarray(tx), cp.asarray(ty), cp.asarray(s_arr), indexing="ij"), 3
     ).reshape(-1, 3).astype(CP_FLOAT)
@@ -505,14 +520,15 @@ def calculate_angular_spectrum_gpu(
     ahat_max = CP_FLOAT(table.ahat_edges[-1])
     n_a0 = CP_UINT(table.H.shape[3])
 
-    gamma_lo, gamma_hi = (float(v) for v in gamma_bracket(table))
-    dx = float(max(abs(float(table.theta_x_edges[0])), abs(float(table.theta_x_edges[-1]))))
-    dy = float(max(abs(float(table.theta_y_edges[0])), abs(float(table.theta_y_edges[-1]))))
-    dx = max(dx, 1e-12)
-    dy = max(dy, 1e-12)
+    # Match the NumPy interpolator's center-domain support without cutting gamma tails.
+    gamma_lo, gamma_hi = table.gamma_centers[[0, -1]]
+    dx = float((table.theta_x_edges[-1] - table.theta_x_edges[0]) / 2)
+    dy = float((table.theta_y_edges[-1] - table.theta_y_edges[0]) / 2)
 
     H_gpu = cp.asarray(table.H, dtype=CP_FLOAT)
-    H_marginal_gpu = H_gpu.sum(axis=(0, 3))
+    H_marginal_gpu = (H_gpu * ahat_widths[None, None, None, :]).sum(axis=(0, 3))
+    # A coarse zero must not exclude nonzero interpolated target density between cells.
+    H_marginal_gpu += CP_FLOAT(PROPOSAL_FLOOR_FRACTION) * H_marginal_gpu.max()
 
     spec = cp.zeros((grid_x,), dtype=CP_FLOAT)
 

@@ -254,13 +254,18 @@ class Collision:
             )
             model_specific["stage2_backend"] = selected_backend
             if selected_backend == "cupy":
+                from .spectrum_sampler import MAX_RINGS, PHI_CELLS, PROPOSAL_FLOOR_FRACTION, SAMPLES_TOTAL
                 model_specific["stage2_sampler"] = {
-                    "samples_total": 256,
+                    "samples_total": SAMPLES_TOTAL,
                     "subsampling": 32,
+                    "rings": MAX_RINGS,
+                    "phi_cells": PHI_CELLS,
+                    "proposal_floor_fraction": PROPOSAL_FLOOR_FRACTION,
+                    "cdf_inversion": "exact_binary_search",
                 }
                 model_specific["warnings"] = (*warnings, (
-                    "CuPy Stage 2 is experimental: use backend='numpy' for validated "
-                    "results; GPU-versus-NumPy agreement remains an alpha blocker."
+                    "CuPy Stage 2 is experimental: refine sampler and table resolution; "
+                    "head-on numerical checks do not establish independent emission validation."
                 ))
         return Results(photon_slices=slices, model_specific=model_specific)
 

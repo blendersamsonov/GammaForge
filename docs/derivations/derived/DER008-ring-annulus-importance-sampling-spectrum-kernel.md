@@ -2,6 +2,10 @@
 
 Status: derived
 
+**Implementation correction (RES068, 2026-09-07):** the finite-lookup inversion and
+unqualified equivalence/convergence claims below describe the original port, not the
+repaired kernel. The amendments specify current behavior and the remaining limits.
+
 ## Setup
 
 ### 1.1 Physical problem and the reduced emission integral
@@ -664,3 +668,21 @@ and verified by the test suite:
 > converge monotonically under the tested subsampling sweep. A smooth-table diagnostic
 > found non-finite GPU outputs for supported points. This file remains derived; the CuPy
 > path is explicitly experimental and NumPy is the alpha default.
+
+> **2026-09-07 — numerical repair (RES068).** Section 5.1's interpolated 32-quantile
+> inverse does not exactly invert the original piecewise-constant PDF. Using that
+> original PDF in Section 6.1's weights is biased; a unit-integrand counterexample gives
+> 2.172 instead of 1. The kernel now searches the original cumulative weights directly.
+> Section 4.3's flooring rule is replaced by a positive-arc minimum allocation within
+> the fixed budget. A positive proposal floor protects interpolated support between
+> coarse cells. Section 6.2's polarization expression was already replaced by RES060;
+> its exact lab-vector denominator is now evaluated without near-unit subtraction.
+> No physics normalization changes: Stage 0 already includes the CGS Thomson cross
+> section in its luminosity weights, rather than setting that cross section to unity
+> in a second internal unit system as Section 6.4's prose incorrectly suggested.
+> Finite sample area sums are quadrature estimates, not generally exact partitions;
+> midpoint arc clipping still requires convergence checks. Section 8.3's old median
+> gate never established distribution equivalence. The repaired distribution gate
+> passes unchanged, with additional refined-reference tests. Benchmarks exclude JIT
+> compilation and are recorded in the alpha GPU validation document; neither those
+> tests nor timings promote this derivation to independently verified physics.

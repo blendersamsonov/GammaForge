@@ -2,8 +2,8 @@
 
 This alpha supports Gaussian-beam calculations with the analytical and xigma engines
 through their Python APIs. GUI and kascade are outside release support. The library
-defaults to NumPy. The merged CuPy angular sampler is experimental: measured disagreement
-with the reference prevents treating it as a validated production backend. See
+defaults to NumPy. The CuPy angular sampler's numerical defects are repaired and head-on
+reference checks pass; it remains experimental pending broader convergence coverage. See
 [the GPU validation record](ALPHA_GPU_VALIDATION.md).
 
 ## Install and check
@@ -129,7 +129,7 @@ Request collimated output with
 The result density has axes `(ENERGY, THETA_X, THETA_Y)` and integrates using
 `slice.integrate()`. Start with modest grids: CPU angular quadrature is expensive.
 Installing `.[gpu]` only adds CUDA 12 CuPy dependencies; it does not change the default
-or make the experimental sampler accurate. Numba remains unimplemented.
+or establish convergence for a new calculation. Numba remains unimplemented.
 
 The historical `ahat_decades=1.0` default remains unchanged; the tracked roughly 1%
 centroid-grid bias is still an author decision. The validation tier uses an explicit
@@ -148,5 +148,5 @@ handling (03), supported result/request persistence (05), input/cache ownership 
 (06), and headless setup/checks (08). Physics convention fixes and honest coverage
 reporting from 01 are retained. Non-Gaussian laser work (07), GUI export integration,
 kascade/four-method validation, cross-run caching and unrelated cleanup remain outside
-this release. The CuPy numerical discrepancy is a GPU release blocker, not a reason to
-withhold the independently checked NumPy total-yield workflow.
+this release. CuPy numerical repairs (RES068) do not close independent angular-emission
+validation or change support for the independently checked NumPy total-yield workflow.

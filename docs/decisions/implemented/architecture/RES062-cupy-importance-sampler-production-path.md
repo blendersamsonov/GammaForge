@@ -6,6 +6,10 @@ Class: architecture
 *(Numbering note: this entry was written as RES061 and renumbered to RES062 on
 2026-09-06 to resolve a collision with parallel work on `main`.)*
 
+RES068 partially supersedes the sampling implementation: exact CDF inversion, stable
+polarization, support-preserving allocation and corrected boundary handling. NumPy
+remains the default; the original validation findings below are historical evidence.
+
 ## Problem
 
 Stage 2 spectral/angular evaluations (`angular_spectrum_from_table`, `spectrum_in_angular_range`) in

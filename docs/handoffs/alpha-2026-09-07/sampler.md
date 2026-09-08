@@ -1,5 +1,14 @@
 # Sampler integration checkpoint
 
+**Superseded numerical status:** RES068 repairs the proposal/weight mismatch,
+float32 cancellation and support/allocation defects described below. The former
+expected-failure gate now passes unchanged; exact-CDF, high-gamma and refined-input
+scenario-bank regressions are committed alongside the repair. See
+`docs/ALPHA_GPU_VALIDATION.md` for current measurements and the reusable benchmark
+at `scripts/benchmark_xigma_sampler.py`. NumPy remains the default; broad convergence
+and independent emission validation remain open. The text below preserves the
+pre-repair integration checkpoint, not the current blocker list.
+
 Merged feature/xigma-importance-sampler into release/alpha-script and then main.
 The original audit runtime changes, RES060 polarization and RES061 slice measures
 are retained. Sampler decision is RES062; DER008 remains derived.

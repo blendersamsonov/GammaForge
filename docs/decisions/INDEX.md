@@ -73,3 +73,4 @@ cross-checks this table against the files on disk.
 | RES065 | Headless alpha validation has an explicit restricted scope | testing | implemented | implemented/testing/RES065-headless-alpha-validation-scope.md |
 | RES066 | Alpha dependency floors preserve the numerical reference constants | process | implemented | implemented/process/RES066-alpha-dependency-floors.md |
 | RES067 | LaserField boundary and fitting contract | architecture | implemented | implemented/architecture/RES067-laserfield-boundary-and-fitting-contract.md |
+| RES068 | CuPy sampling measure and stable polarization | bug-fix | implemented | implemented/bug-fix/RES068-cupy-sampling-measure-and-stable-polarization.md |

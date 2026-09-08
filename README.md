@@ -12,8 +12,8 @@ contract is in [docs/UI_SPEC.md](docs/UI_SPEC.md).
 - **0.1.0a1: script-first alpha** for Gaussian calculations with analytical and xigma.
   Start with the [alpha guide](docs/ALPHA.md) and the
   [crossing-angle yield example](examples/crossing_angle_yield.py).
-- NumPy is the validated default. The merged CuPy angular sampler remains experimental
-  pending [numerical agreement](docs/ALPHA_GPU_VALIDATION.md).
+- NumPy is the validated default. The repaired CuPy angular sampler passes head-on
+  numerical checks but remains [experimental](docs/ALPHA_GPU_VALIDATION.md).
 - GUI and kascade remain available for development, outside alpha release support.
 
 ```bash
@@ -118,6 +118,6 @@ GAMMAFORGE_BROWSER_TEST=1 .venv/bin/python -m pytest -q tests/test_gui_browser.p
 ```
 
 The `gpu` extra installs the experimental head-on linear-polarization CuPy angular
-sampler. It is opt-in and has an unresolved numerical validation discrepancy; see the
+sampler. It is opt-in and requires convergence checks for new calculations; see the
 alpha guide before use. The `jit` extra remains a dependency placeholder for an
 unimplemented backend.
