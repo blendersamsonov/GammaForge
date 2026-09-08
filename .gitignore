@@ -53,3 +53,4 @@ graphify-out/
 # Machine-local agent settings (the graphify hook hardcodes an absolute binary path).
 # `settings.json` is the *shared* project file; anything machine-specific belongs here.
 .claude/settings.local.json
+.claude/worktrees/

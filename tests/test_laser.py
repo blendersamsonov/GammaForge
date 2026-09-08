@@ -273,6 +273,14 @@ def test_active_region_contains_the_peak_and_excludes_the_far_field():
     assert not region.contains(10.0 * region.radius, 0.0, 0.0, 0.0)
 
 
+def test_active_region_tracks_timing_offset():
+    """ActiveRegion.contains evaluates to True at the pulse center for non-zero t_off."""
+    t_off_s = 50e-15
+    laser = make_laser(t_off=Q(t_off_s, "s"))
+    region = laser.active_region(1e-3)
+    assert region.contains(0.0, 0.0, 0.0, t_off_s)
+
+
 def test_active_region_is_conservative_at_its_own_threshold():
     # Everything at or above the threshold must be inside — that is what makes the
     # prefilter a pure optimization (§3.2).

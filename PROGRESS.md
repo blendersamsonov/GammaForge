@@ -15,7 +15,7 @@ unfinished or waiting on someone*.
 | Phase | Status |
 |-------|--------|
 | 0. Scaffold | 🟢 done |
-| 1. Core (`gammaforge.io`) | 🟢 done |
+| 1. Core (`gammaforge.io`) | 🟢 done; `PulseTrainParaxialLaser` temporal modulation and pulse trains landed (RES071) |
 | 2. Validation harness | 🟢 done |
 | 2.5. Stage 0 + minimal delta | 🟢 done |
 | 3a. xigma engineering | 🟢 NumPy Stage 0/1/2, `Collision`, `XigmaEngine`; stable high-gamma polarization evaluation ported to NumPy (RES070). CuPy supports incident polarization and two-plane crossing geometry with stable arithmetic and numerical checks; still experimental (RES062, RES068, RES069). |

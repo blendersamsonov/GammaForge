@@ -214,6 +214,47 @@ plt.tight_layout()
 plt.show()
 
 # %% [markdown]
+# ### Temporal Intensity Modulation: Pulse Trains (`PulseTrainParaxialLaser`)
+# 
+# In high-brightness Inverse Compton Scattering facilities, damage thresholds on compression optics
+# prevent concentrating total laser energy $E_{\rm tot}$ into a single ultra-intense pulse.
+# GammaForge supports **pulse trains** of $N_p$ sub-pulses parameterized by the duty cycle
+# $D = \tau_p / T_{\rm rep}$, conserving total energy while suppressing optic damage and nonlinear spectral broadening:
+
+# %%
+from gammaforge.io.laser import PulseTrainParaxialLaser
+
+train = PulseTrainParaxialLaser(
+    pulse_energy=10.0 * ureg.millijoule,
+    wavelength=800.0 * ureg.nanometer,
+    sigma_x=25.0 * ureg.micrometer,
+    sigma_y=25.0 * ureg.micrometer,
+    subpulse_duration=25.0 * ureg.femtosecond,
+    repetition_period=100.0 * ureg.femtosecond,
+    n_subpulses=5,
+)
+
+print("Pulse Train parameters:")
+print(f"  Duty cycle D: {train.duty_cycle():.2f}")
+print(f"  Number of sub-pulses: {train.n_subpulses}")
+print(f"  Total photons: {train.n_photons():.3e}")
+print(f"  Sub-pulse delays [fs]: {[f'{t*1e15:.1f}' for t in train.subpulse_delays()]}")
+
+# Longitudinal intensity profile along z at focus (x=0, y=0, t=0)
+z_grid = np.linspace(-150e-4, 150e-4, 300)  # -150 to +150 µm in cm
+a2_longitudinal = train.intensity_profile(0.0, 0.0, z_grid, 0.0)
+
+plt.figure(figsize=(7, 3.5))
+plt.plot(z_grid * 1e4, a2_longitudinal, color="darkorange", lw=2, label=f"5 Sub-pulses (D = {train.duty_cycle():.2f})")
+plt.xlabel("Longitudinal coordinate z [µm]")
+plt.ylabel("⟨a²⟩ (Cycle-averaged intensity)")
+plt.title("Pulse Train Longitudinal Profile at t = 0")
+plt.grid(True, alpha=0.3)
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# %% [markdown]
 # ## 4. Packaging the Interaction: `Target`, `SamplingSpec`, `build_interaction`
 # 
 # To run any engine in GammaForge, everything is packaged into an immutable `InteractionParameters` object:

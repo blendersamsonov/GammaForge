@@ -75,6 +75,7 @@ __all__ = [
     "LaserField",
     "ActiveRegion",
     "GaussianParaxialLaser",
+    "PulseTrainParaxialLaser",
     "fit_gaussian_paraxial",
     "rotation_matrix",
     "lab_frame_axes",
@@ -615,7 +616,305 @@ class GaussianParaxialLaser:
         # pulse along its own axis, which `overlap_time_window` sees as the region's
         # centre being reached later. Both must be carried or the prefilter silently
         # discards particles that do interact — the one direction §3.2 forbids.
-        origin = np.array([self.m("x_off"), self.m("y_off"), 0.0]) + k_hat * (C_CGS * self.m("t_off"))
+        origin = np.array([self.m("x_off"), self.m("y_off"), 0.0]) - k_hat * (C_CGS * self.m("t_off"))
+        return ActiveRegion(
+            axis=k_hat,
+            origin=origin,
+            radius=reach * intercept,
+            radius_slope=reach * slope,
+            half_length=half_length,
+            threshold=threshold,
+            a0_peak=self.a0_peak(),
+        )
+
+
+# ---------------------------------------------------------------------------
+# The paraxial Gaussian pulse train implementation
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class PulseTrainParaxialLaser:
+    """Train of N_p paraxial Gaussian sub-pulses with inter-pulse period T_rep.
+
+    CGS-Gaussian throughout (P1, RES013, RES054). Conserves total laser energy E_tot across
+    configurations, so each sub-pulse carries energy E_tot / N_p.
+
+    The temporal envelope is parameterized by the duty cycle D = subpulse_duration / repetition_period.
+    When N_p = 1, reproduces GaussianParaxialLaser identically (with duration = subpulse_duration).
+    """
+
+    pulse_energy: Quantity  # Total energy summed over all sub-pulses
+    wavelength: Quantity  # Central carrier wavelength
+    sigma_x: Quantity  # length, RMS intensity width along focusing axis 1
+    sigma_y: Quantity  # length, RMS intensity width along focusing axis 2
+    subpulse_duration: Quantity  # time, RMS intensity duration of one sub-pulse
+    repetition_period: Quantity  # time between adjacent sub-pulses (T_rep)
+    n_subpulses: int = 10  # Number of sub-pulses (N_p >= 1)
+    z_fx: Quantity = Quantity(0.0, "cm")  # focal offset of axis 1 along k_hat
+    z_fy: Quantity = Quantity(0.0, "cm")  # focal offset of axis 2 along k_hat
+    x_off: Quantity = Quantity(0.0, "cm")
+    y_off: Quantity = Quantity(0.0, "cm")
+    t_off: Quantity = Quantity(0.0, "s")  # train temporal center reaches origin at t = t_off
+    theta_xz: Quantity = Quantity(0.0, "rad")
+    theta_yz: Quantity = Quantity(0.0, "rad")
+    psi_focus: Quantity = Quantity(0.0, "rad")
+    psi_pol: Quantity = Quantity(0.0, "rad")
+    ellipticity: float = 0.0
+    beta_ff: float = 0.0
+
+    width_convention = WidthConvention.SIGMA_INTENSITY_RMS
+
+    UNITS = {
+        "pulse_energy": "erg",
+        "wavelength": "cm",
+        "sigma_x": "cm",
+        "sigma_y": "cm",
+        "subpulse_duration": "s",
+        "repetition_period": "s",
+        "z_fx": "cm",
+        "z_fy": "cm",
+        "x_off": "cm",
+        "y_off": "cm",
+        "t_off": "s",
+        "theta_xz": "rad",
+        "theta_yz": "rad",
+        "psi_focus": "rad",
+        "psi_pol": "rad",
+    }
+
+    LIGHT_TIME_FIELDS = frozenset({"subpulse_duration", "repetition_period", "t_off"})
+
+    def __post_init__(self) -> None:
+        for name, unit in self.UNITS.items():
+            object.__setattr__(
+                self,
+                name,
+                as_canonical_quantity(
+                    getattr(self, name), unit, name, light_time=name in self.LIGHT_TIME_FIELDS
+                ),
+            )
+        if (
+            isinstance(self.n_subpulses, bool)
+            or not isinstance(self.n_subpulses, numbers.Integral)
+            or self.n_subpulses < 1
+        ):
+            raise ValueError(
+                f"PulseTrainParaxialLaser: n_subpulses must be an integer >= 1, got {self.n_subpulses!r}"
+            )
+        object.__setattr__(self, "n_subpulses", int(self.n_subpulses))
+
+        for name in ("ellipticity", "beta_ff"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, numbers.Real) or not math.isfinite(float(value)):
+                raise ValueError(f"PulseTrainParaxialLaser: {name} must be a finite scalar, got {value!r}")
+        for name in self.UNITS:
+            if not math.isfinite(self.m(name)):
+                raise ValueError(f"PulseTrainParaxialLaser: {name} must be finite, got {getattr(self, name)!r}")
+        for name in ("pulse_energy", "wavelength", "sigma_x", "sigma_y", "subpulse_duration", "repetition_period"):
+            if self.m(name) <= 0.0:
+                raise ValueError(f"PulseTrainParaxialLaser: {name} must be > 0, got {self.m(name)!r}")
+        if self.beta_ff <= -1.0:
+            raise ValueError("PulseTrainParaxialLaser: beta_ff must be > -1 (Rayleigh range scales as 1 + beta_ff)")
+        if not 0.0 <= self.ellipticity <= 1.0:
+            raise ValueError("PulseTrainParaxialLaser: ellipticity must be in [0, 1]")
+
+    def m(self, name: str) -> float:
+        """Magnitude of a dimensioned field in its canonical CGS unit."""
+        return float(getattr(self, name).magnitude)
+
+    # -- geometry -----------------------------------------------------------
+    def focusing_axes(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Lab-frame ``(k_hat, f1, f2)``: propagation direction and focusing axes."""
+        return lab_frame_axes(self.m("theta_xz"), self.m("theta_yz"), self.m("psi_focus"))
+
+    def polarization_axes(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Lab-frame ``(k_hat, p1, p2)``: propagation direction and polarization axes."""
+        return lab_frame_axes(self.m("theta_xz"), self.m("theta_yz"), self.m("psi_pol"))
+
+    # -- descriptive scalars ------------------------------------------------
+    def omega0(self) -> float:
+        """Central angular frequency, rad/s."""
+        return 2.0 * math.pi * C_CGS / self.m("wavelength")
+
+    def photon_energy(self) -> float:
+        """Central photon energy, erg."""
+        return HBAR_CGS * self.omega0()
+
+    def n_photons(self) -> float:
+        """Total photons in the train: pulse energy / central photon energy."""
+        return self.m("pulse_energy") / self.photon_energy()
+
+    def rayleigh_x(self) -> float:
+        """Rayleigh range of focusing axis 1, cm."""
+        return 4.0 * math.pi * self.m("sigma_x") ** 2 / self.m("wavelength") * (1.0 + self.beta_ff)
+
+    def rayleigh_y(self) -> float:
+        """Rayleigh range of focusing axis 2, cm."""
+        return 4.0 * math.pi * self.m("sigma_y") ** 2 / self.m("wavelength") * (1.0 + self.beta_ff)
+
+    def sigma_ct(self) -> float:
+        """RMS sub-pulse duration expressed as a length, cm."""
+        return C_CGS * self.m("subpulse_duration")
+
+    def duty_cycle(self) -> float:
+        """Duty cycle D = subpulse_duration / repetition_period."""
+        return self.m("subpulse_duration") / self.m("repetition_period")
+
+    def subpulse_delays(self) -> np.ndarray:
+        """Temporal offsets t_k of individual sub-pulses relative to the train center (seconds).
+
+        t_k = (k - (N_p + 1)/2) * T_rep for k in {1, ..., N_p}.
+        """
+        k = np.arange(1, self.n_subpulses + 1, dtype=float)
+        return (k - 0.5 * (self.n_subpulses + 1)) * self.m("repetition_period")
+
+    def subpulse(self, index: int) -> GaussianParaxialLaser:
+        """The index-th sub-pulse (0 <= index < n_subpulses) as a GaussianParaxialLaser."""
+        if not 0 <= index < self.n_subpulses:
+            raise IndexError(f"subpulse index {index} out of range [0, {self.n_subpulses})")
+        delays = self.subpulse_delays()
+        sub_energy = self.pulse_energy / self.n_subpulses
+        return GaussianParaxialLaser(
+            pulse_energy=sub_energy,
+            wavelength=self.wavelength,
+            sigma_x=self.sigma_x,
+            sigma_y=self.sigma_y,
+            duration=self.subpulse_duration,
+            z_fx=self.z_fx,
+            z_fy=self.z_fy,
+            x_off=self.x_off,
+            y_off=self.y_off,
+            t_off=self.t_off + Quantity(float(delays[index]), "s"),
+            theta_xz=self.theta_xz,
+            theta_yz=self.theta_yz,
+            psi_focus=self.psi_focus,
+            psi_pol=self.psi_pol,
+            ellipticity=self.ellipticity,
+            beta_ff=self.beta_ff,
+        )
+
+    def subpulses(self) -> list[GaussianParaxialLaser]:
+        """Constituent sub-pulses as individual GaussianParaxialLaser instances."""
+        return [self.subpulse(i) for i in range(self.n_subpulses)]
+
+    def spot_sizes(self, u_spot):
+        """RMS intensity spot sizes ``(s1, s2)`` at longitudinal position ``u_spot``."""
+        s1 = self.m("sigma_x") * np.sqrt(1.0 + ((u_spot - self.m("z_fx")) / self.rayleigh_x()) ** 2)
+        s2 = self.m("sigma_y") * np.sqrt(1.0 + ((u_spot - self.m("z_fy")) / self.rayleigh_y()) ** 2)
+        return s1, s2
+
+    def a0_peak(self) -> float:
+        """Peak period-averaged a0 anywhere in the pulse."""
+        return float(self._a0_from_density(self._peak_density()))
+
+    def intensity_peak(self) -> float:
+        """Peak cycle-averaged ``<a^2>`` anywhere in the pulse."""
+        return (E_ESU / (ME_CGS * C_CGS * self.omega0())) ** 2 * 4.0 * np.pi * self.m(
+            "pulse_energy"
+        ) * self._peak_density()
+
+    def _peak_density(self) -> float:
+        """Peak normalized photon density."""
+        lo, hi = sorted((self.m("z_fx"), self.m("z_fy")))
+        u = np.linspace(lo, hi, 257) if hi > lo else np.array([lo])
+        s1, s2 = self.spot_sizes(u)
+        transverse_max = float(np.max(1.0 / (2.0 * math.pi * s1 * s2)))
+
+        s_ct = self.sigma_ct()
+        delays_c = C_CGS * self.subpulse_delays()
+        max_c = float(np.max(np.abs(delays_c)))
+        grid_zeta = np.linspace(0.0, max_c, 512)
+        eval_zeta = np.unique(np.concatenate([[0.0], np.abs(delays_c), grid_zeta]))
+        diff = eval_zeta[:, None] - delays_c[None, :]
+        long_profile = np.sum(np.exp(-0.5 * (diff / s_ct) ** 2), axis=1) / (
+            math.sqrt(2.0 * math.pi) * s_ct * self.n_subpulses
+        )
+        long_max = float(np.max(long_profile))
+        return transverse_max * long_max
+
+    def cycle_average_factor(self) -> float:
+        """``C`` in ``<a^2> = C a0^2``."""
+        return 0.5 * (1.0 + self.ellipticity**2)
+
+    def intensity_profile(self, x, y, z, t):
+        """Cycle-averaged normalized intensity ``<a^2>`` at ``(x, y, z, t)``."""
+        density = np.asarray(self.photon_density(x, y, z, t), dtype=float)
+        return (E_ESU / (ME_CGS * C_CGS * self.omega0())) ** 2 * 4.0 * np.pi * self.m("pulse_energy") * density
+
+    def _a0_from_density(self, density):
+        """Peak normalized amplitude ``a0`` from a normalized photon-density envelope."""
+        e0 = np.sqrt(8.0 * np.pi * self.m("pulse_energy") * np.asarray(density, dtype=float))
+        return E_ESU * e0 / (ME_CGS * C_CGS * self.omega0())
+
+    def _local_coordinates(self, x, y, z, t):
+        """Lab ``(x, y, z, t)`` → ``(xi1, xi2, u, u_spot, ct)`` in the pulse's own frame."""
+        k_hat, f1, f2 = self.focusing_axes()
+        rx = np.asarray(x, dtype=float) - self.m("x_off")
+        ry = np.asarray(y, dtype=float) - self.m("y_off")
+        rz = np.asarray(z, dtype=float)
+        u = rx * k_hat[0] + ry * k_hat[1] + rz * k_hat[2]
+        xi1 = rx * f1[0] + ry * f1[1] + rz * f1[2]
+        xi2 = rx * f2[0] + ry * f2[1] + rz * f2[2]
+        ct = C_CGS * (np.asarray(t, dtype=float) - self.m("t_off"))
+        return xi1, xi2, u, u + self.beta_ff * ct, ct
+
+    def photon_density(self, x, y, z, t):
+        """Photon-density envelope, normalized to integrate to 1 over space at fixed ``t``."""
+        xi1, xi2, u, u_spot, ct = self._local_coordinates(x, y, z, t)
+        s1, s2 = self.spot_sizes(u_spot)
+        s_ct = self.sigma_ct()
+        zeta = u - ct
+        delays_c = C_CGS * self.subpulse_delays()
+        diff = np.expand_dims(zeta, -1) - delays_c
+        longitudinal = np.sum(np.exp(-0.5 * (diff / s_ct) ** 2), axis=-1) / (
+            math.sqrt(2.0 * math.pi) * s_ct * self.n_subpulses
+        )
+        transverse = (1.0 / (2.0 * math.pi * s1 * s2)) * np.exp(
+            -0.5 * ((xi1 / s1) ** 2 + (xi2 / s2) ** 2)
+        )
+        return transverse * longitudinal
+
+    def a0_profile(self, x, y, z, t):
+        """Period-averaged normalized vector-potential envelope."""
+        return self._a0_from_density(self.photon_density(x, y, z, t))
+
+    def field(self, x, y, z, t):
+        """Period-resolved normalized vector potential, lab-frame components."""
+        xi1, xi2, u, u_spot, ct = self._local_coordinates(x, y, z, t)
+        s1, s2 = self.spot_sizes(u_spot)
+        k0 = 2.0 * math.pi / self.m("wavelength")
+
+        du1 = u_spot - self.m("z_fx")
+        du2 = u_spot - self.m("z_fy")
+        zr1, zr2 = self.rayleigh_x(), self.rayleigh_y()
+        gouy = 0.5 * (np.arctan2(du1, zr1) + np.arctan2(du2, zr2))
+        inv_r1 = du1 / (du1**2 + zr1**2)
+        inv_r2 = du2 / (du2**2 + zr2**2)
+        phase = k0 * (u - ct) - gouy + 0.5 * k0 * (xi1**2 * inv_r1 + xi2**2 * inv_r2)
+
+        amplitude = self._a0_from_density(self.photon_density(x, y, z, t)) * np.cos(phase)
+        _, p1, _ = self.polarization_axes()
+        return np.stack([amplitude * p1[0], amplitude * p1[1], amplitude * p1[2]])
+
+    def active_region(self, threshold: float = 1e-3) -> ActiveRegion:
+        """Bounding region where ``a0_profile >= threshold * a0_peak``."""
+        if not 0.0 < threshold < 1.0:
+            raise ValueError(f"active_region threshold must be in (0, 1), got {threshold}")
+        reach = 2.0 * math.sqrt(math.log(1.0 / threshold))
+        burst_c = C_CGS * (self.n_subpulses - 1) * self.m("repetition_period")
+        half_length = 0.5 * burst_c + reach * self.sigma_ct()
+        slide = abs(1.0 + self.beta_ff)
+        drift = abs(self.beta_ff) * half_length
+        axes = zip(
+            (self.m("sigma_x"), self.m("sigma_y")),
+            (abs(self.m("z_fx")), abs(self.m("z_fy"))),
+            (abs(self.rayleigh_x()), abs(self.rayleigh_y())),
+        )
+        intercept, slope = 0.0, 0.0
+        for sigma, focus_offset, z_r in axes:
+            intercept = max(intercept, sigma * (1.0 + (drift + focus_offset) / z_r))
+            slope = max(slope, sigma * slide / z_r)
+        k_hat, _, _ = self.focusing_axes()
+        origin = np.array([self.m("x_off"), self.m("y_off"), 0.0]) - k_hat * (C_CGS * self.m("t_off"))
         return ActiveRegion(
             axis=k_hat,
             origin=origin,
@@ -642,6 +941,9 @@ def fit_gaussian_paraxial(laser: LaserField) -> GaussianParaxialLaser:
     For a `GaussianParaxialLaser` the fit is an **identity**: its parameters already are
     the exact answer, and re-deriving them numerically could only add error.
 
+    For a `PulseTrainParaxialLaser` with `n_subpulses == 1`, returns the single constituent
+    sub-pulse directly.
+
     For any other implementation this raises. That is deliberate, not an oversight: no
     such implementation exists yet (`Spectral-FEM-Fields` has no Python bindings), so a
     numerical fit written now would be untestable code speculating about a field
@@ -651,6 +953,8 @@ def fit_gaussian_paraxial(laser: LaserField) -> GaussianParaxialLaser:
     """
     if isinstance(laser, GaussianParaxialLaser):
         return laser
+    if isinstance(laser, PulseTrainParaxialLaser) and laser.n_subpulses == 1:
+        return laser.subpulses()[0]
     raise NotImplementedError(
         f"fit_gaussian_paraxial has no numerical path yet and {type(laser).__name__} is not "
         "a GaussianParaxialLaser. Implement the fit alongside the LaserField "
@@ -661,8 +965,35 @@ def fit_gaussian_paraxial(laser: LaserField) -> GaussianParaxialLaser:
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
-def validate(laser: GaussianParaxialLaser) -> list[str]:
+def validate(laser: GaussianParaxialLaser | PulseTrainParaxialLaser) -> list[str]:
     """Hard-fail on impossible values; return warning strings for suspicious ones."""
+    if isinstance(laser, PulseTrainParaxialLaser):
+        for name in ("pulse_energy", "wavelength", "sigma_x", "sigma_y", "subpulse_duration", "repetition_period"):
+            if laser.m(name) <= 0:
+                raise ValueError(f"PulseTrainParaxialLaser: {name} must be > 0")
+        if laser.n_subpulses < 1:
+            raise ValueError("PulseTrainParaxialLaser: n_subpulses must be >= 1")
+        if not math.isfinite(laser.m("z_fx")) or not math.isfinite(laser.m("z_fy")):
+            raise ValueError("PulseTrainParaxialLaser: focal offsets must be finite")
+        if laser.beta_ff <= -1.0:
+            raise ValueError("PulseTrainParaxialLaser: beta_ff must be > -1 (Rayleigh range scales as 1 + beta_ff)")
+        if not 0.0 <= laser.ellipticity <= 1.0:
+            raise ValueError("PulseTrainParaxialLaser: ellipticity must be in [0, 1]")
+
+        warnings: list[str] = []
+        if abs(laser.m("z_fx")) > laser.rayleigh_x() or abs(laser.m("z_fy")) > laser.rayleigh_y():
+            warnings.append(
+                "A focus sits more than a Rayleigh range from the interaction point; the "
+                "on-axis a0 there is well below the pulse's peak."
+            )
+        if laser.m("sigma_x") != laser.m("sigma_y") or laser.m("z_fx") != laser.m("z_fy"):
+            warnings.append("Elliptical and/or astigmatic beam — check the focusing axes (psi_focus).")
+        if max(laser.m("sigma_x"), laser.m("sigma_y")) < laser.m("wavelength"):
+            warnings.append(
+                "Spot size is below the wavelength; the paraxial approximation does not hold."
+            )
+        return warnings
+
     for name in ("pulse_energy", "wavelength", "sigma_x", "sigma_y", "duration"):
         if laser.m(name) <= 0:
             raise ValueError(f"GaussianParaxialLaser: {name} must be > 0")

@@ -21,7 +21,7 @@ anything else is reachable through its module but is not part of the contract.
 
 from .bunch import Bunch, GaussianElectronBeam, sample_gaussian_bunch
 from .interaction import InteractionParameters, SamplingSpec, build_interaction
-from .laser import GaussianParaxialLaser, LaserField, fit_gaussian_paraxial
+from .laser import GaussianParaxialLaser, LaserField, PulseTrainParaxialLaser, fit_gaussian_paraxial
 from .results import Axis, PhasespaceSlice, PhotonMacroparticles, Results
 from .schema import FieldKind, FieldSpec, Parameters
 from .target import OutputKind, OutputRequest, Target
@@ -37,6 +37,7 @@ __all__ = [
     "InteractionParameters",
     "LaserField",
     "OutputKind",
+    "PulseTrainParaxialLaser",
     "OutputRequest",
     "Parameters",
     "PhasespaceSlice",
