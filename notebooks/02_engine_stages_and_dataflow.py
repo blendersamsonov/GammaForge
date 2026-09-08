@@ -151,6 +151,11 @@ print(f"  Peak a0 encountered: {samples.a0_shape.max():.4f}")
 print(f"  Mean gamma: {samples.gamma.mean():.2f}")
 print(f"  Luminosity sum: {samples.luminosity.sum():.4e}")
 
+# Stokes parameters in smooth laboratory observer basis (DER007, RES073)
+stokes = collision.stokes_parameters(theta_x=0.0, theta_y=0.0)
+print(f"  On-axis Stokes: I={stokes.I:.2e}, Q={stokes.Q:.2e}, U={stokes.U:.2e}, V={stokes.V:.2e}")
+print(f"  Polarization degree P = {stokes.P:.4f}, Angle chi = {stokes.chi:.4f} rad")
+
 # %% [markdown]
 # ### Visualizing Stage 0 Diagnostics
 # Let's inspect the illumination $a_0$ shape and luminosity distribution across macroparticles.

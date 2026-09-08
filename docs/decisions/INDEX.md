@@ -76,3 +76,4 @@ cross-checks this table against the files on disk.
 | RES068 | CuPy sampling measure and stable polarization | bug-fix | implemented | implemented/bug-fix/RES068-cupy-sampling-measure-and-stable-polarization.md |
 | RES069 | CuPy incident polarization and crossing geometry | feature | implemented | implemented/feature/RES069-cupy-incident-polarization-and-crossing-geometry.md |
 | RES070 | Stabilize NumPy polarization reference | bug-fix | implemented | implemented/bug-fix/RES070-stabilize-numpy-polarization-reference.md |
+| RES073 | Smooth laboratory observer basis Stokes parameters | feature | implemented | implemented/feature/RES073-smooth-laboratory-observer-basis-stokes-parameters.md |

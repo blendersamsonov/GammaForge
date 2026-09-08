@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 
+from typing import NamedTuple
+
 import math
 import numpy as np
 from ...io.interaction import InteractionParameters
@@ -30,6 +32,7 @@ from .stages import (
     TrajectorySamples,
     angle_integrated_spectrum,
     angular_spectrum_from_table,
+    bunch_stokes_parameters,
     deposit_shape_table,
     integrate_trajectories,
     retarget_ahat,
@@ -37,7 +40,19 @@ from .stages import (
     spectrum_in_angular_range as _spectrum_in_angular_range,
 )
 
-__all__ = ["Collision", "SUPPORTED_OUTPUTS"]
+
+class BunchStokes(NamedTuple):
+    """Bunch-integrated Stokes parameters in the smooth laboratory observer basis (DER007)."""
+
+    I: float
+    Q: float
+    U: float
+    V: float
+    P: float
+    chi: float
+
+
+__all__ = ["Collision", "SUPPORTED_OUTPUTS", "BunchStokes"]
 
 #: `OutputKind`s this Collision can fill today. `TEMPORAL_ENVELOPE`/`SPATIAL_DISTRIBUTION`
 #: need Stage 0 diagnostics `TrajectorySamples` does not carry (per-step position/time,
@@ -170,6 +185,83 @@ class Collision:
             backend=b,
         )
 
+    def _laser_polarization_geometry(self) -> dict[str, float]:
+        """Extract polarization geometry and base photon energy from the laser."""
+        laser = self.interaction.laser
+        if (
+            hasattr(laser, "photon_energy")
+            and hasattr(laser, "m")
+            and hasattr(laser, "theta_xz")
+            and hasattr(laser, "theta_yz")
+            and hasattr(laser, "psi_pol")
+            and hasattr(laser, "ellipticity")
+        ):
+            return {
+                "photon_energy": float(laser.photon_energy()),
+                "theta_xz": float(laser.m("theta_xz")),
+                "theta_yz": float(laser.m("theta_yz")),
+                "psi_pol": float(laser.m("psi_pol")),
+                "ellipticity": float(laser.ellipticity),
+            }
+        elif (
+            hasattr(laser, "photon_energy")
+            and hasattr(laser, "polarization_axes")
+            and hasattr(laser, "ellipticity")
+        ):
+            k_hat, _, _ = laser.polarization_axes()
+            theta_yz = math.asin(np.clip(k_hat[1], -1.0, 1.0))
+            cos_yz = math.cos(theta_yz)
+            theta_xz = math.atan2(-k_hat[0], -k_hat[2]) if abs(cos_yz) > 1e-12 else 0.0
+            return {
+                "photon_energy": float(laser.photon_energy()),
+                "theta_xz": float(theta_xz),
+                "theta_yz": float(theta_yz),
+                "psi_pol": float(getattr(laser, "psi_pol", 0.0)),
+                "ellipticity": float(laser.ellipticity),
+            }
+        else:
+            metrics = fit_gaussian_paraxial(self.interaction.laser)
+            return {
+                "photon_energy": float(metrics.photon_energy()),
+                "theta_xz": float(metrics.m("theta_xz")),
+                "theta_yz": float(metrics.m("theta_yz")),
+                "psi_pol": float(metrics.m("psi_pol")),
+                "ellipticity": float(metrics.ellipticity),
+            }
+
+    def stokes_parameters(
+        self,
+        theta_x: float = 0.0,
+        theta_y: float = 0.0,
+        *,
+        psi_pol: float | None = None,
+        ellipticity: float | None = None,
+        theta_xz: float | None = None,
+        theta_yz: float | None = None,
+    ) -> BunchStokes:
+        """Bunch-integrated Stokes parameters in the smooth laboratory observer basis (DER007).
+
+        Computes (I, Q, U, V, P, chi) in the non-singular laboratory basis (m_x, m_y)
+        at observation angle (theta_x, theta_y), summing over macroparticles weighted
+        by emission luminosity.
+        """
+        geom = self._laser_polarization_geometry()
+        psi = psi_pol if psi_pol is not None else geom["psi_pol"]
+        eps = ellipticity if ellipticity is not None else geom["ellipticity"]
+        txz = theta_xz if theta_xz is not None else geom["theta_xz"]
+        tyz = theta_yz if theta_yz is not None else geom["theta_yz"]
+
+        res = bunch_stokes_parameters(
+            self.build_overlap(),
+            theta_x,
+            theta_y,
+            psi_pol=psi,
+            ellipticity=eps,
+            theta_xz=txz,
+            theta_yz=tyz,
+        )
+        return BunchStokes(*res)
+
     # -- Results assembly -------------------------------------------------
     def run(self, requests: tuple[OutputRequest, ...]) -> Results:
         """Fill every requested output this Collision supports; skip the rest (P10)."""
@@ -183,39 +275,12 @@ class Collision:
             self.interaction.laser,
             self.interaction.bunch,
         )
-        laser = self.interaction.laser
-        if (
-            hasattr(laser, "photon_energy")
-            and hasattr(laser, "m")
-            and hasattr(laser, "theta_xz")
-            and hasattr(laser, "theta_yz")
-            and hasattr(laser, "psi_pol")
-            and hasattr(laser, "ellipticity")
-        ):
-            photon_energy = laser.photon_energy()
-            theta_xz = laser.m("theta_xz")
-            theta_yz = laser.m("theta_yz")
-            psi_pol = laser.m("psi_pol")
-            ellipticity = float(laser.ellipticity)
-        elif (
-            hasattr(laser, "photon_energy")
-            and hasattr(laser, "polarization_axes")
-            and hasattr(laser, "ellipticity")
-        ):
-            photon_energy = laser.photon_energy()
-            k_hat, _, _ = laser.polarization_axes()
-            theta_yz = math.asin(np.clip(k_hat[1], -1.0, 1.0))
-            cos_yz = math.cos(theta_yz)
-            theta_xz = math.atan2(-k_hat[0], -k_hat[2]) if abs(cos_yz) > 1e-12 else 0.0
-            psi_pol = float(getattr(laser, "psi_pol", 0.0))
-            ellipticity = float(laser.ellipticity)
-        else:
-            metrics = fit_gaussian_paraxial(self.interaction.laser)
-            photon_energy = metrics.photon_energy()
-            theta_xz = metrics.m("theta_xz")
-            theta_yz = metrics.m("theta_yz")
-            psi_pol = metrics.m("psi_pol")
-            ellipticity = metrics.ellipticity
+        geom = self._laser_polarization_geometry()
+        photon_energy = geom["photon_energy"]
+        theta_xz = geom["theta_xz"]
+        theta_yz = geom["theta_yz"]
+        psi_pol = geom["psi_pol"]
+        ellipticity = geom["ellipticity"]
 
         # Photon energy with crossing angle factor cos²(α/2) per DER005 §2.2 (RES067)
         cos_alpha = math.cos(theta_xz) * math.cos(theta_yz)

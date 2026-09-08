@@ -65,6 +65,12 @@ __all__ = [
     "SPECTRUM_WORKING_SET_BYTES",
     "SPECTRUM_MAX_ENERGY_CHUNK",
     "stage2_backend",
+    "rotated_laser_axes",
+    "compute_stokes_components",
+    "stokes_parameters_vectorized",
+    "bunch_stokes_parameters",
+    "polarization_factor",
+    "polarization_factor_vectorized",
 ]
 
 #: Relative-velocity factor for the near-backscattering geometry: electron and photon
@@ -154,6 +160,233 @@ def polarization_factor(
     )
 
 
+def rotated_laser_axes(
+    psi_pol: float = 0.0,
+    theta_xz: float = 0.0,
+    theta_yz: float = 0.0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Rotated laser polarization unit vectors (e0, e1) for arbitrary crossing angles.
+
+    Evaluates the exact 3D rotation ``R_y(theta_xz) @ R_x(theta_yz)`` applied to the
+    unrotated laser basis ``[cos(psi_pol), sin(psi_pol), 0]`` and ``[-sin(psi_pol), cos(psi_pol), 0]``
+    without small crossing angle approximations (DER005, DER007).
+    """
+    cos_xz = math.cos(theta_xz)
+    cos_yz = math.cos(theta_yz)
+    sin_xz = math.sin(theta_xz)
+    sin_yz = math.sin(theta_yz)
+    R = np.array([
+        [cos_xz, sin_xz * sin_yz, sin_xz * cos_yz],
+        [0.0, cos_yz, -sin_yz],
+        [-sin_xz, cos_xz * sin_yz, cos_xz * cos_yz],
+    ], dtype=float)
+    cp = math.cos(psi_pol)
+    sp = math.sin(psi_pol)
+    e0 = R @ np.array([cp, sp, 0.0], dtype=float)
+    e1 = R @ np.array([-sp, cp, 0.0], dtype=float)
+    return e0, e1
+
+
+def compute_stokes_components(
+    gamma: np.ndarray | float,
+    theta_ex: np.ndarray | float,
+    theta_ey: np.ndarray | float,
+    theta_x: float,
+    theta_y: float,
+    e0: np.ndarray,
+    e1: np.ndarray,
+    ellipticity: float = 0.0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Compute Stokes parameters (I, Q, U, V) in the smooth laboratory observer basis (m_x, m_y).
+
+    Evaluates the scattered-photon Stokes parameters in the smooth laboratory observer
+    basis (m_x, m_y) defined by parallel transport of the fixed laboratory Cartesian axes
+    from z0 to n along the connecting great circle (DER007). Placing the coordinate
+    singularity at the backward pole -z0 avoids the on-axis 0/0 singularity and artificial
+    2*phi vortex of the spherical meridian basis.
+
+    Single-electron radiation satisfies purity I^2 = Q^2 + U^2 + V^2 identically for
+    arbitrary crossing angles and transverse divergence.
+
+    Parameters
+    ----------
+    gamma : np.ndarray or float
+        Electron Lorentz factor(s).
+    theta_ex : np.ndarray or float
+        Electron transverse divergence x-component(s).
+    theta_ey : np.ndarray or float
+        Electron transverse divergence y-component(s).
+    theta_x : float
+        Laboratory observation angle x-component.
+    theta_y : float
+        Laboratory observation angle y-component.
+    e0 : np.ndarray
+        Rotated laser polarization unit vector along major axis (shape (3,)).
+    e1 : np.ndarray
+        Rotated laser polarization unit vector along minor axis (shape (3,)).
+    ellipticity : float
+        Laser ellipticity in [-1, 1] (0 = linear, +/-1 = circular).
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+        Stokes parameters (I, Q, U, V) in the smooth laboratory observer basis.
+    """
+    no = math.sqrt(1.0 + theta_x**2 + theta_y**2)
+    n = np.array([theta_x, theta_y, 1.0], dtype=float) / no
+
+    denom_m = 1.0 + n[2]
+    mx = np.array([1.0 - n[0]**2 / denom_m, -n[0] * n[1] / denom_m, -n[0]], dtype=float)
+    my = np.array([-n[0] * n[1] / denom_m, 1.0 - n[1]**2 / denom_m, -n[1]], dtype=float)
+
+    gamma, theta_ex, theta_ey = np.broadcast_arrays(
+        np.asarray(gamma, dtype=float),
+        np.asarray(theta_ex, dtype=float),
+        np.asarray(theta_ey, dtype=float),
+    )
+    valid_gamma = gamma >= 1.0
+    gamma_safe = np.where(valid_gamma, gamma, 1.0)
+    gamma_sq = gamma_safe * gamma_safe
+    beta = np.sqrt(1.0 - 1.0 / gamma_sq)
+    delta = 1.0 / (gamma_sq * (1.0 + beta))
+
+    ve = np.sqrt(1.0 + theta_ex**2 + theta_ey**2)
+
+    delta_z = (
+        (theta_ex - theta_x) * (theta_ex + theta_x)
+        + (theta_ey - theta_y) * (theta_ey + theta_y)
+    ) / (ve * no * (ve + no))
+    delta_x = (theta_x - theta_ex) / no + theta_ex * delta_z
+    delta_y = (theta_y - theta_ey) / no + theta_ey * delta_z
+
+    d = delta + 0.5 * beta * (delta_x**2 + delta_y**2 + delta_z**2)
+
+    ux = theta_ex / ve
+    uy = theta_ey / ve
+    uz = 1.0 / ve
+    qx = (delta_x + delta * ux) / d
+    qy = (delta_y + delta * uy) / d
+    qz = (delta_z + delta * uz) / d
+
+    a0 = float(np.dot(n, e0))
+    a1 = float(np.dot(n, e1))
+
+    u0x = qx * a0 - e0[0]
+    u0y = qy * a0 - e0[1]
+    u0z = qz * a0 - e0[2]
+    u1x = qx * a1 - e1[0]
+    u1y = qy * a1 - e1[1]
+    u1z = qz * a1 - e1[2]
+
+    U0x = u0x * mx[0] + u0y * mx[1] + u0z * mx[2]
+    U0y = u0x * my[0] + u0y * my[1] + u0z * my[2]
+    U1x = u1x * mx[0] + u1y * mx[1] + u1z * mx[2]
+    U1y = u1x * my[0] + u1y * my[1] + u1z * my[2]
+
+    eps2 = ellipticity * ellipticity
+    xi00 = 1.0 / (1.0 + eps2)
+    xi11 = eps2 / (1.0 + eps2)
+
+    I = xi00 * (U0x**2 + U0y**2) + xi11 * (U1x**2 + U1y**2)
+    Q = xi00 * (U0x**2 - U0y**2) + xi11 * (U1x**2 - U1y**2)
+    U = 2.0 * (xi00 * U0x * U0y + xi11 * U1x * U1y)
+    V = (-2.0 * ellipticity / (1.0 + eps2)) * (U0x * U1y - U1x * U0y)
+
+    if np.any(~valid_gamma):
+        I = np.where(valid_gamma, I, 0.0)
+        Q = np.where(valid_gamma, Q, 0.0)
+        U = np.where(valid_gamma, U, 0.0)
+        V = np.where(valid_gamma, V, 0.0)
+
+    return I, Q, U, V
+
+
+def stokes_parameters_vectorized(
+    gamma: np.ndarray | float,
+    theta_x: np.ndarray | float,
+    theta_y: np.ndarray | float,
+    theta_x_obs: float,
+    theta_y_obs: float,
+    ellipticity: float = 0.0,
+    psi_pol: float = 0.0,
+    theta_xz: float = 0.0,
+    theta_yz: float = 0.0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Compute Stokes parameters (I, Q, U, V) in smooth laboratory observer basis.
+
+    Signature mirrors :func:`polarization_factor_vectorized` for drop-in convenience.
+    """
+    e0, e1 = rotated_laser_axes(psi_pol=psi_pol, theta_xz=theta_xz, theta_yz=theta_yz)
+    return compute_stokes_components(
+        gamma=gamma,
+        theta_ex=theta_x,
+        theta_ey=theta_y,
+        theta_x=theta_x_obs,
+        theta_y=theta_y_obs,
+        e0=e0,
+        e1=e1,
+        ellipticity=ellipticity,
+    )
+
+
+def bunch_stokes_parameters(
+    samples: TrajectorySamples,
+    theta_x: float = 0.0,
+    theta_y: float = 0.0,
+    *,
+    e0: np.ndarray | None = None,
+    e1: np.ndarray | None = None,
+    psi_pol: float = 0.0,
+    ellipticity: float = 0.0,
+    theta_xz: float = 0.0,
+    theta_yz: float = 0.0,
+) -> tuple[float, float, float, float, float, float]:
+    """Incoherently sum single-electron Stokes vectors over the bunch (DER007).
+
+    Evaluates Stokes components for all macroparticles in the common smooth laboratory
+    observer basis (m_x, m_y) and accumulates them weighted by each particle's
+    luminosity w_e = L_e.
+
+    Returns
+    -------
+    tuple[float, float, float, float, float, float]
+        (I_tot, Q_tot, U_tot, V_tot, P_bunch, chi) where P_bunch <= 1 reflects physical
+        depolarization from beam divergence, and chi is the polarization angle.
+    """
+    if samples.n_particles == 0:
+        return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+
+    if e0 is None or e1 is None:
+        e0, e1 = rotated_laser_axes(psi_pol=psi_pol, theta_xz=theta_xz, theta_yz=theta_yz)
+
+    I, Q, U, V = compute_stokes_components(
+        samples.gamma,
+        samples.theta_x,
+        samples.theta_y,
+        theta_x,
+        theta_y,
+        e0,
+        e1,
+        ellipticity=ellipticity,
+    )
+
+    weights = samples.luminosity
+    Itot = float(np.sum(weights * I))
+    Qtot = float(np.sum(weights * Q))
+    Utot = float(np.sum(weights * U))
+    Vtot = float(np.sum(weights * V))
+
+    if Itot > 0.0:
+        p_num = math.sqrt(max(0.0, Qtot * Qtot + Utot * Utot + Vtot * Vtot))
+        P = min(1.0, p_num / Itot)
+        chi = 0.5 * math.atan2(Utot, Qtot)
+    else:
+        P = 0.0
+        chi = 0.0
+
+    return Itot, Qtot, Utot, Vtot, P, chi
+
+
 def polarization_factor_vectorized(
     gamma: np.ndarray,
     theta_x: np.ndarray,
@@ -172,20 +405,7 @@ def polarization_factor_vectorized(
     are removed by the calling kernel's physical-resonance mask. Stable vector evaluation
     evaluates Eq. ``udef`` directly (RES069, RES070).
     """
-    cos_xz = math.cos(theta_xz)
-    cos_yz = math.cos(theta_yz)
-    sin_xz = math.sin(theta_xz)
-    sin_yz = math.sin(theta_yz)
-    R = np.array([
-        [cos_xz, sin_xz * sin_yz, sin_xz * cos_yz],
-        [0.0, cos_yz, -sin_yz],
-        [-sin_xz, cos_xz * sin_yz, cos_xz * cos_yz],
-    ], dtype=float)
-
-    cp = math.cos(psi_pol)
-    sp = math.sin(psi_pol)
-    e0 = R @ np.array([cp, sp, 0.0])
-    e1 = R @ np.array([-sp, cp, 0.0])
+    e0, e1 = rotated_laser_axes(psi_pol=psi_pol, theta_xz=theta_xz, theta_yz=theta_yz)
     no = math.sqrt(1.0 + theta_x_obs**2 + theta_y_obs**2)
     n = np.array([theta_x_obs, theta_y_obs, 1.0]) / no
 

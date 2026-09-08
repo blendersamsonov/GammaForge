@@ -19,7 +19,7 @@ unfinished or waiting on someone*.
 | 2. Validation harness | 🟢 done |
 | 2.5. Stage 0 + minimal delta | 🟢 done |
 | 3a. xigma engineering | 🟢 NumPy Stage 0/1/2, `Collision`, `XigmaEngine`; stable high-gamma polarization evaluation ported to NumPy (RES070). CuPy supports incident polarization and two-plane crossing geometry with stable arithmetic and numerical checks; still experimental (RES062, RES068, RES069). |
-| 3b. Physics closure | 🟡 §9.1 closed (RES033). The author-approved per-particle lab-frame polarization projection is implemented (RES060); independent arbitrary-angle emission validation remains open. |
+| 3b. Physics closure | 🟡 §9.1 closed (RES033). The author-approved per-particle lab-frame polarization projection is implemented (RES060); smooth laboratory observer basis Stokes parameters (I, Q, U, V) with physical bunch depolarization landed (RES073); independent arbitrary-angle emission validation remains open. |
 | 4. analytical engine | 🟢 landed and merged to `main`; general overlap-integral yield, width breakdown, quadrature spectrum, flying focus, crossing angle for the yield. Open: collimated-spectrum construction |
 | 5. kascade port + delta full role | 🟡 minimal `KascadeEngine`, Thomson sanity anchor, and opt-in GUI integration landed (RES059); four-method validation wiring remains open |
 | 6. GUI | 🟡 NiceGUI local browser UI implemented (RES058, `docs/UI_SPEC.md`): Inputs/Results, split panes, schema forms, preview, worker execution, plots/exports. Cross-run xigma stage reuse remains open; no LAN executor yet. |
