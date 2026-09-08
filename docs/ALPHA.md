@@ -130,9 +130,10 @@ The result density has axes `(ENERGY, THETA_X, THETA_Y)` and integrates using
 `slice.integrate()`. Start with modest grids: CPU angular quadrature is expensive.
 Installing `.[gpu]` only adds CUDA 12 CuPy dependencies; it does not change the default
 or establish convergence for a new calculation. Numba remains unimplemented.
-The NumPy polarization factor has a known high-gamma, nearly collinear crossed-ray
-precision limitation; see the [numerical record](ALPHA_GPU_VALIDATION.md). This does
-not affect Stage-0 total-yield overlap calculations.
+The NumPy polarization factor uses stable vector evaluation (RES070),
+matching the collinear limit at high gamma without longitudinal cancellation;
+see the [numerical record](ALPHA_GPU_VALIDATION.md). Stage-0 total-yield overlap
+calculations are unaffected.
 
 The historical `ahat_decades=1.0` default remains unchanged; the tracked roughly 1%
 centroid-grid bias is still an author decision. The validation tier uses an explicit

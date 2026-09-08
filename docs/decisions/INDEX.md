@@ -75,3 +75,4 @@ cross-checks this table against the files on disk.
 | RES067 | LaserField boundary and fitting contract | architecture | implemented | implemented/architecture/RES067-laserfield-boundary-and-fitting-contract.md |
 | RES068 | CuPy sampling measure and stable polarization | bug-fix | implemented | implemented/bug-fix/RES068-cupy-sampling-measure-and-stable-polarization.md |
 | RES069 | CuPy incident polarization and crossing geometry | feature | implemented | implemented/feature/RES069-cupy-incident-polarization-and-crossing-geometry.md |
+| RES070 | Stabilize NumPy polarization reference | bug-fix | implemented | implemented/bug-fix/RES070-stabilize-numpy-polarization-reference.md |

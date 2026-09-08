@@ -262,12 +262,14 @@ each Stage-2 table cell's electron angles. `validation.references.delta` supplie
 sample's angles to the same projection. The broader crossing-angle emission validation is
 outside this derivation's implementation check.
 
-## CUDA evaluation amendment (2026-09-08)
+## Evaluation amendment (2026-09-08)
 
 RES069 implements the same Eq. udef projection for the CuPy sampler with incident
-ellipticity and both laser-crossing angles. It evaluates weighted squared vector
+ellipticity and both laser-crossing angles, and RES070 ports the same stable vector
+evaluation to NumPy in `stages.py`. Both evaluate weighted squared vector
 norms directly, using stable slope differences for the relativistic denominator
 and vector numerator. The expanded expression in §4 is algebraically equivalent
-but suffers severe cancellation in float32 for a longitudinal laser basis.
+but suffers severe cancellation (in float32 for a longitudinal laser basis, and at
+high gamma in float64).
 This numerical evaluation choice does not change the derivation's physics or close
 independent arbitrary-angle emission validation.

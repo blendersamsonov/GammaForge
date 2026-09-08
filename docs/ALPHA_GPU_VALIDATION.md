@@ -172,26 +172,28 @@ open regardless of these numerical and timing results.
 python scripts/benchmark_xigma_polarization.py --warmup 20 --repeats 15
 ```
 
-### Reference limitation found during review
+### Reference stabilization (RES070)
 
-The existing NumPy expanded polarization factor also loses precision at sufficiently
-high gamma when the electron and observer are collinear and the laser basis has a
-longitudinal component. This is why the new direct-helper tests use an independent
-extended-precision vector reference rather than treating NumPy's expansion as exact.
+The previous NumPy expanded polarization factor lost precision at sufficiently
+high gamma when the electron and observer were collinear and the laser basis had a
+longitudinal component. The probe:
 
 ```python
 from gammaforge.engines.xigma.stages import polarization_factor
 polarization_factor(10000., 0., 0., 0., 0., 0., 0., 0.3, 0.)
-# Existing NumPy: 1.388697735965252
+# Historical NumPy (expanded): 1.388697735965252
+# Stabilized NumPy (RES070):   0.9126678074548391
 # Exact collinear limit cos(0.3)**2: 0.9126678074548391
 ```
 
-At gamma 2000, the same probe gives 0.9124055 (about 0.029% relative deviation).
-These are single-ray polarization-factor errors, not measurements of whole-spectrum
-or total-yield errors. The new CUDA vector evaluation passes the exact-limit check.
-NumPy arithmetic repair is tracked separately in PROGRESS; its emission formulas
-were not changed in this CuPy extension. Stage-0 total yields and the analytical
-overlap calculation do not use this polarization helper.
+returned 1.3886977 at gamma 10000 (and 0.9124055 at gamma 2000, ~0.029% deviation).
+RES070 ported CuPy's RES069 stable vector evaluation of manuscript Eq. ``udef`` to
+NumPy's `stages.py` (`polarization_factor` and `polarization_factor_vectorized`).
+NumPy now reproduces the exact collinear cosine-squared limit within float64 machine
+precision and matches the independent extended-precision reference to ~1e-13.
+This is a numerical repair of the same lab-frame projection; Stage-0 total yields
+and the analytical overlap calculation do not use this helper. Arbitrary-angle
+emission validation remains open.
 
 Final verification: 604 tests passed, one skipped on CUDA; the minimum Python 3.12
 focused run passed 31 tests and skipped 25 GPU tests. The headless alpha selector

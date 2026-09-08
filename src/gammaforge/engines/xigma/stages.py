@@ -169,7 +169,8 @@ def polarization_factor_vectorized(
 
     ``gamma``, ``theta_x``, and ``theta_y`` broadcast to the table-cell shape. Invalid
     resonance cells can carry ``gamma == 0``; they receive a finite placeholder here and
-    are removed by the calling kernel's physical-resonance mask.
+    are removed by the calling kernel's physical-resonance mask. Stable vector evaluation
+    evaluates Eq. ``udef`` directly (RES069, RES070).
     """
     cos_xz = math.cos(theta_xz)
     cos_yz = math.cos(theta_yz)
@@ -185,8 +186,8 @@ def polarization_factor_vectorized(
     sp = math.sin(psi_pol)
     e0 = R @ np.array([cp, sp, 0.0])
     e1 = R @ np.array([-sp, cp, 0.0])
-    n = np.array([theta_x_obs, theta_y_obs, 1.0])
-    n /= np.linalg.norm(n)
+    no = math.sqrt(1.0 + theta_x_obs**2 + theta_y_obs**2)
+    n = np.array([theta_x_obs, theta_y_obs, 1.0]) / no
 
     gamma, theta_x, theta_y = np.broadcast_arrays(
         np.asarray(gamma, dtype=float), np.asarray(theta_x, dtype=float),
@@ -194,25 +195,49 @@ def polarization_factor_vectorized(
     )
     valid_gamma = gamma >= 1.0
     gamma_safe = np.where(valid_gamma, gamma, 1.0)
-    beta = np.sqrt(1.0 - gamma_safe**-2)
-    direction_norm = np.sqrt(1.0 + theta_x**2 + theta_y**2)
-    vx = beta * theta_x / direction_norm
-    vy = beta * theta_y / direction_norm
-    vz = beta / direction_norm
-    one_minus_vn = 1.0 - (vx * n[0] + vy * n[1] + vz * n[2])
+    gamma_sq = gamma_safe * gamma_safe
+    beta = np.sqrt(1.0 - 1.0 / gamma_sq)
+    delta = 1.0 / (gamma_sq * (1.0 + beta))
+
+    ve = np.sqrt(1.0 + theta_x**2 + theta_y**2)
+
+    # Delta = n - u, with the nearly equal longitudinal component evaluated from
+    # the slope norms rather than as ``1/no - 1/ve`` (RES069, RES070).
+    delta_z = (
+        (theta_x - theta_x_obs) * (theta_x + theta_x_obs)
+        + (theta_y - theta_y_obs) * (theta_y + theta_y_obs)
+    ) / (ve * no * (ve + no))
+    delta_x = (theta_x_obs - theta_x) / no + theta_x * delta_z
+    delta_y = (theta_y_obs - theta_y) / no + theta_y * delta_z
+
+    # 1 - beta * u.n = delta + 0.5 * beta * |Delta|^2
+    d = delta + 0.5 * beta * (delta_x**2 + delta_y**2 + delta_z**2)
+
+    # n - beta*u = Delta + delta*u, divided by d
+    ux = theta_x / ve
+    uy = theta_y / ve
+    uz = 1.0 / ve
+    qx = (delta_x + delta * ux) / d
+    qy = (delta_y + delta * uy) / d
+    qz = (delta_z + delta * uz) / d
 
     a0 = float(np.dot(n, e0))
     a1 = float(np.dot(n, e1))
-    b0 = vx * e0[0] + vy * e0[1] + vz * e0[2]
-    b1 = vx * e1[0] + vy * e1[1] + vz * e1[2]
+
+    u0x = qx * a0 - e0[0]
+    u0y = qy * a0 - e0[1]
+    u0z = qz * a0 - e0[2]
+    u1x = qx * a1 - e1[0]
+    u1y = qy * a1 - e1[1]
+    u1z = qz * a1 - e1[2]
+
+    norm0_sq = u0x * u0x + u0y * u0y + u0z * u0z
+    norm1_sq = u1x * u1x + u1y * u1y + u1z * u1z
 
     eps2 = ellipticity * ellipticity
     xi00 = 1.0 / (1.0 + eps2)
     xi11 = eps2 / (1.0 + eps2)
-    gamma2_vn2 = gamma_safe * gamma_safe * one_minus_vn * one_minus_vn
-    term0 = 1.0 - a0 * a0 / gamma2_vn2 + 2.0 * a0 * b0 / one_minus_vn
-    term1 = 1.0 - a1 * a1 / gamma2_vn2 + 2.0 * a1 * b1 / one_minus_vn
-    return xi00 * term0 + xi11 * term1
+    return xi00 * norm0_sq + xi11 * norm1_sq
 
 
 #: Live bytes per (particle x step) in Stage 0's inner loop, for auto-chunking.
@@ -957,6 +982,7 @@ def angular_spectrum_from_table(
     theta_xz: float = 0.0,
     theta_yz: float = 0.0,
     backend: str = "numpy",
+    rings: int = 32,
     subsampling: int = 32,
 ) -> np.ndarray:
     """Stage 2: :func:`spectrum_from_table` evaluated over a grid of observation points.
@@ -983,6 +1009,7 @@ def angular_spectrum_from_table(
             table, theta_x_grid, theta_y_grid, s,
             psi_pol=psi_pol, ellipticity=ellipticity,
             theta_xz=theta_xz, theta_yz=theta_yz,
+            rings=rings,
             subsampling=subsampling,
         )
 
@@ -1094,6 +1121,7 @@ def spectrum_in_angular_range(
     theta_xz: float = 0.0,
     theta_yz: float = 0.0,
     backend: str = "numpy",
+    rings: int = 32,
     subsampling: int = 32,
 ) -> tuple[np.ndarray, np.ndarray, float]:
     """Stage 2: the windowed on-demand query the `Collision` facade wraps.
@@ -1113,6 +1141,7 @@ def spectrum_in_angular_range(
         psi_pol=psi_pol, ellipticity=ellipticity,
         theta_xz=theta_xz, theta_yz=theta_yz,
         backend=backend, subsampling=subsampling,
+        rings=rings,
     )
     dN_ds = np.trapezoid(np.trapezoid(cube, ty, axis=1), tx, axis=0)
     n_photons = float(np.trapezoid(dN_ds, s_centers))

@@ -14,6 +14,7 @@ from dataclasses import replace
 
 from gammaforge.engines.xigma.collision import Collision
 from gammaforge.engines.xigma.spectrum_sampler import is_gpu_available
+from gammaforge.engines.xigma.stages import polarization_factor
 from gammaforge.engines.xigma.engine import XigmaEngine
 from gammaforge.io.target import OutputKind, OutputRequest
 from gammaforge.io.interaction import SamplingSpec
@@ -154,6 +155,32 @@ def test_cuda_circular_polarization_is_invariant_to_basis_azimuth():
                                       np.float32(1.0), np.float32(psi), np.float32(0.04), np.float32(-0.03))))
     np.testing.assert_allclose(values[1], values[0], rtol=1e-5, atol=1e-6)
     np.testing.assert_allclose(values[2], values[0], rtol=1e-5, atol=1e-6)
+
+
+@pytest.mark.parametrize("ellipticity", [0.0, 0.4, 1.0], ids=["linear", "elliptical", "circular"])
+@pytest.mark.parametrize(
+    "gamma,theta_x,theta_y,theta_x_obs,theta_y_obs,theta_xz,theta_yz",
+    [
+        (2000.0, 0.0011, -0.0007, 0.0003, -0.0002, 0.04, -0.03),
+        (10000.0, -0.0008, 0.0005, -0.0004, 0.0006, -0.03, 0.05),
+        (1600.0, 0.0, 0.0, 0.0002, -0.0001, 0.0, 0.06),
+        (10000.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.0),
+    ],
+)
+def test_numpy_polarization_helper_matches_independent_longdouble_udef(
+    ellipticity, gamma, theta_x, theta_y, theta_x_obs, theta_y_obs, theta_xz, theta_yz,
+):
+    """NumPy polarization factor matches high-precision longdouble Eq. udef (RES070)."""
+    psi = 0.37
+    expected = _udef_longdouble(
+        [gamma], [theta_x], [theta_y], theta_x_obs, theta_y_obs,
+        ellipticity, psi, theta_xz, theta_yz,
+    )
+    actual = polarization_factor(
+        gamma, theta_x, theta_y, theta_x_obs, theta_y_obs,
+        ellipticity, psi, theta_xz, theta_yz,
+    )
+    np.testing.assert_allclose(actual, [float(expected[0])], rtol=1e-10, atol=1e-10)
 
 
 def test_crossed_engine_forwards_geometry_and_applies_energy_jacobian_once(monkeypatch):

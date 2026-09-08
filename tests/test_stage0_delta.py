@@ -471,6 +471,28 @@ def test_vectorized_polarization_accepts_each_particle_direction():
     )
 
 
+@pytest.mark.parametrize("gamma", [2000.0, 10000.0])
+def test_polarization_factor_collinear_crossing_limit_is_cosine_squared(gamma):
+    """At high gamma with collinear rays and crossed basis, Tr(U^T Xi U) is cos^2(alpha) (RES070).
+
+    The expanded float64 expression lost accuracy for collinear electron/observer rays
+    when the laser basis had a longitudinal component (e.g. gamma 10000 and crossing 0.3 rad
+    yielded 1.3886977 instead of cos(0.3)^2 = 0.9126678).
+    """
+    crossing = 0.3
+    expected = math.cos(crossing) ** 2
+    actual_scalar = polarization_factor(
+        gamma, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, theta_xz=crossing, theta_yz=0.0,
+    )
+    assert actual_scalar == pytest.approx(expected, rel=1e-12, abs=1e-12)
+
+    actual_vectorized = polarization_factor_vectorized(
+        np.array([gamma]), np.array([0.0]), np.array([0.0]),
+        0.0, 0.0, 0.0, 0.0, theta_xz=crossing, theta_yz=0.0,
+    )
+    np.testing.assert_allclose(actual_vectorized, [expected], rtol=1e-12, atol=1e-12)
+
+
 def test_delta_passes_each_particle_direction_to_the_polarization_projection():
     samples = TrajectorySamples(
         gamma=np.array([2000.0]), theta_x=np.array([0.0011]), theta_y=np.array([-0.0007]),
