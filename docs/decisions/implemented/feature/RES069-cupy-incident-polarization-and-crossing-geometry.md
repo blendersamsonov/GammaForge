@@ -3,6 +3,10 @@
 Status: implemented
 Class: feature
 
+Basis update: RES078/DER012 adds local transverse projection before the stable
+radiation-vector evaluation below. Stable arithmetic and incident-polarization scope
+remain in force; earlier unprojected-basis results are historical.
+
 ## Problem
 
 CuPy Stage 2 rejected nonzero ellipticity and laser crossing angles even though

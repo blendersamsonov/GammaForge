@@ -2,6 +2,9 @@
 
 Status: verified
 
+Radiation-basis revision: DER012 replaces the unprojected polarization construction
+in §2.3. Flux and nominal Doppler results retain their stated approximations (RES078).
+
 ## Setup
 
 `GRAND_PLAN.md` §9.3 says the paper's angular derivation "is built for near-backscattering

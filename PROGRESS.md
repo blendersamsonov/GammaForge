@@ -19,7 +19,7 @@ unfinished or waiting on someone*.
 | 2. Validation harness | 🟢 done |
 | 2.5. Stage 0 + minimal delta | 🟢 done |
 | 3a. xigma engineering | 🟢 NumPy Stage 0/1/2, `Collision`, `XigmaEngine`; stable high-gamma polarization reference (RES070). CuPy supports incident polarization, crossing geometry, and schema-controlled ring/sample refinement; eight-case actual-CUDA numerical gate passes (RES072). Independent emission validation remains open; CuPy is still experimental. |
-| 3b. Physics closure | 🟡 §9.1 closed (RES033). The author-approved per-particle lab-frame polarization projection is implemented (RES060); smooth laboratory observer basis Stokes parameters (I, Q, U, V) with physical bunch depolarization landed (RES073); independent arbitrary-angle emission validation remains open. |
+| 3b. Physics closure | 🟡 §9.1 closed (RES033). Local transverse-dipole crossing correction merged (DER012, RES078), retaining per-particle lab velocities and Stokes API compatibility; independent arbitrary-angle acceptance/convergence remains open. |
 | 4. analytical engine | 🟢 landed and merged to `main`; general overlap-integral yield, width breakdown, quadrature spectrum, flying focus, crossing angle for the yield. Open: collimated-spectrum construction |
 | 5. kascade port + delta full role | 🟡 minimal `KascadeEngine`, Thomson sanity anchor, and opt-in GUI integration landed (RES059); four-method validation wiring remains open |
 | 6. GUI | 🟡 NiceGUI local browser UI implemented (RES058, `docs/UI_SPEC.md`): Inputs/Results, split panes, schema forms, preview, worker execution, plots/exports. Cross-run xigma stage reuse remains open; no LAN executor yet. |
@@ -55,21 +55,29 @@ Ordered by who is blocked. Each names the file that carries the detail.
 ### Available to pick up (no external dependency)
 
 - **CuPy promotion boundary.** Ring and sample controls plus the actual-CUDA release
-  gate are implemented (RES072). Eight finite-window cases pass reference refinement,
+  gate are implemented (RES072), rerun after DER012/RES078 in
+  `docs/validation/cupy-release-transverse-2026-09-09.json`.
+  Eight finite-window cases pass reference refinement,
   default/fine GPU agreement, and successive GPU refinement checks. This establishes
   numerical agreement for the recorded cases, not independent arbitrary-angle physics
   or a universal input-range guarantee. Keep NumPy as the alpha default and perform
   table/sampler refinement for new regimes. Scope and measurements:
   `docs/ALPHA_GPU_VALIDATION.md`.
 
-- **Independently validate arbitrary-angle emission.** RES060 implements the author-approved
-  lab-frame polarization projection and checks it directly against Eq. `udef`, but no
-  independent arbitrary-angle emission method has yet checked the resulting observables.
+- **Independently validate arbitrary-angle emission.** DER012/RES078 updates production
+  and the independently constructed delta reference to local transverse-dipole emission.
+  Actual-kernel angular conservation and real-CUDA polarization/target bounds pass,
+  but full arbitrary-angle convergence and scientific acceptance remain open.
   Direct resonance-binning preparation is recorded in RES074 and
   `docs/handoffs/delta-arbitrary-angle-validation-2026-09-09.md`: independent delta
   polarization evaluation, matched energy-bin measures, and separate convergence
   gates. The general per-particle Doppler factor versus the current nominal-axis
-  approximation must be audited before scientific acceptance. Not yet implemented.
+  approximation must be audited before scientific acceptance. The independent line
+  reference and first Doppler diagnostic are implemented (RES076); measured shifts
+  are small for the tested Gaussian bank. A matched-bin NumPy pilot is implemented
+  (RES077/RES078): the corrected refined baseline crossed on-axis count error is
+  -0.20%, but off-axis spectral L1 remains about 14%. Full convergence and actual-CUDA delta comparisons
+  remain open; see the handoff for saved reports and the next bounded packet.
 
 - **Spatial autoranging under displacement.** The current Kascade reproduction captured its
   sampled photon weights inside the symmetric auto range for laser offsets through 120 µm;

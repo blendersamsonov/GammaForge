@@ -273,3 +273,24 @@ def test_bunch_stokes_parameters_empty_samples():
     )
     res = bunch_stokes_parameters(empty_samples)
     assert res == (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+
+
+def test_bunch_stokes_parameters_honors_explicit_basis_and_observer_keywords():
+    """The public bunch helper keeps its explicit basis and observer-angle API."""
+    from gammaforge.engines.xigma.stages import TrajectorySamples
+
+    samples = TrajectorySamples(
+        gamma=np.array([2000.0]), theta_x=np.array([0.0]), theta_y=np.array([0.0]),
+        a0_shape=np.array([1.0]), luminosity=np.array([1.0]),
+        intensity_peak=0.1, n_steps=16,
+    )
+    e0, e1 = rotated_laser_axes()
+    horizontal = bunch_stokes_parameters(
+        samples, theta_x=0.0, theta_y=0.0, e0=e0, e1=e1,
+    )
+    vertical = bunch_stokes_parameters(
+        samples, theta_x=0.0, theta_y=0.0, e0=e1, e1=e0,
+    )
+    assert horizontal[0] > 0.0
+    np.testing.assert_allclose(horizontal[1] / horizontal[0], 1.0, atol=1e-12)
+    np.testing.assert_allclose(vertical[1] / vertical[0], -1.0, atol=1e-12)

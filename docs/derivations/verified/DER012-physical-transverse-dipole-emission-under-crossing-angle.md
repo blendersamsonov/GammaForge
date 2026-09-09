@@ -232,7 +232,7 @@ In the unprojected formula, the cross-term generated a large laboratory angular 
 - **Longitudinal acceleration suppression:** Relativistic dynamics confirmed $\dot{v}_z / \dot{v}_x \approx -\alpha / (2\gamma^2) \sim 6\times 10^{-11}$.
 - **Per-electron vs Exact acceleration:** Agreement verified across emittance $\sigma_\theta = 10^{-4}$ to $< 2 \times 10^{-7}$.
 - **Cross-section integration:** $\int d\Omega \, \frac{\gamma^2}{(1+\gamma^2\theta^2)^2}\mathcal{P} = \frac{2\pi}{3}$ verified numerically across crossing angles and ellipticities (`tests/test_xigma_polarization_crossing.py`).
-- **Target yield bound:** $N_{\text{tgt}} \le N_{\text{tot}}$ verified unconditionally across $(\alpha, \varepsilon, \psi)$ grids.
+- **Target yield bound:** $N_{\text{tgt}} \le N_{\text{tot}}$ checked across the finite geometry/polarization grid in `tests/test_xigma_polarization_crossing.py`; this is not an all-parameter numerical guarantee.
 - **Fast test suite:** All 462 fast tests pass (`tests/test_xigma_stokes.py`, `tests/test_stage0_delta.py`, `tests/test_xigma_gpu_polarization.py`).
 
 ---

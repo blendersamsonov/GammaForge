@@ -1,6 +1,6 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.32 — 2026-09-08
+**Status:** draft v0.33 — 2026-09-09
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 
@@ -947,7 +947,13 @@ in the common lab frame:
 `v_e = β (θ_x, θ_y, 1) / √(1 + θ_x² + θ_y²)`.
 The observer direction and laser basis remain lab-frame vectors; the engine does not
 rotate them into a different frame for each particle. The polarization projection
-therefore uses each table cell's electron direction (RES060).
+therefore uses each table cell's electron direction (RES060). The author's finite-
+crossing correction in DER012 projects the rotated major laser axis onto the plane
+normal to each electron's field-free direction and normalizes it; the minor axis is
+its oriented orthogonal partner in that plane. Use this transverse dipole basis in
+the radiation projection, not the unprojected laser basis. This is the approved
+ultrarelativistic transverse-dipole approximation, not exact finite-gamma dynamics.
+The independent delta reference must construct that basis without production helpers.
 The emission kernel includes the relative velocity factor, resonance frequency factor
 `cos^2(alpha/2)`, and polarization projection (DER005, DER006); `EMISSION_IS_HEAD_ON` is `False`.
 
@@ -1032,6 +1038,12 @@ duplicated (C4).
 ---
 
 ## Changelog
+
+- **v0.33**: integrate the author's local transverse-dipole crossing correction
+  (DER012), replacing the unprojected radiation basis while retaining lab-frame
+  particle velocities. Preserve Stokes API compatibility and validate delta with an
+  independent implementation. Earlier unprojected-basis reports are historical,
+  not acceptance evidence for the corrected kernel.
 
 - **v0.32**: bounded CuPy numerical-promotion work: schema/provenance accuracy
   controls, independent ring/sample/reference refinement, and an actual-CUDA

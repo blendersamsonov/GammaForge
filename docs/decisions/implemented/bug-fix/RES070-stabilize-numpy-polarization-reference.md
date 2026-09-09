@@ -3,6 +3,10 @@
 Status: implemented
 Class: bug-fix
 
+Basis update: RES078/DER012 changes the collinear crossed limit below from cosine
+squared to unity. The stable-vector arithmetic decision remains in force; numerical
+examples for the old unprojected law are historical.
+
 ## Problem
 
 NumPy's Stage-2 polarization projection evaluated an expanded dot-product expression

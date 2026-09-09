@@ -1,7 +1,14 @@
 # Alpha GPU sampler validation
 
-Status: numerical repairs and incident-polarization/crossing extension checked on
-CUDA; backend still experimental — 2026-09-08.
+Status: local transverse-dipole correction merged (DER012 / RES078);
+backend still experimental — 2026-09-09.
+
+The sections below dated 2026-09-08 record historical measurements of the former
+unprojected radiation basis, including its cosine-squared collinear limit and
+timings. DER012 now projects the basis transverse to each electron's field-free
+velocity; the corrected collinear polarization factor is unity. Stable lab-frame
+vector arithmetic remains in use. Do not interpret the old numerical agreement
+as independent validation of the corrected physics.
 
 CuPy 14.2.0 on the GTX 1660 Ti (driver 580.173.02) passes the original distribution
 gate, direct CDF tests, smooth-table/high-gamma regressions, and head-on scenario-bank
@@ -289,3 +296,28 @@ reference has its own quadrature error, and ring/sample errors can partly cancel
 These are measured differences, not statistical error bars or proven error bounds.
 In the initial high-gamma diagnostic, CPU refinement 8x to 16x changed L1 by 9.13%;
 the gate correctly rejected that reference until it was refined further.
+
+### Corrected transverse-basis gate (2026-09-09, DER012 / RES078)
+
+After merging the author's local per-electron transverse-dipole correction, all
+80 numerical checks across eight cases and both public crossed-angle runs pass
+again, with unchanged limits. The corrected report is
+[`validation/cupy-release-transverse-2026-09-09.json`](validation/cupy-release-transverse-2026-09-09.json).
+Before/after source fingerprints agree. Hardware and software versions match the
+previous report. Historical timings above were not rerun for this correction.
+
+| Maximum over the eight finite-window cases | Integral | Integrated density L1 | Spectral centroid |
+|---|---:|---:|---:|
+| CPU coarse-to-fine reference change | 0.238% | 1.758% | 0.291% |
+| Default GPU (32 rings / 32 subsampling) versus fine CPU | 0.806% | 0.847% | 0.039% |
+| Refined GPU (64 rings / 256 subsampling) versus fine CPU | 0.244% | 0.665% | 0.038% |
+
+Focused actual-CUDA runs also pass 39 polarization tests and 25 crossing-yield
+tests, including 12 public-engine target-bound cases. The combined focused CPU
+and documentation run passes 139 tests; the full repository suite was not rerun.
+The independent delta implementation now constructs the corrected basis without
+production helpers. Its NumPy pilot improves substantially on-axis, but off-axis
+spectral L1 remains about 14%; see the
+[delta handoff](handoffs/delta-arbitrary-angle-validation-2026-09-09.md).
+This gate establishes sampler/reference numerical agreement, not independent
+arbitrary-angle scientific acceptance. CuPy remains experimental.

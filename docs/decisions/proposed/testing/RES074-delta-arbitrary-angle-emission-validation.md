@@ -29,7 +29,11 @@ paper/code discrepancy blocks scientific acceptance and requires the author.
 The implementation sequence, equations, matrix, and stopping conditions are in
 `docs/handoffs/delta-arbitrary-angle-validation-2026-09-09.md`. This extends
 RES060/RES061/RES065/RES072; it does not supersede their current contracts or remove
-the experimental warning. No validation implementation is shipped by this proposal.
+the experimental warning. RES076 implements the independent line reference and
+initial Doppler diagnostic. RES077 adds matched-bin comparison and a CPU pilot;
+full convergence acceptance and the actual-CUDA matrix remain proposed here.
+RES078 incorporates the author's DER012 basis correction in both production and
+the independent reference; earlier unprojected-basis reports are historical only.
 
 ## Alternatives considered
 

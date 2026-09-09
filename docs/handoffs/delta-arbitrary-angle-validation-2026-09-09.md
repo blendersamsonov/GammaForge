@@ -1,11 +1,166 @@
 # Delta arbitrary-angle emission validation — implementation handoff
 
-Status: prepared, not implemented. Starting commit: b11117f (CuPy RES072).
-Decision: RES074 (proposed). Scope: validation-only direct binning of each electron's
+Status: independent reference and initial Doppler diagnostic implemented (RES076);
+matched-bin comparator and NumPy pilot implemented (RES077). Full convergence and
+matched-bin CuPy acceptance remain pending.
+Preparation starting commit: b11117f (CuPy RES072).
+Decision: RES074 (partly implemented, still proposed). Scope: validation-only direct binning of each electron's
 resonant photon energy, comparing with NumPy and CuPy spectral-angular calculations.
-No GUI, Kascade optimization, GPU Stokes, or production physics changes.
+No GUI, Kascade optimization or GPU Stokes extension. The author-provided DER012
+production polarization correction was merged separately and incorporated below.
 
 ## Current implementation and authority
+
+### Current corrected basis (DER012 / RES078)
+
+The author supplied `fix/crossing-transverse-dipole`, merged at c51c5a8. Production
+NumPy/CuPy and Stokes now project the radiation basis transverse to each electron's
+field-free velocity. Delta constructs that basis independently in extended precision.
+The legacy delta automatically follows its production polarization helper; the new
+reference does not import that helper. Stokes observer keywords and custom-basis
+inputs were preserved during integration.
+
+Corrected reports (distinct from the historical unprojected-basis reports below):
+
+- `docs/validation/delta-numpy-transverse-pilot-2026-09-09.json`: 36 comparisons,
+  retarget256/512 and q32/q64, otherwise the same fixed particles and pilot grids.
+- `docs/validation/delta-doppler-transverse-2026-09-09.json`: recomputed frequency
+  diagnostic with the corrected weights; maximum Gaussian centroid/RMS shifts are
+  0.0002545%/0.0007586%. Individual frequency ratios did not change.
+
+Both reports completed with matching before/after source fingerprints. At the
+refined shape (32,16,16,32), retarget256, baseline crossed on-axis count error changes
+from +3.893% to -0.205%, and L1 from 3.909% to 1.813%. Baseline head-on on-axis L1
+is 1.261%. Off-axis baseline head-on/crossed L1 remains 13.00%/14.12%, so no spectral
+convergence pass is claimed. Low-field on-axis L1 also remains 8–10%.
+
+Reproduce corrected reports using the existing commands, with distinct output names:
+
+```sh
+.venv/bin/python scripts/validate_delta_emission.py --retarget-bins 256 --quadrature-order 32 --output /tmp/delta-numpy-transverse.json
+.venv/bin/python scripts/diagnose_delta_doppler.py --output /tmp/delta-doppler-transverse.json
+```
+
+Verification includes 39 real-CUDA polarization checks, all 25 tests in the
+crossing-yield file on CUDA (including 12 public-engine target-bound cases), and
+46 independent delta-reference tests. The production conservation test now evaluates
+the actual kernel rather than integrating a prescribed expected curve; independent
+delta conservation tests cover cold/divergent particles at gamma 2000 and 10000.
+These are finite-regime numerical checks, not exact finite-gamma physics validation.
+The combined focused CPU/documentation run passed 139 tests; the minimum Python
+3.12 environment passed all 71 delta/comparison/diagnostic tests without CuPy.
+The full repository suite was not rerun for this integration.
+The complete real-CUDA release gate also passes all 80 numerical checks across
+eight cases and both public crossed-angle runs, with unchanged tolerances and
+matching source fingerprints. Report:
+`docs/validation/cupy-release-transverse-2026-09-09.json`.
+This is NumPy/CuPy sampler agreement, not the pending independent delta/CuPy gate.
+
+Next: refine off-axis/angular and low-ahat deposition using fixed reporting bins,
+then particle/seed and Stage-0 integration before matched-bin actual-CUDA acceptance.
+Do not use the old angular-grid error trend as a finding about the corrected formula.
+
+### Historical initial implementation and unprojected-basis measurements
+
+The files remain the entry points, but all numerical values in this historical
+subsection and the following initial pilot subsection used the old radiation basis:
+
+- `src/gammaforge/validation/references/delta_emission.py`: independent extended-
+  precision polarization, nominal/particle resonance lines, finite-bin bookkeeping.
+- `scripts/diagnose_delta_doppler.py`: fixed-weight Doppler diagnostic, not a gate.
+- `tests/test_delta_emission.py` and `tests/test_delta_doppler_diagnostic.py`:
+  analytic limits, independence, input/precision guards, histogram bookkeeping and
+  diagnostic error injection.
+- `docs/validation/delta-doppler-2026-09-09.json`: completed CPU diagnostic with
+  matching before/after source fingerprints, 16,000 particles, 64 Stage-0 steps,
+  seed 20260721, nine scenario/geometry cases, two observers each, six stress lines.
+
+Reproduce from the repository root:
+
+```sh
+.venv/bin/python scripts/diagnose_delta_doppler.py --output /tmp/delta-doppler.json
+```
+
+Verification: 148 focused tests passed (both new files, Stage-0/delta, validation,
+and decision/derivation documentation checks). The 39 new tests also passed in the
+minimal Python 3.12 environment without CuPy. The full repository suite and CUDA
+acceptance were not rerun for this validation-only packet.
+
+Maximum absolute centroid shifts across the bank and both observers:
+
+| Laser crossing (xz, yz), rad | Centroid shift, % | Weighted RMS line shift, % |
+|---|---:|---:|
+| (0, 0) | 0.00000632 | 0.00000632 |
+| (0.02, -0.015) | 0.0000152 | 0.0000833 |
+| (0.3, 0.2) | 0.0000322 | 0.00125 |
+
+The largest positive-weight individual Gaussian line shift was 0.00306%.
+At gamma 2000 and crossing (0.3, 0.2), isolated electron x-slopes of +/-1 mrad
+give +0.01493%/-0.01499%; +/-10 mrad give +0.14715%/-0.15200%.
+These are shifts in resonance energy with identical weights, not changes in yield.
+The Gaussian result suggests this correction is not a percent-level discrepancy
+source in these specific inputs; it is not a universal bound or a convergence study.
+The bank varies intensity but shares beam parameters and seed. Histogram L1 reaches
+0.147% because finite samples cross bin edges; do not interpret that metric alone as
+a physical discrepancy. Unbinned moments are the primary diagnostic here.
+
+### Matched-bin CPU pilot checkpoint (RES077)
+
+`src/gammaforge/validation/delta_comparison.py` integrates smooth candidate densities
+over the same physical energy bins, including first moments; it never rescales spectra.
+`scripts/validate_delta_emission.py` runs all three scenarios with head-on and
+crossed (0.02, -0.015) geometries, two observers and three table configurations.
+The new checks are in `tests/test_delta_comparison.py` and
+`tests/test_delta_emission_pilot.py`. Both are fast CPU-only test files.
+
+```sh
+.venv/bin/python scripts/validate_delta_emission.py --output /tmp/delta-numpy-pilot.json
+.venv/bin/python scripts/validate_delta_emission.py --retarget-bins 256 --quadrature-order 32 --output /tmp/delta-numpy-refined.json
+```
+
+The saved initial report is `docs/validation/delta-numpy-pilot-2026-09-09.json`:
+36 fixed-direction comparisons, 16,000 particles, 64 Stage-0 steps, seed 20260721,
+24 common physical energy bins and q8/q16 energy integration. Base shape bins are
+(16, 8, 8, 16); shape refinement doubles all four axes with fixed retarget64, while
+retarget refinement uses 128 bins with the base shape unchanged. All energy-quadrature
+pairs satisfy their provisional refinement thresholds, but this does not establish
+table or particle convergence. Worst initial L1 is 81.45%; do not call this a pass.
+
+The higher-retarget/q32-q64 report is
+`docs/validation/delta-numpy-refined-pilot-2026-09-09.json` (36 comparisons with
+matching source fingerprints). At shape (32,16,16,32)/retarget256 the baseline
+head-on on-axis L1 is 1.27%, but baseline off-axis head-on/crossed L1 remains
+13.75%/15.43%. Low-field on-axis head-on/crossed L1 is 9.53%/10.11%.
+All energy-quadrature pairs satisfy the provisional thresholds; other refinements
+remain unresolved. No acceptance threshold was loosened to accommodate these results.
+
+Verification of this packet: 75 focused reference/comparator/pilot/doc tests passed;
+the 18 comparator/pilot tests also passed in the minimal environment without CuPy.
+The broad default pytest run did not finish and was interrupted; it is not counted
+as a suite pass. No actual-CUDA acceptance run was performed for this CPU packet.
+
+Baseline on-axis observations expose two distinct sensitivities:
+
+- Head-on: refining only retarget64 to128 at the base shape reduces L1 from
+  22.23% to 6.22%, while total-count error stays around -0.35%.
+- Crossed: doubling the shape grid at retarget64 reduces count error from +15.41%
+  to +3.91%. Retarget refinement alone does not remove that count discrepancy.
+
+Additional controlled baseline probes held 16,000 particles/64 steps/seed20260721
+fixed, with the same 24-bin window and unchanged ahat range/decades:
+
+- Head-on, shape (32,16,16,32), q64: retarget64/128/256/512 gives L1
+  17.407%/3.442%/1.271%/1.268%. q16/q32/q64 at fixed retarget barely changes
+  these values, localizing this sensitivity to retargeting rather than energy integration.
+- Crossed on-axis, shape (32,n,n,32), retarget128, q16/q32: n=8/16/32/64 gives
+  count errors +15.423%/+3.895%/+0.969%/+0.246%. This is consistent with angular
+  deposition/quadrature error decreasing under refinement, not evidence for a new
+  production normalization correction. These supplemental probes are not release gates.
+
+Next bounded packet: expose selected grid refinements in the pilot so the controlled
+angular/retarget probes can be run directly, then fix reporting windows and measure
+particle/seed and Stage-0 convergence before actual-CUDA acceptance. Do not replace
+production Doppler/flux formulas or author-owned defaults based on this diagnostic.
 
 Read GRAND_PLAN §§4.5, 7, 9.3, PROGRESS, RES060/061/070/072/073, DER005/006/009,
 and the current manuscript before coding. Physics authority is
@@ -59,7 +214,10 @@ Evaluate P_i independently from manuscript Eq. udef using explicit vectors:
     u_j = n cross [(n - v_i) cross e_j] / (1 - v_i dot n)
     P_i = (|u_0|^2 + ellipticity^2 |u_1|^2) / (1 + ellipticity^2)
 
-Construct e_j with the documented Ry(theta_xz) Rx(theta_yz) rotation and psi_pol.
+Construct raw laser axes with Ry(theta_xz) Rx(theta_yz) and psi_pol. Under DER012,
+project the major axis perpendicular to the unit electron direction and normalize;
+construct its orthogonal minor partner by a cross product, orienting it toward the
+raw minor axis. Use these local transverse e_j in the radiation vector above.
 Do not call production axis-rotation, polarization, Stokes or sampler helpers in
 the reference. Use extended precision for this deliberately direct evaluation and
 prove its precision at gamma 10000; platforms without adequate extended precision
@@ -153,8 +311,8 @@ acceptance run. These limits do not apply to exact histogram bookkeeping tests.
 Root owns physics review, integration, final report and promotion claims. Suggested
 packets, each saved to a file checkpoint and independently tested:
 
-- A: delta reference and unit tests. Own the existing delta module and a new focused
-  test file. Preserve existing public signatures and normalization regressions.
+- A: initial independent reference and unit tests are implemented (RES076).
+  Extend only for missing RES074 matrix coverage; preserve the legacy delta API.
 - B: matched-bin comparator and convergence runner. Own a new validation module and
   its tests; coordinate the reference API with A. No engine edits or generic metric
   framework. Include injected-error tests for wrong normalization, shifted energies,
@@ -164,8 +322,9 @@ packets, each saved to a file checkpoint and independently tested:
   equations/conventions, all shared quantities, seeds, grids, refinements, runtimes,
   environment, source fingerprints and individual failures in strict JSON.
 
-Suggested new files (not yet present): *src/gammaforge/validation/delta_emission.py*,
-*scripts/validate_delta_emission.py*, and focused *tests/test_delta_emission.py*.
+The reference now lives in `src/gammaforge/validation/references/delta_emission.py`.
+The comparator and `scripts/validate_delta_emission.py` implement the CPU pilot;
+the full acceptance runner and CUDA integration remain to be implemented.
 Keep the default CPU suite fast; an explicitly requested GPU gate must fail rather
 than pass through CUDA skips. Run expensive GPU acceptance jobs sequentially.
 

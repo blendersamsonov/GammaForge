@@ -3,6 +3,10 @@
 Status: implemented
 Class: bug-fix
 
+Basis update: RES078/DER012 replaces the unprojected radiation basis below with a
+local transverse dipole basis. The field-free velocity and common lab-frame decision
+remain in force; the original formula-specific checks are historical.
+
 ## Problem
 
 The manuscript's Eq. `udef` defines the polarization vectors from the field-free electron

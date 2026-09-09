@@ -389,8 +389,8 @@ def stokes_parameters_vectorized(
 
 def bunch_stokes_parameters(
     samples: TrajectorySamples,
-    theta_x_obs: float = 0.0,
-    theta_y_obs: float = 0.0,
+    theta_x: float = 0.0,
+    theta_y: float = 0.0,
     *,
     e0: np.ndarray | None = None,
     e1: np.ndarray | None = None,
@@ -399,20 +399,27 @@ def bunch_stokes_parameters(
     theta_xz: float = 0.0,
     theta_yz: float = 0.0,
 ) -> tuple[float, float, float, float, float, float]:
-    """Sum Stokes components across macroparticles, weighted by luminosity."""
+    """Incoherently sum per-particle Stokes vectors weighted by luminosity.
+
+    ``theta_x`` and ``theta_y`` are the observer angles.  Supplying ``e0`` and
+    ``e1`` preserves the explicit polarization basis API; otherwise the basis is
+    derived from the polarization and crossing-angle parameters.
+    """
     if samples.n_particles == 0:
         return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
-    I, Q, U, V = stokes_parameters_vectorized(
+    if e0 is None or e1 is None:
+        e0, e1 = rotated_laser_axes(psi_pol=psi_pol, theta_xz=theta_xz, theta_yz=theta_yz)
+
+    I, Q, U, V = compute_stokes_components(
         samples.gamma,
         samples.theta_x,
         samples.theta_y,
-        theta_x_obs,
-        theta_y_obs,
+        theta_x,
+        theta_y,
+        e0,
+        e1,
         ellipticity=ellipticity,
-        psi_pol=psi_pol,
-        theta_xz=theta_xz,
-        theta_yz=theta_yz,
     )
 
     weights = samples.luminosity

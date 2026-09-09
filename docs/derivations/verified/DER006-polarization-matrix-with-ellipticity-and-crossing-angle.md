@@ -2,6 +2,9 @@
 
 Status: verified
 
+Radiation-basis revision: use DER012's local transverse dipole basis in current
+code (RES078). Algebra for the original unprojected laser basis below is historical.
+
 ## Setup
 
 This derivation combines **DER004** (ellipticity in the emission kernel's polarization factor) and **DER005** (crossing angle in the emission kernel) to obtain the full polarization matrix for scattered Compton photons when the incident laser has arbitrary ellipticity *and* an arbitrary crossing angle relative to the electron bunch.

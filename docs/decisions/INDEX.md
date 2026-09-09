@@ -81,4 +81,6 @@ cross-checks this table against the files on disk.
 | RES073 | Smooth laboratory observer basis Stokes parameters | feature | implemented | implemented/feature/RES073-smooth-laboratory-observer-basis-stokes-parameters.md |
 | RES074 | Delta arbitrary-angle emission validation | testing | proposed | proposed/testing/RES074-delta-arbitrary-angle-emission-validation.md |
 | RES075 | Test suite tiering and execution markers | testing | implemented | implemented/testing/RES075-test-suite-tiering-and-markers.md |
-
+| RES076 | Independent delta lines and Doppler diagnostic | testing | implemented | implemented/testing/RES076-independent-delta-lines-and-doppler-diagnostic.md |
+| RES077 | Matched energy-bin delta comparison | testing | implemented | implemented/testing/RES077-matched-energy-bin-delta-comparison.md |
+| RES078 | Integrate local transverse dipole reference | bug-fix | implemented | implemented/bug-fix/RES078-integrate-local-transverse-dipole-reference.md |

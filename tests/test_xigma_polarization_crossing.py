@@ -53,20 +53,19 @@ def test_angle_integrated_cross_section_equals_sigma_t(alpha_mrad: float, eps: f
     gamma = 2000.0
     alpha_rad = alpha_mrad * 1e-3
 
-    # Integrate [gamma^2 / (1 + gamma^2 * theta^2)^2 * P] over solid angle
-    # u = gamma^2 * theta^2
-    u_grid = np.linspace(0.0, 2000.0, 100000)
-    # Average over azimuth phi
-    # For transverse dipole: <(n . e_perp)^2>_phi = (1/2) * (gamma*theta)^2 / (1 + (gamma*theta)^2)
-    # P_avg(u) = 1 - 2*u / (1+u)^2
-    p_avg = 1.0 - 2.0 * u_grid / (1.0 + u_grid) ** 2
-    integrand = np.pi * p_avg / (1.0 + u_grid) ** 2
-    num_integral = float(np.trapezoid(integrand, u_grid))
-    theo_integral = 2.0 * math.pi / 3.0
-
-    # Cross section ratio must equal 1.0 within numerical quadrature tolerance
-    ratio = num_integral / theo_integral
-    assert abs(ratio - 1.0) < 1e-3, f"Cross section inflated for alpha={alpha_mrad} mrad: ratio={ratio}"
+    # t = gamma^2 theta^2 / (1 + gamma^2 theta^2) maps the reduced angular
+    # measure to (3 / 4pi) dt dphi. Exercise the actual kernel, not its expected curve.
+    nodes, weights = np.polynomial.legendre.leggauss(48)
+    ratio = 0.0
+    for t, weight in zip((nodes + 1) / 2, weights / 2):
+        radius = np.sqrt(t / (1 - t)) / gamma
+        for phi in 2 * np.pi * np.arange(12) / 12:
+            pol = polarization_factor_vectorized(
+                gamma, 0.0, 0.0, radius * np.cos(phi), radius * np.sin(phi),
+                eps, 0.37, alpha_rad, -0.5 * alpha_rad,
+            )
+            ratio += weight * float(pol) * 1.5 / 12
+    assert ratio == pytest.approx(1.0, abs=2e-6)
 
 
 @pytest.mark.fast
