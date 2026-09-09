@@ -20,7 +20,6 @@ from gammaforge.engines.xigma.stages import (
     bunch_stokes_parameters,
     compute_stokes_components,
     polarization_factor,
-    physical_transverse_axes,
     rotated_laser_axes,
     stokes_parameters_vectorized,
 )
@@ -142,7 +141,7 @@ def test_consistency_with_scalar_intensity():
         alpha_yz = float(rng.uniform(-0.4, 0.4))
         eps = float(rng.uniform(-1.0, 1.0))
 
-        e0, e1 = physical_transverse_axes(psi_pol=psi, theta_xz=alpha_xz, theta_yz=alpha_yz)
+        e0, e1 = rotated_laser_axes(psi_pol=psi, theta_xz=alpha_xz, theta_yz=alpha_yz)
         I, _, _, _ = compute_stokes_components(g, tex, tey, tx, ty, e0, e1, ellipticity=eps)
         I_scalar = polarization_factor(g, tex, tey, tx, ty, eps, psi, alpha_xz, alpha_yz)
 

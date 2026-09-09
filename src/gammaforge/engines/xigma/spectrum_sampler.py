@@ -124,14 +124,32 @@ if _HAS_CUPY:
         qy = (delta_y + delta * uy) / d
         qz = (delta_z + delta * uz) / d
 
-        a0 = (xo * e0x + yo * e0y + e0z) / no
-        a1 = (xo * e1x + yo * e1y + e1z) / no
-        u0x = qx * a0 - e0x
-        u0y = qy * a0 - e0y
-        u0z = qz * a0 - e0z
-        u1x = qx * a1 - e1x
-        u1y = qy * a1 - e1y
-        u1z = qz * a1 - e1z
+        # Local per-electron transverse projection (DER012):
+        u_dot_e0 = ux * e0x + uy * e0y + uz * e0z
+        p0x = e0x - u_dot_e0 * ux
+        p0y = e0y - u_dot_e0 * uy
+        p0z = e0z - u_dot_e0 * uz
+        n0_inv = CP_ONE / cp.sqrt(p0x * p0x + p0y * p0y + p0z * p0z)
+        e0px = p0x * n0_inv
+        e0py = p0y * n0_inv
+        e0pz = p0z * n0_inv
+
+        e1px = uy * e0pz - uz * e0py
+        e1py = uz * e0px - ux * e0pz
+        e1pz = ux * e0py - uy * e0px
+        if e1px * e1x + e1py * e1y + e1pz * e1z < CP_ZERO:
+            e1px = -e1px
+            e1py = -e1py
+            e1pz = -e1pz
+
+        a0 = (xo * e0px + yo * e0py + e0pz) / no
+        a1 = (xo * e1px + yo * e1py + e1pz) / no
+        u0x = qx * a0 - e0px
+        u0y = qy * a0 - e0py
+        u0z = qz * a0 - e0pz
+        u1x = qx * a1 - e1px
+        u1y = qy * a1 - e1py
+        u1z = qz * a1 - e1pz
         norm0_sq = u0x * u0x + u0y * u0y + u0z * u0z
         norm1_sq = u1x * u1x + u1y * u1y + u1z * u1z
         return xi00 * norm0_sq + xi11 * norm1_sq
@@ -545,7 +563,7 @@ def _polarization_parameters(
     psi = values["psi_pol"]
     txz = values["theta_xz"]
     tyz = values["theta_yz"]
-    e0, e1 = physical_transverse_axes(psi_pol=psi, theta_xz=txz, theta_yz=tyz)
+    e0, e1 = rotated_laser_axes(psi_pol=psi, theta_xz=txz, theta_yz=tyz)
     e0x, e0y, e0z = float(e0[0]), float(e0[1]), float(e0[2])
     e1x, e1y, e1z = float(e1[0]), float(e1[1]), float(e1[2])
     eps2 = values["ellipticity"] ** 2

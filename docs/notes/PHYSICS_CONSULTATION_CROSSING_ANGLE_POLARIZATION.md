@@ -156,3 +156,36 @@ For reference, the table below compares simulation results before and after the 
 | **Cross $yz$ ($\alpha = 0.5\,$mrad)** | Linear ($\varepsilon = 0$) | $N_{\text{tgt}} / N_{\text{tot}} = 53.2\%$ | $N_{\text{tgt}} / N_{\text{tot}} = 53.22\%$ |
 | **Angular profile ($xz$-cross)** | Linear ($\varepsilon = 0$) | Asymmetric / tilted along $\theta_x$ | Symmetric ($+x \leftrightarrow -x$) dipolar pattern |
 | **Collinear limit ($\theta = 0, \alpha = 0.3$)** | Linear ($\varepsilon = 0$) | $\mathcal{P} = \cos^2\alpha \approx 0.913$ | $\mathcal{P} = 1.000$ |
+
+---
+
+## 6. Expert Consultation Resolution & Synthesis
+
+Following expert review, the theoretical consensus resolves the three questions with precision:
+
+### Question 1: Per-Electron Projection vs. Bunch-Axis Projection
+- **Finding:** The transverse plane **must be defined locally relative to each electron's velocity vector** $\hat{\boldsymbol{\beta}}_e$, not the nominal bunch axis $\hat{\mathbf{z}}$:
+  $$\mathbf{e}_{\perp, e} = \frac{\mathbf{e} - (\mathbf{e}\cdot\hat{\boldsymbol{\beta}}_e)\hat{\boldsymbol{\beta}}_e}{\left|\mathbf{e} - (\mathbf{e}\cdot\hat{\boldsymbol{\beta}}_e)\hat{\boldsymbol{\beta}}_e\right|}$$
+- **Reasoning:** For a divergent beam ($\sigma_\theta = 10^{-4}$ at $\gamma = 2000 \implies \gamma\sigma_\theta \approx 0.2$), projecting to the bunch axis leaves an angular discrepancy $O(\theta_e)$. In a kernel sensitive to parallel components, this would reintroduce artificial normalization errors of order $(\gamma\sigma_\theta)^2 \approx 4\%$. Per-electron projection eliminates this artifact entirely and matches the exact relativistic acceleration $\dot{\mathbf{v}}_e \propto \mathbf{E} + \mathbf{v}\times\mathbf{B} - \frac{\mathbf{v}}{c^2}(\mathbf{v}\cdot\mathbf{E})$ to within $O(\alpha / 2\gamma^2) \sim 10^{-11}$.
+
+### Question 2: Factorization Between Stage 0 and Stage 2
+- **Finding:** The factorization is **fully correct**. 
+- **Reasoning:** 
+  1. In the instantaneous electron rest frame, total Thomson cross section is $\sigma'_{\text{tot}} \equiv \sigma_T$ unconditionally.
+  2. The rate of scattering events is $\frac{dN}{dt} = \sigma_T c n_\gamma (1 + \beta\cos\alpha)$, which Stage 0 already computes from the relative flux and geometric bunch–pulse overlap.
+  3. Stage 2 must therefore evaluate a normalized conditional angular probability:
+     $$\int P_e(\Omega)\,d\Omega = 1 \iff \int \frac{d\sigma}{d\Omega}\,d\Omega = \sigma_T$$
+  4. Projecting the laser polarization $\mathbf{e}_L$ is merely a geometric device to identify the transverse acceleration direction $\dot{\mathbf{v}}_e$. It does not represent physical field energy loss; no secondary field projection factor should be applied.
+
+### Question 3: Physical Angular Asymmetry and Deflection Magnitude
+- **Finding:** A finite crossing angle $\alpha$ **does produce an asymmetry**, but it is **not $O(\gamma\alpha)$**. It is suppressed by high powers of $\gamma$:
+  1. **Rest-frame dipole tilt:** $\delta \simeq \frac{\alpha}{\gamma(1+\beta)} \approx \frac{\alpha}{2\gamma} \sim 1.25 \times 10^{-7}\text{ rad}$.
+  2. **Pattern distortion:** The rest-frame cross section $1 - (\mathbf{n}'\cdot\hat{\mathbf{e}}')^2 \approx 1 - n_x'^2 + 2\delta n_x' n_z'$ carries an odd term $2\delta n_x' n_z'$ that breaks reflection symmetry ($x \to -x$). However, the relative distortion is $O(\alpha/\gamma) \sim 2.5 \times 10^{-7}$.
+  3. **Laboratory angular deflection:** Boosting along $\hat{\mathbf{z}}$ compresses the laboratory centroid deflection by another factor of $1/(2\gamma)$:
+     $$\Delta\theta_x \sim \frac{\alpha}{2\gamma^2} \sim 6 \times 10^{-11}\text{ rad}$$
+     This is $\sim 10^{-7}$ of the $1/\gamma = 0.5\text{ mrad}$ radiation cone (ten million times smaller).
+- **Conclusion:** The previous large $O(\gamma\alpha)$ tilt was an unphysical artifact caused by missing the $\gamma^2$ relativistic longitudinal mass in Eq. `udef`. Treating the angular profile as symmetric is an exceptional, physically justified approximation to leading order in $1/\gamma$.
+
+### Additional Note: Quantum Recoil
+At $\gamma = 2000$ and $\hbar\omega_0 = 1.2\text{ eV}$, the Compton parameter $\frac{4\gamma\hbar\omega_0}{mc^2} \approx 0.019$. Quantum recoil affects emitted photon energies at the $\sim 2\%$ level (the difference between linear Compton kinematics and classical Thomson kinematics). This is independent of the crossing-angle polarization issue and is accounted for in spectral sampling.
+

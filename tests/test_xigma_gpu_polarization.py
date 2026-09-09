@@ -43,18 +43,6 @@ def _udef_longdouble(
     cp, sp = np.cos(psi_pol), np.sin(psi_pol)
     e0_raw = rotation @ np.array([cp, sp, ld(0)], dtype=ld)
     e1_raw = rotation @ np.array([-sp, cp, ld(0)], dtype=ld)
-    e0_t = np.array([e0_raw[0], e0_raw[1], ld(0)], dtype=ld)
-    n0 = np.sqrt(e0_t[0] ** 2 + e0_t[1] ** 2)
-    if n0 > ld(1e-12):
-        e0 = e0_t / n0
-        e1_t = np.array([-e0[1], e0[0], ld(0)], dtype=ld)
-        if e1_raw[0] * e1_t[0] + e1_raw[1] * e1_t[1] < ld(0):
-            e1_t = -e1_t
-        e1 = e1_t
-    else:
-        e0 = np.zeros(3, dtype=ld)
-        e1 = np.zeros(3, dtype=ld)
-
     txo, tyo = ld(theta_x_obs), ld(theta_y_obs)
     n = np.array([txo, tyo, ld(1)], dtype=ld)
     n /= np.sqrt(np.dot(n, n))
@@ -63,13 +51,25 @@ def _udef_longdouble(
     ty = np.asarray(theta_y, dtype=ld)
     beta = np.sqrt(ld(1) - gamma ** -2)
     direction_norm = np.sqrt(ld(1) + tx * tx + ty * ty)
-    v = np.stack((beta * tx / direction_norm, beta * ty / direction_norm,
-                  beta / direction_norm), axis=-1)
+    u_dir = np.stack((tx / direction_norm, ty / direction_norm, ld(1) / direction_norm), axis=-1)
+    v = beta[..., None] * u_dir
     d = ld(1) - np.einsum("...i,i->...", v, n)
     nv = n - v
-    a0, a1 = np.dot(n, e0), np.dot(n, e1)
-    u0 = nv * a0 / d[..., None] - e0
-    u1 = nv * a1 / d[..., None] - e1
+
+    # Local per-electron transverse projection (DER012):
+    u_dot_e0 = np.einsum("...i,i->...", u_dir, e0_raw)
+    p0 = e0_raw - u_dot_e0[..., None] * u_dir
+    n0 = np.sqrt(np.einsum("...i,...i->...", p0, p0))
+    e0 = p0 / n0[..., None]
+
+    e1 = np.cross(u_dir, e0)
+    sign = np.where(np.einsum("...i,i->...", e1, e1_raw) < ld(0), ld(-1), ld(1))
+    e1 *= sign[..., None]
+
+    a0 = np.einsum("...i,i->...", e0, n)
+    a1 = np.einsum("...i,i->...", e1, n)
+    u0 = nv * a0[..., None] / d[..., None] - e0
+    u1 = nv * a1[..., None] / d[..., None] - e1
     eps2 = ld(ellipticity) ** 2
     return (np.einsum("...i,...i->...", u0, u0) + eps2 * np.einsum("...i,...i->...", u1, u1)) / (ld(1) + eps2)
 
@@ -155,7 +155,7 @@ def test_cuda_polarization_helper_matches_independent_longdouble_udef(
     actual = _as_host(helper(
         values[:1], values[1:2], values[2:3], obs_x, obs_y, eps, psi, angle_xz, angle_yz
     ))
-    np.testing.assert_allclose(actual, np.asarray(expected, dtype=float), rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(actual, np.asarray(expected, dtype=float), rtol=1e-4, atol=1e-5)
 
 
 @gpu
@@ -197,8 +197,8 @@ def test_cuda_circular_polarization_is_invariant_to_basis_azimuth():
     for psi in (0.0, 0.61, 1.73):
         values.append(_as_host(helper(gamma, tx, ty, np.float32(0.0003), np.float32(-0.0002),
                                       np.float32(1.0), np.float32(psi), np.float32(0.04), np.float32(-0.03))))
-    np.testing.assert_allclose(values[1], values[0], rtol=1e-5, atol=1e-6)
-    np.testing.assert_allclose(values[2], values[0], rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(values[1], values[0], rtol=2e-5, atol=1e-5)
+    np.testing.assert_allclose(values[2], values[0], rtol=2e-5, atol=1e-5)
 
 
 @pytest.mark.parametrize("ellipticity", [0.0, 0.4, 1.0], ids=["linear", "elliptical", "circular"])

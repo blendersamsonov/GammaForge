@@ -52,22 +52,19 @@ def _polarization_factor_from_udef(
     ])
     e0_raw = rotation @ np.array([math.cos(psi_pol), math.sin(psi_pol), 0.0])
     e1_raw = rotation @ np.array([-math.sin(psi_pol), math.cos(psi_pol), 0.0])
-    e0_t = np.array([e0_raw[0], e0_raw[1], 0.0])
-    n0 = math.sqrt(e0_t[0] ** 2 + e0_t[1] ** 2)
-    if n0 > 1e-12:
-        e0 = e0_t / n0
-        e1_t = np.array([-e0[1], e0[0], 0.0])
-        if e1_raw[0] * e1_t[0] + e1_raw[1] * e1_t[1] < 0.0:
-            e1_t = -e1_t
-        e1 = e1_t
-    else:
-        e0 = np.zeros(3)
-        e1 = np.zeros(3)
+    u_e = np.array([theta_x, theta_y, 1.0])
+    u_e /= math.sqrt(1.0 + theta_x**2 + theta_y**2)
+    u_dot_e0 = np.dot(u_e, e0_raw)
+    p0 = e0_raw - u_dot_e0 * u_e
+    e0 = p0 / np.linalg.norm(p0)
+    e1 = np.cross(u_e, e0)
+    if np.dot(e1, e1_raw) < 0.0:
+        e1 = -e1
+
     n = np.array([theta_x_obs, theta_y_obs, 1.0])
     n /= np.linalg.norm(n)
     beta = math.sqrt(1.0 - gamma**-2)
-    v = beta * np.array([theta_x, theta_y, 1.0])
-    v /= math.sqrt(1.0 + theta_x**2 + theta_y**2)
+    v = beta * u_e
     one_minus_vn = 1.0 - np.dot(v, n)
     u0 = (n - v) * np.dot(n, e0) / one_minus_vn - e0
     u1 = (n - v) * np.dot(n, e1) / one_minus_vn - e1

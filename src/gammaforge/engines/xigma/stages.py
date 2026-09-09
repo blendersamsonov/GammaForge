@@ -297,15 +297,44 @@ def compute_stokes_components(
     qy = (delta_y + delta * uy) / d
     qz = (delta_z + delta * uz) / d
 
-    a0 = float(np.dot(n, e0))
-    a1 = float(np.dot(n, e1))
+    # Local per-electron transverse projection (DER012):
+    # Relativistic longitudinal inertia (gamma^3 * m) suppresses longitudinal acceleration
+    # to O(alpha / 2*gamma^2) ~ 10^-11. The radiation dipole is transverse to each electron
+    # velocity u to order 1/gamma^2.
+    u_dot_e0 = ux * e0[0] + uy * e0[1] + uz * e0[2]
+    p0x = e0[0] - u_dot_e0 * ux
+    p0y = e0[1] - u_dot_e0 * uy
+    p0z = e0[2] - u_dot_e0 * uz
+    n0 = np.sqrt(p0x**2 + p0y**2 + p0z**2)
+    valid0 = n0 > 1e-12
+    n0_safe = np.where(valid0, n0, 1.0)
+    e0px = np.where(valid0, p0x / n0_safe, 0.0)
+    e0py = np.where(valid0, p0y / n0_safe, 0.0)
+    e0pz = np.where(valid0, p0z / n0_safe, 0.0)
 
-    u0x = qx * a0 - e0[0]
-    u0y = qy * a0 - e0[1]
-    u0z = qz * a0 - e0[2]
-    u1x = qx * a1 - e1[0]
-    u1y = qy * a1 - e1[1]
-    u1z = qz * a1 - e1[2]
+    e1px = uy * e0pz - uz * e0py
+    e1py = uz * e0px - ux * e0pz
+    e1pz = ux * e0py - uy * e0px
+    n1 = np.sqrt(e1px**2 + e1py**2 + e1pz**2)
+    valid1 = n1 > 1e-12
+    n1_safe = np.where(valid1, n1, 1.0)
+    e1px = np.where(valid1, e1px / n1_safe, 0.0)
+    e1py = np.where(valid1, e1py / n1_safe, 0.0)
+    e1pz = np.where(valid1, e1pz / n1_safe, 0.0)
+    sign1 = np.where(e1px * e1[0] + e1py * e1[1] + e1pz * e1[2] < 0.0, -1.0, 1.0)
+    e1px *= sign1
+    e1py *= sign1
+    e1pz *= sign1
+
+    a0 = n[0] * e0px + n[1] * e0py + n[2] * e0pz
+    a1 = n[0] * e1px + n[1] * e1py + n[2] * e1pz
+
+    u0x = qx * a0 - e0px
+    u0y = qy * a0 - e0py
+    u0z = qz * a0 - e0pz
+    u1x = qx * a1 - e1px
+    u1y = qy * a1 - e1py
+    u1z = qz * a1 - e1pz
 
     U0x = u0x * mx[0] + u0y * mx[1] + u0z * mx[2]
     U0y = u0x * my[0] + u0y * my[1] + u0z * my[2]
@@ -334,18 +363,18 @@ def stokes_parameters_vectorized(
     gamma: np.ndarray | float,
     theta_x: np.ndarray | float,
     theta_y: np.ndarray | float,
-    theta_x_obs: float,
-    theta_y_obs: float,
+    theta_x_obs: float = 0.0,
+    theta_y_obs: float = 0.0,
     ellipticity: float = 0.0,
     psi_pol: float = 0.0,
     theta_xz: float = 0.0,
     theta_yz: float = 0.0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Compute Stokes parameters (I, Q, U, V) in smooth laboratory observer basis.
+    """Compute Stokes parameters for an ensemble of electrons.
 
     Signature mirrors :func:`polarization_factor_vectorized` for drop-in convenience.
     """
-    e0, e1 = physical_transverse_axes(psi_pol=psi_pol, theta_xz=theta_xz, theta_yz=theta_yz)
+    e0, e1 = rotated_laser_axes(psi_pol=psi_pol, theta_xz=theta_xz, theta_yz=theta_yz)
     return compute_stokes_components(
         gamma=gamma,
         theta_ex=theta_x,
@@ -360,8 +389,8 @@ def stokes_parameters_vectorized(
 
 def bunch_stokes_parameters(
     samples: TrajectorySamples,
-    theta_x: float = 0.0,
-    theta_y: float = 0.0,
+    theta_x_obs: float = 0.0,
+    theta_y_obs: float = 0.0,
     *,
     e0: np.ndarray | None = None,
     e1: np.ndarray | None = None,
@@ -370,33 +399,20 @@ def bunch_stokes_parameters(
     theta_xz: float = 0.0,
     theta_yz: float = 0.0,
 ) -> tuple[float, float, float, float, float, float]:
-    """Incoherently sum single-electron Stokes vectors over the bunch (DER007).
-
-    Evaluates Stokes components for all macroparticles in the common smooth laboratory
-    observer basis (m_x, m_y) and accumulates them weighted by each particle's
-    luminosity w_e = L_e.
-
-    Returns
-    -------
-    tuple[float, float, float, float, float, float]
-        (I_tot, Q_tot, U_tot, V_tot, P_bunch, chi) where P_bunch <= 1 reflects physical
-        depolarization from beam divergence, and chi is the polarization angle.
-    """
+    """Sum Stokes components across macroparticles, weighted by luminosity."""
     if samples.n_particles == 0:
         return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
-    if e0 is None or e1 is None:
-        e0, e1 = rotated_laser_axes(psi_pol=psi_pol, theta_xz=theta_xz, theta_yz=theta_yz)
-
-    I, Q, U, V = compute_stokes_components(
+    I, Q, U, V = stokes_parameters_vectorized(
         samples.gamma,
         samples.theta_x,
         samples.theta_y,
-        theta_x,
-        theta_y,
-        e0,
-        e1,
+        theta_x_obs,
+        theta_y_obs,
         ellipticity=ellipticity,
+        psi_pol=psi_pol,
+        theta_xz=theta_xz,
+        theta_yz=theta_yz,
     )
 
     weights = samples.luminosity
@@ -429,12 +445,10 @@ def polarization_factor_vectorized(
 ) -> np.ndarray:
     """Vectorized :func:`polarization_factor` for per-electron lab velocities.
 
-    ``gamma``, ``theta_x``, and ``theta_y`` broadcast to the table-cell shape. Invalid
-    resonance cells can carry ``gamma == 0``; they receive a finite placeholder here and
-    are removed by the calling kernel's physical-resonance mask. Stable vector evaluation
-    evaluates Eq. ``udef`` directly (RES069, RES070).
+    Evaluates the physical transverse dipole projection local to each electron's
+    velocity vector (DER012).
     """
-    e0, e1 = physical_transverse_axes(psi_pol=psi_pol, theta_xz=theta_xz, theta_yz=theta_yz)
+    e0, e1 = rotated_laser_axes(psi_pol=psi_pol, theta_xz=theta_xz, theta_yz=theta_yz)
     no = math.sqrt(1.0 + theta_x_obs**2 + theta_y_obs**2)
     n = np.array([theta_x_obs, theta_y_obs, 1.0]) / no
 
@@ -470,15 +484,41 @@ def polarization_factor_vectorized(
     qy = (delta_y + delta * uy) / d
     qz = (delta_z + delta * uz) / d
 
-    a0 = float(np.dot(n, e0))
-    a1 = float(np.dot(n, e1))
+    # Local per-electron transverse projection (DER012):
+    u_dot_e0 = ux * e0[0] + uy * e0[1] + uz * e0[2]
+    p0x = e0[0] - u_dot_e0 * ux
+    p0y = e0[1] - u_dot_e0 * uy
+    p0z = e0[2] - u_dot_e0 * uz
+    n0 = np.sqrt(p0x**2 + p0y**2 + p0z**2)
+    valid0 = n0 > 1e-12
+    n0_safe = np.where(valid0, n0, 1.0)
+    e0px = np.where(valid0, p0x / n0_safe, 0.0)
+    e0py = np.where(valid0, p0y / n0_safe, 0.0)
+    e0pz = np.where(valid0, p0z / n0_safe, 0.0)
 
-    u0x = qx * a0 - e0[0]
-    u0y = qy * a0 - e0[1]
-    u0z = qz * a0 - e0[2]
-    u1x = qx * a1 - e1[0]
-    u1y = qy * a1 - e1[1]
-    u1z = qz * a1 - e1[2]
+    e1px = uy * e0pz - uz * e0py
+    e1py = uz * e0px - ux * e0pz
+    e1pz = ux * e0py - uy * e0px
+    n1 = np.sqrt(e1px**2 + e1py**2 + e1pz**2)
+    valid1 = n1 > 1e-12
+    n1_safe = np.where(valid1, n1, 1.0)
+    e1px = np.where(valid1, e1px / n1_safe, 0.0)
+    e1py = np.where(valid1, e1py / n1_safe, 0.0)
+    e1pz = np.where(valid1, e1pz / n1_safe, 0.0)
+    sign1 = np.where(e1px * e1[0] + e1py * e1[1] + e1pz * e1[2] < 0.0, -1.0, 1.0)
+    e1px *= sign1
+    e1py *= sign1
+    e1pz *= sign1
+
+    a0 = n[0] * e0px + n[1] * e0py + n[2] * e0pz
+    a1 = n[0] * e1px + n[1] * e1py + n[2] * e1pz
+
+    u0x = qx * a0 - e0px
+    u0y = qy * a0 - e0py
+    u0z = qz * a0 - e0pz
+    u1x = qx * a1 - e1px
+    u1y = qy * a1 - e1py
+    u1z = qz * a1 - e1pz
 
     norm0_sq = u0x * u0x + u0y * u0y + u0z * u0z
     norm1_sq = u1x * u1x + u1y * u1y + u1z * u1z
