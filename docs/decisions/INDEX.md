@@ -77,4 +77,5 @@ cross-checks this table against the files on disk.
 | RES069 | CuPy incident polarization and crossing geometry | feature | implemented | implemented/feature/RES069-cupy-incident-polarization-and-crossing-geometry.md |
 | RES070 | Stabilize NumPy polarization reference | bug-fix | implemented | implemented/bug-fix/RES070-stabilize-numpy-polarization-reference.md |
 | RES071 | Temporal intensity modulation and pulse trains | architecture | implemented | implemented/architecture/RES071-temporal-intensity-modulation-and-pulse-trains.md |
+| RES072 | CuPy resolution controls and numerical release gate | testing | implemented | implemented/testing/RES072-cupy-resolution-controls-and-release-gate.md |
 | RES073 | Smooth laboratory observer basis Stokes parameters | feature | implemented | implemented/feature/RES073-smooth-laboratory-observer-basis-stokes-parameters.md |

@@ -130,6 +130,15 @@ The result density has axes `(ENERGY, THETA_X, THETA_Y)` and integrates using
 `slice.integrate()`. Start with modest grids: CPU angular quadrature is expensive.
 Installing `.[gpu]` only adds CUDA 12 CuPy dependencies; it does not change the default
 or establish convergence for a new calculation. Numba remains unimplemented.
+CuPy intensity accepts signed ellipticity in [-1, 1], consistently with the Stokes
+API: reversing handedness does not change intensity. This is not GPU Q/U/V support;
+the separate Stokes query remains CPU-based.
+CuPy refinement is available through `sampler_rings` (integer 8–64) and
+`sampler_subsampling` (positive integer); both default to 32 and are recorded with
+results. Vary these separately from table resolution. From a source checkout,
+`python scripts/validate_cupy_release.py --output cupy-release.json` runs the
+actual-CUDA numerical gate and exits nonzero for missing hardware, failed checks,
+or an unconverged reference. See the [convergence protocol](ALPHA_GPU_VALIDATION.md#resolution-controls-and-release-gate-res072).
 The NumPy polarization factor uses stable vector evaluation (RES070),
 matching the collinear limit at high gamma without longitudinal cancellation;
 see the [numerical record](ALPHA_GPU_VALIDATION.md). Stage-0 total-yield overlap

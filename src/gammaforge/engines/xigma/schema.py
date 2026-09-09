@@ -1,8 +1,8 @@
 """xigma's own numeric knobs, as a typed `Parameters` schema (GRAND_PLAN.md §3.1/§4.2/P11).
 
-Everything here is a **numerics** field in §5's sense: changing any of it invalidates
-Stage 0 and/or Stage 1, so `XigmaEngine.recompute_costs` (`engine.py`) leaves every one of
-these out of its mapping and lets the `FULL_RERUN` default apply. What *is* cheap for
+Everything here is a **numerics** field in §5's sense; sampler controls affect only Stage 2.
+The public engine still defaults to `FULL_RERUN` because cross-run reuse is not implemented.
+What *is* cheap for
 xigma — bunch charge, the collimation window — lives in `InteractionParameters`/`Target`,
 not here (P9: this schema does not duplicate fields another module already owns).
 """
@@ -115,6 +115,24 @@ XIGMA_SPECS: tuple[FieldSpec, ...] = (
         unit=DIMENSIONLESS,
         default="numpy",
         choices=("auto", "cupy", "numpy"),
+    ),
+    FieldSpec(
+        key="sampler_rings",
+        label="CuPy sampler rings",
+        kind=FieldKind.SCALAR,
+        unit=DIMENSIONLESS,
+        default=32,
+        integer=True,
+        value_range=(8, 64),
+    ),
+    FieldSpec(
+        key="sampler_subsampling",
+        label="CuPy sampler subsampling",
+        kind=FieldKind.SCALAR,
+        unit=DIMENSIONLESS,
+        default=32,
+        integer=True,
+        value_range=(1, 16_777_215),
     ),
 )
 

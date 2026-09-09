@@ -49,18 +49,14 @@ CP_ONE = CP_FLOAT(1.0)
 CP_ZERO = CP_FLOAT(0.0)
 
 X_THREADS = 128
-N_RINGS_MIN = 32
-MAX_RINGS = 32
+MAX_RINGS = 64
 MAX_ARCS = 4 * MAX_RINGS
 ARC_STRIDE = 3
 RING_STRIDE = 9
-RINGS_SIZE = CP_UINT(RING_STRIDE * MAX_RINGS)
-SCRATCH_SIZE = (RING_STRIDE + 2) * MAX_RINGS
 INVAL = CP_FLOAT(9999.0)
 
 PHI_EDGES = 32
 PHI_CELLS = PHI_EDGES - 1
-CUM_WEIGHTS_SIZE = MAX_ARCS * PHI_EDGES
 
 SAMPLES_TOTAL = 256
 SAMPLES_REPEAT = (SAMPLES_TOTAL + X_THREADS - 1) // X_THREADS
@@ -151,9 +147,17 @@ def is_gpu_available() -> bool:
         return False
 
 
-def _define_kernel():
+def _define_kernel(capacity=32):
     if not _HAS_CUPY:
         return None
+
+    # Keep the default kernel's shared-memory footprint unchanged.  A separate
+    # specialization is required for 64-ring runs because the arc/CDF scratch
+    # arrays scale with capacity and must fit the device's shared-memory limit.
+    MAX_ARCS = 4 * capacity
+    RINGS_SIZE = CP_UINT(RING_STRIDE * capacity)
+    SCRATCH_SIZE = (RING_STRIDE + 2) * capacity
+    CUM_WEIGHTS_SIZE = MAX_ARCS * PHI_EDGES
 
     @jit.rawkernel()
     def _spectrum_kernel_4d_impl(
@@ -187,6 +191,7 @@ def _define_kernel():
         e1z,
         xi00,
         xi11,
+        rings_limit,
         subsampling,
     ):
         thread_idx = jit.threadIdx.x
@@ -225,7 +230,10 @@ def _define_kernel():
 
         if not skip:
             r_inside = max(CP_ZERO, min(dx - cp.abs(box_x0), dy - cp.abs(box_y0)))
-            n_rings = min(CP_UINT(MAX_RINGS), max(CP_UINT(N_RINGS_MIN), CP_UINT(MAX_RINGS * (rmax - rmin) / diam)))
+            # The control is an explicit quadrature resolution.  Keeping the
+            # requested count (rather than geometry-dependent thinning) preserves
+            # the historical default=32 behavior and makes convergence reproducible.
+            n_rings = CP_UINT(rings_limit)
             dr = (rmax - rmin) / n_rings
 
             rings = TMP_FLOAT_ARRAY
@@ -341,13 +349,15 @@ def _define_kernel():
 
             jit.syncthreads()
 
-            if thread_idx < n_arcs:
+            # A 64-ring geometry can yield up to 256 arcs; cover all arcs with
+            # the fixed 128-thread block rather than silently dropping half.
+            for arc_idx in jit.range(thread_idx, n_arcs, X_THREADS):
                 total = CP_ZERO
                 for i in jit.range(PHI_CELLS):
-                    tmp = cell_weights[thread_idx * PHI_EDGES + CP_UINT(i)]
-                    cum_cell_weights[thread_idx * PHI_EDGES + CP_UINT(i)] = total
+                    tmp = cell_weights[arc_idx * PHI_EDGES + CP_UINT(i)]
+                    cum_cell_weights[arc_idx * PHI_EDGES + CP_UINT(i)] = total
                     total += tmp
-                cum_cell_weights[thread_idx * PHI_EDGES + PHI_CELLS] = total
+                cum_cell_weights[arc_idx * PHI_EDGES + PHI_CELLS] = total
             jit.syncthreads()
 
             if thread_idx == 0:
@@ -490,7 +500,8 @@ def _define_kernel():
     return _spectrum_kernel_4d_impl
 
 
-_kernel = _define_kernel()
+_kernel = _define_kernel(32)
+_kernel64 = _define_kernel(64)
 
 
 def gamma_bracket(table: Table, q: float = 1e-4) -> tuple[float, float]:
@@ -526,8 +537,8 @@ def _polarization_parameters(
         raise ValueError("CuPy polarization geometry must be real scalars") from exc
     if not all(math.isfinite(value) for value in values.values()):
         raise ValueError("CuPy polarization geometry angles and ellipticity must be finite")
-    if not 0.0 <= values["ellipticity"] <= 1.0:
-        raise ValueError("CuPy ellipticity must be in [0, 1]")
+    if not -1.0 <= values["ellipticity"] <= 1.0:
+        raise ValueError("CuPy ellipticity must be in [-1, 1]")
 
     psi = values["psi_pol"]
     txz = values["theta_xz"]
@@ -551,16 +562,19 @@ def calculate_angular_spectrum_gpu(
     ellipticity: float = 0.0,
     theta_xz: float = 0.0,
     theta_yz: float = 0.0,
+    rings: int = 32,
     subsampling: int = 32,
 ) -> np.ndarray:
     """Compute `d3N / (ds dtheta_x dtheta_y)` on CUDA device via importance sampling.
 
     Output shape: `(len(theta_x), len(theta_y), len(s))`.
     """
-    if not is_gpu_available():
-        raise RuntimeError("calculate_angular_spectrum_gpu: CuPy or a CUDA device is not available")
+    if isinstance(rings, bool) or not isinstance(rings, Integral) or not 8 <= rings <= MAX_RINGS:
+        raise ValueError("rings must be an integer in the range 8..64")
     if isinstance(subsampling, bool) or not isinstance(subsampling, Integral) or not 1 <= subsampling <= np.iinfo(CP_UINT).max // SAMPLES_TOTAL:
         raise ValueError("subsampling must be a positive integer with uint32-safe sample indices")
+    if not is_gpu_available():
+        raise RuntimeError("calculate_angular_spectrum_gpu: CuPy or a CUDA device is not available")
     polarization_parameters = _polarization_parameters(
         psi_pol, ellipticity, theta_xz, theta_yz
     )
@@ -616,7 +630,8 @@ def calculate_angular_spectrum_gpu(
 
     spec = cp.zeros((grid_x,), dtype=CP_FLOAT)
 
-    _kernel[grid_x, X_THREADS](
+    kernel = _kernel if rings <= 32 else _kernel64
+    kernel[grid_x, X_THREADS](
         spec,
         params,
         H_gpu,
@@ -640,6 +655,7 @@ def calculate_angular_spectrum_gpu(
         CP_FLOAT(dx),
         CP_FLOAT(dy),
         *(CP_FLOAT(value) for value in polarization_parameters),
+        CP_UINT(rings),
         CP_UINT(subsampling),
     )
     cp.cuda.Stream.null.synchronize()

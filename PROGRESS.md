@@ -18,7 +18,7 @@ unfinished or waiting on someone*.
 | 1. Core (`gammaforge.io`) | 🟢 done; `PulseTrainParaxialLaser` temporal modulation and pulse trains landed (RES071) |
 | 2. Validation harness | 🟢 done |
 | 2.5. Stage 0 + minimal delta | 🟢 done |
-| 3a. xigma engineering | 🟢 NumPy Stage 0/1/2, `Collision`, `XigmaEngine`; stable high-gamma polarization evaluation ported to NumPy (RES070). CuPy supports incident polarization and two-plane crossing geometry with stable arithmetic and numerical checks; still experimental (RES062, RES068, RES069). |
+| 3a. xigma engineering | 🟢 NumPy Stage 0/1/2, `Collision`, `XigmaEngine`; stable high-gamma polarization reference (RES070). CuPy supports incident polarization, crossing geometry, and schema-controlled ring/sample refinement; eight-case actual-CUDA numerical gate passes (RES072). Independent emission validation remains open; CuPy is still experimental. |
 | 3b. Physics closure | 🟡 §9.1 closed (RES033). The author-approved per-particle lab-frame polarization projection is implemented (RES060); smooth laboratory observer basis Stokes parameters (I, Q, U, V) with physical bunch depolarization landed (RES073); independent arbitrary-angle emission validation remains open. |
 | 4. analytical engine | 🟢 landed and merged to `main`; general overlap-integral yield, width breakdown, quadrature spectrum, flying focus, crossing angle for the yield. Open: collimated-spectrum construction |
 | 5. kascade port + delta full role | 🟡 minimal `KascadeEngine`, Thomson sanity anchor, and opt-in GUI integration landed (RES059); four-method validation wiring remains open |
@@ -54,13 +54,13 @@ Ordered by who is blocked. Each names the file that carries the detail.
 
 ### Available to pick up (no external dependency)
 
-- **Broaden CuPy convergence coverage before promotion.** Corrected proposal weighting,
-  stable polarization, and support handling pass the original distribution gate and
-  refined-input CPU comparisons over the head-on scenario bank (RES068). Incident
-  ellipticity and crossed-geometry checks also pass with stable vector evaluation
-  and early energy scaling (RES069). Fixed ring
-  quadrature and new parameter regimes still need convergence checks; NumPy remains
-  the alpha default. Measurements and benchmarks: `docs/ALPHA_GPU_VALIDATION.md`.
+- **CuPy promotion boundary.** Ring and sample controls plus the actual-CUDA release
+  gate are implemented (RES072). Eight finite-window cases pass reference refinement,
+  default/fine GPU agreement, and successive GPU refinement checks. This establishes
+  numerical agreement for the recorded cases, not independent arbitrary-angle physics
+  or a universal input-range guarantee. Keep NumPy as the alpha default and perform
+  table/sampler refinement for new regimes. Scope and measurements:
+  `docs/ALPHA_GPU_VALIDATION.md`.
 
 - **Independently validate arbitrary-angle emission.** RES060 implements the author-approved
   lab-frame polarization projection and checks it directly against Eq. `udef`, but no

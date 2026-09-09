@@ -151,6 +151,8 @@ class Collision:
         theta_xz: float = 0.0,
         theta_yz: float = 0.0,
         backend: str | None = None,
+        rings: int | None = None,
+        subsampling: int | None = None,
     ) -> np.ndarray:
         """Stage 2, at the pulse's own peak a0: ``d3N / (ds dtheta_x dtheta_y)``."""
         b = backend or (self.params.get_choice("backend") if "backend" in self.params else "numpy")
@@ -159,6 +161,8 @@ class Collision:
             psi_pol=psi_pol, ellipticity=ellipticity,
             theta_xz=theta_xz, theta_yz=theta_yz,
             backend=b,
+            rings=rings if rings is not None else self.params.get_int("sampler_rings"),
+            subsampling=subsampling if subsampling is not None else self.params.get_int("sampler_subsampling"),
         )
 
     def spectrum_in_angular_range(
@@ -173,6 +177,8 @@ class Collision:
         theta_xz: float = 0.0,
         theta_yz: float = 0.0,
         backend: str | None = None,
+        rings: int | None = None,
+        subsampling: int | None = None,
     ):
         """The windowed on-demand query (§4.2) — cheap once `build_overlap`/`_table` ran."""
         b = backend or (self.params.get_choice("backend") if "backend" in self.params else "numpy")
@@ -183,6 +189,8 @@ class Collision:
             psi_pol=psi_pol, ellipticity=ellipticity,
             theta_xz=theta_xz, theta_yz=theta_yz,
             backend=b,
+            rings=rings if rings is not None else self.params.get_int("sampler_rings"),
+            subsampling=subsampling if subsampling is not None else self.params.get_int("sampler_subsampling"),
         )
 
     def _laser_polarization_geometry(self) -> dict[str, float]:
@@ -319,11 +327,13 @@ class Collision:
             )
             model_specific["stage2_backend"] = selected_backend
             if selected_backend == "cupy":
-                from .spectrum_sampler import MAX_RINGS, PHI_CELLS, PROPOSAL_FLOOR_FRACTION, SAMPLES_TOTAL
+                from .spectrum_sampler import PHI_CELLS, PROPOSAL_FLOOR_FRACTION, SAMPLES_TOTAL
+                sampler_rings = self.params.get_int("sampler_rings")
+                sampler_subsampling = self.params.get_int("sampler_subsampling")
                 model_specific["stage2_sampler"] = {
                     "samples_total": SAMPLES_TOTAL,
-                    "subsampling": 32,
-                    "rings": MAX_RINGS,
+                    "subsampling": sampler_subsampling,
+                    "rings": sampler_rings,
                     "phi_cells": PHI_CELLS,
                     "proposal_floor_fraction": PROPOSAL_FLOOR_FRACTION,
                     "cdf_inversion": "exact_binary_search",

@@ -36,12 +36,14 @@ def module_from_source(name, source):
 
 def lookup_control(current, old):
     """Change only CDF inversion/storage; retain all other current corrections."""
-    constants = "CDF_PHI_RESOLUTION = 32\nCDF_PHI_REPEAT = 1\nCDF_SIZE = 32 * MAX_ARCS\n"
+    # The benchmark source is injected inside the kernel factory; use its local
+    # capacity rather than the module's 64-ring benchmark constant.
+    constants = "CDF_PHI_RESOLUTION = 32\nCDF_PHI_REPEAT = 1\n"
     current = current.replace("SAMPLES_TOTAL = 256", constants + "SAMPLES_TOTAL = 256", 1)
     start = old.index("            for arc_idx in jit.range(n_arcs):")
     end = old.index("            f_tot = CP_ZERO", start)
     current = current.replace("            f_tot = CP_ZERO", old[start:end] + "            f_tot = CP_ZERO", 1)
-    current = current.replace("        TMP_FLOAT_ARRAY = jit.shared_memory", "        inv_cdf = jit.shared_memory(CP_FLOAT, CDF_SIZE)\n        TMP_FLOAT_ARRAY = jit.shared_memory", 1)
+    current = current.replace("        TMP_FLOAT_ARRAY = jit.shared_memory", "        inv_cdf = jit.shared_memory(CP_FLOAT, CDF_PHI_RESOLUTION * MAX_ARCS)\n        TMP_FLOAT_ARRAY = jit.shared_memory", 1)
     start = old.index("                        il = CP_UINT(cp.floor(reg")
     end = old.index("                        x = x0 + theta", start)
     new_start = current.index("                        target_cdf = reg * arc_total_weight")

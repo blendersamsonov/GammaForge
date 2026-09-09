@@ -1,6 +1,6 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.31 — 2026-09-08
+**Status:** draft v0.32 — 2026-09-08
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 
@@ -497,6 +497,13 @@ agreement, public routing and timing are the extension's acceptance checks.
 Outgoing Stokes outputs, spatially varying polarization, GUI and kascade work are
 outside this extension. Numerical parity is not independent emission-physics closure.
 
+**Numerical promotion work (v0.32):** expose bounded ring-count and subsampling
+controls through the typed xigma schema, angular-query API, and result provenance.
+Keep the existing 32-ring/32-subsampling defaults and NumPy default backend. A
+standalone GPU release gate must require actual CUDA, record the tested environment,
+and separate input-table quadrature refinement from ring and sample refinement.
+Promotion is evidence-dependent; implementing the gate does not itself promote CuPy.
+
 The tabulated-overlap pipeline, restructured into composable stages:
 
 - **Stage 0 — trajectory integration** (`stages.py::integrate_trajectories`): pure
@@ -788,6 +795,16 @@ It runs the existing numerical gates unchanged and explicitly lists out-of-scope
 coverage. Full production validation keeps independent angular-emission and
 four-method coverage as blockers. GUI and kascade are outside alpha support.
 
+The experimental CuPy sampler and NumPy cell-center quadrature are different
+integration algorithms. Their finite-resolution mass/density/centroid comparisons
+therefore have explicit quadrature budgets, separate from the roundoff-level
+backend-invariance target below. Check convergence of the same interpolated H on
+the reference side before using it to accept the sampler. Ring and sample sweeps
+hold output queries fixed; a nonconverged reference or unavailable CUDA must not
+produce a successful GPU release report. These checks establish only backend
+numerical agreement on the tested finite windows, not independent emission physics
+or full-angle/full-energy normalization.
+
 Guiding principle: **tests assert physics, not implementation**. No "detect if an
 assumption was broken" test zoo.
 
@@ -1018,6 +1035,10 @@ duplicated (C4).
 
 ## Changelog
 
+- **v0.32**: bounded CuPy numerical-promotion work: schema/provenance accuracy
+  controls, independent ring/sample/reference refinement, and an actual-CUDA
+  release gate. Distinguish finite-quadrature error budgets from roundoff-level
+  backend invariance; keep promotion and independent physics claims evidence-gated.
 - **v0.31**: approve a bounded CuPy extension to the existing incident-polarization
   and crossing-angle contract, with stable-vector precision checks and refined
   CPU/GPU comparisons required before widening dispatch. NumPy remains default;

@@ -100,6 +100,21 @@ def _as_host(value):
     return np.asarray(value.get() if hasattr(value, "get") else value)
 
 
+@pytest.mark.parametrize("ellipticity", [0.4, 1.0])
+def test_polarization_weights_are_sign_symmetric_on_cpu(ellipticity):
+    from gammaforge.engines.xigma import spectrum_sampler as sampler
+    positive = sampler._polarization_parameters(0.37, ellipticity, 0.3, 0.2)
+    negative = sampler._polarization_parameters(0.37, -ellipticity, 0.3, 0.2)
+    np.testing.assert_allclose(positive, negative)
+
+
+@pytest.mark.parametrize("ellipticity", [-1.01, 1.01])
+def test_polarization_rejects_out_of_range_signed_ellipticity(ellipticity):
+    from gammaforge.engines.xigma import spectrum_sampler as sampler
+    with pytest.raises(ValueError, match=r"\[-1, 1\]"):
+        sampler._polarization_parameters(0.37, ellipticity, 0.3, 0.2)
+
+
 @gpu
 @pytest.mark.parametrize("ellipticity", [0.0, 0.4, 1.0], ids=["linear", "elliptical", "circular"])
 @pytest.mark.parametrize(
@@ -141,6 +156,23 @@ def test_cuda_collinear_crossing_limit_is_cosine_squared(gamma):
     ))
     expected = np.cos(np.longdouble(crossing)) ** 2
     np.testing.assert_allclose(actual, [float(expected)], rtol=1e-5, atol=1e-6)
+
+
+@gpu
+@pytest.mark.parametrize("ellipticity", [-1.0, -0.4, 0.0, 0.4, 1.0])
+@pytest.mark.parametrize("gamma,txz,tyz", [(2000.0, 0.0, 0.0), (10000.0, 0.3, 0.2)])
+def test_cuda_stokes_intensity_matches_production_factor(ellipticity, gamma, txz, tyz):
+    from gammaforge.engines.xigma.stages import stokes_parameters_vectorized
+    helper = _production_helper()
+    values = np.asarray([gamma], dtype=np.float32)
+    tx, ty = np.float32(0.0), np.float32(0.0)
+    obsx, obsy = np.float32(0.0003), np.float32(-0.0002)
+    psi = np.float32(0.37)
+    actual = _as_host(helper(values, np.asarray([tx], np.float32), np.asarray([ty], np.float32), obsx, obsy,
+                             np.float32(ellipticity), psi, np.float32(txz), np.float32(tyz)))
+    stokes = stokes_parameters_vectorized(values, np.asarray([tx], np.float32), np.asarray([ty], np.float32),
+                                          obsx, obsy, np.float32(ellipticity), psi, np.float32(txz), np.float32(tyz))
+    np.testing.assert_allclose(actual, np.asarray(stokes[0]), rtol=1e-5, atol=1e-6)
 
 
 @gpu

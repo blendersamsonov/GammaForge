@@ -165,8 +165,9 @@ The timing cases reuse identical Stage-0/1 tables to compare kernel workloads;
 the crossed timing row is not a simulation of a newly sampled crossed collision.
 Host-precomputed basis coefficients remove geometry trigonometry from the device
 expression, but the speedup is a whole-kernel observation, not a profiled attribution.
-Fixed-ring convergence and independent arbitrary-angle emission validation remain
-open regardless of these numerical and timing results.
+Independent arbitrary-angle emission validation remains open regardless of these
+numerical and timing results. The resolution controls and convergence gate below
+extend the fixed-ring checks recorded in this section.
 
 ```sh
 python scripts/benchmark_xigma_polarization.py --warmup 20 --repeats 15
@@ -198,3 +199,93 @@ emission validation remains open.
 Final verification: 604 tests passed, one skipped on CUDA; the minimum Python 3.12
 focused run passed 31 tests and skipped 25 GPU tests. The headless alpha selector
 also passed its existing analytical/NumPy checks.
+
+## Resolution controls and release gate (RES072)
+
+Scripts can now vary the ring count independently of subsampling through the
+ordinary typed engine parameters:
+
+```python
+params = XigmaEngine.schema.with_values(
+    backend="cupy", sampler_rings=64, sampler_subsampling=256,
+)
+results = XigmaEngine().run(interaction, params)
+```
+
+The defaults remain 32 rings and subsampling 32. Accepted ring counts are integers
+8 through 64; subsampling is a positive integer up to 16,777,215 (the sample-index
+arithmetic bound, not a recommended workload). Direct angular queries accept
+`rings=` and `subsampling=`. Results record both actual values. The default kernel
+retains 22,916 bytes of declared shared storage; the larger-capacity kernel uses
+42,244 bytes, within the tested GTX 1660 Ti's 49,152-byte per-block limit.
+
+Run the numerical release gate from the repository root:
+
+```sh
+python scripts/validate_cupy_release.py --output cupy-release.json
+```
+
+This requires actual CUDA and exits nonzero on unavailable hardware, failed checks,
+or an unconverged CPU reference. Its JSON report includes Python/NumPy/CuPy/CUDA and
+device information, sampler settings, query grids, geometry, and numerical metrics.
+It also records the installed package version and SHA-256 fingerprints of the
+imported sampler, reference, orchestration, and scenario modules and the runner.
+Changing any fingerprinted file during validation fails the report rather than
+presenting a mixed-source run as a release result.
+The ordinary pytest suite may skip optional CUDA tests; this command cannot treat
+such a skip as a passed release.
+
+The gate combines actual public-engine calculations of the previously overflowing
+crossed case, at (0.3, 0.2) rad, with a fixed numerical convergence schedule:
+
+- The shared Gaussian scenario bank and an actually deposited two-plane crossed
+  Gaussian table; synthetic wide/thin off-axis tables and crossed/circular tables
+  with gamma edges 8000 to 10000 supplement them. Synthetic cases use nonuniform
+  ahat bins and test Stage 2 only, not an independently sampled interaction.
+- CPU input-angular refinement 8x to 16x, or 32x to 64x for the high-gamma cases.
+  Output queries and the underlying interpolated H remain fixed within each case.
+- GPU rings 16/32/64 at subsampling 256, and subsampling 32/128/256 at 64 rings;
+  an explicit default 32/32 check and successive finest-resolution comparisons.
+- Required limits: 3% integral difference, 5% integrated absolute density difference,
+  and 1% spectral-centroid difference. Coarser sweep entries are diagnostics;
+  default accuracy, finest accuracy, and the final refinement changes must pass.
+
+These are finite-window numerical acceptance limits, not pointwise relative-error
+bounds, full-yield normalization, independent emission validation, or a universal
+accuracy guarantee over every input supported by the API. CuPy remains experimental.
+
+### Compatibility with the Stokes update (RES073)
+
+The sampler uses the same rotated incident-laser axes as the new NumPy Stokes
+implementation. Its scalar intensity accepts signed ellipticity in [-1, 1]; changing
+handedness leaves intensity unchanged. CPU-only guard/symmetry tests and actual-CUDA
+comparisons against Stokes I cover both signs, head-on and two-plane crossing,
+including gamma 10000. Independent extended-precision polarization tests remain in
+place. This does not add GPU Q/U/V output: the separate Stokes query remains a CPU
+calculation.
+
+### Measured gate result
+
+The recorded real-CUDA run passed all 80 numerical checks across eight cases, plus
+both public crossed-overflow runs. Environment: GTX 1660 Ti, CuPy 14.2.0, CUDA runtime
+12.9, NumPy 2.5.1, Python 3.14.6. The complete report is
+[`validation/cupy-release-2026-09-08.json`](validation/cupy-release-2026-09-08.json).
+This report was rerun after the Stokes and temporal-modulation updates through
+549c801, with the CuPy changes in the working tree. Its before/after source
+fingerprints agree.
+The final complete actual-CUDA pytest run passed 673 tests with one skip. The
+headless alpha validation also passed. In the minimum Python 3.12 environment
+without CuPy, the focused tests passed 38 checks with 24 CUDA skips, while the
+standalone release command correctly exited 1 for missing CuPy.
+
+| Maximum over the eight finite-window cases | Integral | Integrated density L1 | Spectral centroid |
+|---|---:|---:|---:|
+| CPU coarse-to-fine reference change | 0.526% | 2.208% | 0.382% |
+| Default GPU (32 rings / 32 subsampling) versus fine CPU | 0.747% | 0.799% | 0.024% |
+| Refined GPU (64 rings / 256 subsampling) versus fine CPU | 0.341% | 0.802% | 0.023% |
+
+The L1 maximum need not decrease strictly with GPU resolution: the finite CPU
+reference has its own quadrature error, and ring/sample errors can partly cancel.
+These are measured differences, not statistical error bars or proven error bounds.
+In the initial high-gamma diagnostic, CPU refinement 8x to 16x changed L1 by 9.13%;
+the gate correctly rejected that reference until it was refined further.
