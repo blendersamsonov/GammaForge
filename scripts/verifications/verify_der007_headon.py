@@ -21,7 +21,7 @@ placing the topological coordinate singularity at the backward direction -z₀ (
 import sympy as sp
 
 # ─── Symbols ───────────────────────────────────────────────────────────────
-γ, θ, ψ, ψ_pol, ε = sp.symbols('γ θ ψ ψ_pol ε', real=True, positive=True)
+θ, ψ, ψ_pol, ε = sp.symbols('θ ψ ψ_pol ε', real=True, positive=True)
 
 # ─── Kinematics in head-on frame ───────────────────────────────────────────
 # Laser head-on polarization vectors in x-y plane
@@ -33,23 +33,13 @@ e1 = sp.Matrix([-sp.sin(ψ_pol), sp.cos(ψ_pol), 0])
 θ_x = θ * sp.cos(ψ)
 θ_y = θ * sp.sin(ψ)
 
-n = sp.Matrix([θ_x, θ_y, 1 - sp.Rational(1, 2) * θ**2])
-v = sp.Matrix([0, 0, 1])
-one_minus_v_dot_n = (1 + γ**2 * θ**2) / (2 * γ**2)
-
 mx = sp.Matrix([1, 0, -θ_x])
 my = sp.Matrix([0, 1, -θ_y])
-
-D_x = mx.dot(v)  # -θ_x
-D_y = my.dot(v)  # -θ_y
 
 E_x0 = mx.dot(e0)  # cos(ψ_pol)
 E_x1 = mx.dot(e1)  # -sin(ψ_pol)
 E_y0 = my.dot(e0)  # sin(ψ_pol)
 E_y1 = my.dot(e1)  # cos(ψ_pol)
-
-C_0 = n.dot(e0)  # θ_x cos(ψ_pol) + θ_y sin(ψ_pol) = θ cos(ψ - ψ_pol)
-C_1 = n.dot(e1)  # -θ_x sin(ψ_pol) + θ_y cos(ψ_pol) = -θ sin(ψ - ψ_pol)
 
 Xi_00 = 1 / (1 + ε**2)
 Xi_11 = ε**2 / (1 + ε**2)
@@ -77,7 +67,6 @@ M_0 = U_0.T * Xi * U_0
 M_xx_0 = sp.trigsimp(M_0[0, 0])
 M_yy_0 = sp.trigsimp(M_0[1, 1])
 M_xy_0 = sp.trigsimp(M_0[0, 1])
-M_yx_0 = sp.trigsimp(M_0[1, 0])
 
 I_0 = sp.trigsimp(M_xx_0 + M_yy_0)
 Q_0 = sp.trigsimp(M_xx_0 - M_yy_0)
@@ -163,6 +152,7 @@ G_mat = sp.Matrix([
 # Determinant of G matrix:
 print("   General 2x2 M = G^T Xi G has det(M) = det(G)² det(Ξ) = 0 identically.")
 assert Xi.det() == 0, "det(Xi) != 0"
+assert sp.simplify((G_mat.T * Xi * G_mat).det()) == 0, "det(G^T Xi G) != 0"
 print("   ✓ Verified: det(M) = 0 and P = 1 hold for any divergent electron (D_x, D_y ≠ 0).")
 
 # ─── Summary ───────────────────────────────────────────────────────────────

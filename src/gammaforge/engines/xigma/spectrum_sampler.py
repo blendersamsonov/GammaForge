@@ -39,11 +39,9 @@ __all__ = [
 ]
 
 # Sizing and launch constants (matching ComptonSuite config.py)
-SINGLE_PRECISION = True
 CP_FLOAT = np.float32
 CP_UINT = np.uint32
 CP_INT = np.int32
-CP_PI = CP_FLOAT(np.pi)
 CP_TWO_PI = CP_FLOAT(2.0 * np.pi)
 CP_ONE = CP_FLOAT(1.0)
 CP_ZERO = CP_FLOAT(0.0)

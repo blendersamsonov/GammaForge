@@ -801,22 +801,6 @@ class ShapeTable:
         )
 
     @property
-    def gamma_centers(self) -> np.ndarray:
-        return 0.5 * (self.gamma_edges[:-1] + self.gamma_edges[1:])
-
-    @property
-    def theta_x_centers(self) -> np.ndarray:
-        return 0.5 * (self.theta_x_edges[:-1] + self.theta_x_edges[1:])
-
-    @property
-    def theta_y_centers(self) -> np.ndarray:
-        return 0.5 * (self.theta_y_edges[:-1] + self.theta_y_edges[1:])
-
-    @property
-    def a0_shape_centers(self) -> np.ndarray:
-        return 0.5 * (self.a0_shape_edges[:-1] + self.a0_shape_edges[1:])
-
-    @property
     def bin_volume(self) -> float:
         """Cell volume, constant because every axis here is a uniform grid."""
         return float(

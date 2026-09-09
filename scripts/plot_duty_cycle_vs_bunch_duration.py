@@ -34,7 +34,6 @@ from __future__ import annotations
 import argparse
 import csv
 import math
-import os
 import sys
 from pathlib import Path
 from typing import Sequence
@@ -328,7 +327,7 @@ def plot_results(data: dict[str, object], save_path: str) -> None:
 
     Path(save_path).parent.mkdir(parents=True, exist_ok=True)
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5.5))
+    _, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5.5))
 
     # Color palette
     colors = plt.cm.plasma(np.linspace(0.08, 0.88, len(all_results)))

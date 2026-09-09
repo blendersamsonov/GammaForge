@@ -585,10 +585,8 @@ Closed-form estimates, no per-particle Monte Carlo:
   §A.6) — for the yield; the spectrum's shape stays head-on pending §9.3, and the engine
   says so. Handles a **flying focus** too (DER002) — on a 2D `(z, ct)` grid, since a
   time-dependent spot size is exactly what forbids doing the time integral first.
-- `estimate_yield(beam, laser, N_e)`: the predecessor's round-beam closed form. Retained
-  as the analytic limit `overlap_yield` reduces to (a regression anchor) and as the
-  port-fidelity pin — **not** for use: it carries a laser-divergence convention error
-  worth 3.3x on the baseline scenario (RES040).
+- Former predecessor closed-form estimate: dropped and archived (RES040); `overlap_yield`
+  covers both 1D and 2D quadrature without convention errors.
 - `overlap_mean_a0_sq(beam, laser, n_quad, n_quad_u)`: the luminosity-weighted `<a0²>` —
   the a0 the bunch actually samples, not the pulse's peak. Same overlap integral with the
   laser density squared (§A.8). Feeds the width breakdown's nonlinearity term.

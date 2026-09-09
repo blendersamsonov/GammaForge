@@ -26,7 +26,7 @@ from gammaforge.io.laser import (
     fit_gaussian_paraxial,
     validate,
 )
-from gammaforge.io.units import C_CGS, HBAR_CGS, Quantity, ureg
+from gammaforge.io.units import C_CGS, HBAR_CGS, Quantity
 
 
 def test_protocol_adherence():

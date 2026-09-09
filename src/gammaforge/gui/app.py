@@ -13,7 +13,6 @@ try:
 except ModuleNotFoundError:  # Physics/documentation-only installations omit the GUI extra.
     ui = None
 
-from ..engines.base import RecomputeCost
 from ..io.bunch import validate as validate_beam
 from ..io.fields import beam_from_parameters, laser_from_parameters, to_parameters
 from ..io.formats.yaml_spec import SPEC_VERSION, parameters_to_yaml_dict
@@ -148,12 +147,6 @@ class BrowserWorkspace:
             for pane in self.panes:
                 pane.status.refresh()
                 pane.results.refresh()
-
-    def release(self) -> None:
-        self.model.locked = False
-        self._update_locks()
-        for pane in self.panes:
-            pane.status.refresh()
 
     async def _tick(self) -> None:
         if self.client.is_deleted:

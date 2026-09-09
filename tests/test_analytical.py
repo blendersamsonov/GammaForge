@@ -22,7 +22,6 @@ from gammaforge.engines.analytical.formulas import (
     NONLINEAR_BROADENING_RANGE,
     SpectrumWidthBreakdown,
     _electron_sigma2,
-    _erfcx,
     _overlap_grid,
     _overlap_quadratic_form,
     angle_integrated_spectrum,
@@ -79,6 +78,10 @@ def _round_scenario():
                    sigma_y=scenarios.BASELINE.beam.sigma_x)
     laser = replace(scenarios.BASELINE.laser, sigma_y=scenarios.BASELINE.laser.sigma_x)
     return beam, laser
+
+
+def _erfcx(nu: float) -> float:
+    return math.exp(nu * nu) * math.erfc(nu)
 
 
 def _closed_form_round(beam, laser, N_e):

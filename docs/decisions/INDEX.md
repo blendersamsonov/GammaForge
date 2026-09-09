@@ -42,7 +42,7 @@ cross-checks this table against the files on disk.
 | RES034 | A crossing angle warns that only the geometry is applied (§9.3's half of P14c) | bug-fix | implemented | implemented/bug-fix/RES034-crossing-angle-warns-geometry-only.md |
 | RES035 | analytical ports the predecessor's round-beam, no-displacement approximations unchanged; the growth items stay open | architecture | implemented | implemented/architecture/RES035-analytical-ports-round-beam-approximations.md |
 | RES036 | `SPECTRUM`'s grid integral is rescaled to `estimate_yield`'s total by construction, not as a discrepancy patch | architecture | implemented | implemented/architecture/RES036-spectrum-rescaled-to-yield-by-construction.md |
-| RES037 | `erfcx` is hand-rolled from `math.erfc`, not a new `scipy` dependency | process | implemented | implemented/process/RES037-erfcx-hand-rolled.md |
+| RES037 | `erfcx` is hand-rolled from `math.erfc`, not a new `scipy` dependency | process | implemented | archived/process/RES037-erfcx-hand-rolled.md |
 | RES038 | the spectrum-width breakdown's `theta_col` is the geometric mean of `Target`'s x/y collimation half-angles | architecture | implemented | implemented/architecture/RES038-theta-col-geometric-mean.md |
 | RES039 | the analytical yield is a general overlap quadrature, not the round-beam closed form | feature | implemented | implemented/feature/RES039-general-overlap-quadrature-yield.md |
 | RES040 | `estimate_yield`'s laser-divergence convention error is flagged and pinned, not fixed | bug-fix | implemented | archived/bug-fix/RES040-estimate-yield-rayleigh-convention-pinned.md |

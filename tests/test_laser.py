@@ -66,7 +66,7 @@ def test_transverse_axes_stay_orthonormal_and_perpendicular_to_k():
 
 def test_psi_rotates_within_the_transverse_plane():
     _, e1_zero, _ = lab_frame_axes(0.3, 0.2, 0.0)
-    _, e1_psi, e2_psi = lab_frame_axes(0.3, 0.2, 0.7)
+    _, e1_psi, _ = lab_frame_axes(0.3, 0.2, 0.7)
     assert np.dot(e1_zero, e1_psi) == pytest.approx(math.cos(0.7))
     # psi is measured from the transported x-axis, so a full turn is the identity.
     _, e1_full, _ = lab_frame_axes(0.3, 0.2, 2.0 * math.pi)

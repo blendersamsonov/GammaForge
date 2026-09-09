@@ -2,6 +2,7 @@
 
 Status: implemented
 Class: process
+Archived: 2026-09-08
 
 ## Problem
 

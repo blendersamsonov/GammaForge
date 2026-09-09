@@ -10,26 +10,21 @@ Ported (algorithm and constants, not code) from the predecessor's
 throughout there, CGS-Gaussian ``GaussianElectronBeam``/``GaussianParaxialLaser`` here
 (P1).
 
-**Two yield functions, and which to use.** :func:`overlap_yield` evaluates the general
+**Yield evaluation.** :func:`overlap_yield` evaluates the general
 Gaussian luminosity overlap integral: non-round beams, per-axis focusing, displaced and
 astigmatic foci, and a rotated laser ellipse, all exactly. It is what `AnalyticalEngine`
 calls, and the derivation behind it is written out in DER001.
-:func:`estimate_yield` is the predecessor's round-beam closed form, kept because the
-general integral reduces to it analytically — which makes it a real regression anchor —
-and because it pins port fidelity. It carries an approximation *and* a laser-divergence
-convention error; its own docstring says so. Prefer :func:`overlap_yield`.
 
-**Three cost tiers** (RES043), because §4.3 calls analytical the only real-time engine:
+**Quadrature cost tiers** (RES043), because §4.3 calls analytical the only real-time engine:
 
 ======================================  ==========  ===================================
 tier                                    cost        what it assumes
 ======================================  ==========  ===================================
-:func:`estimate_yield`                  ~0.01 ms    round beams, head-on, aligned foci
 :func:`overlap_yield` (1D, default)     ~1-2 ms     spot sizes sampled along ``z`` only
 :func:`overlap_yield` (``n_quad_u>1``)  ~40-800 ms  nothing — exact
 ======================================  ==========  ===================================
 
-The first two are real-time at any interaction rate; the third is an opt-in exact check,
+The default 1D quadrature is real-time at any interaction rate; the second is an opt-in exact check,
 not something a caller reaches for by default (RES043).
 
 **What this closes, precisely.** All three of RES035's growth items for the
@@ -66,33 +61,6 @@ __all__ = [
     "estimate_spectrum_width",
     "angle_integrated_spectrum",
 ]
-
-#: Above this, `math.erfc(nu) * math.exp(nu * nu)` is at real risk of overflowing before
-#: `erfc` underflows to zero — the exact regime `erfcx` exists to protect against. Never
-#: reached by a physically sane scenario (the baseline scenario has ``nu ~ 0.06``, the
-#: predecessor's own worked example ``nu ~ 0.48``), but a GUI quick-estimate panel can see
-#: extreme user-entered values, so the asymptotic branch below keeps this finite rather
-#: than raising `OverflowError`.
-_ERFCX_ASYMPTOTIC_THRESHOLD = 25.0
-
-
-def _erfcx(nu: float) -> float:
-    """``exp(nu**2) * erfc(nu)``, the scaled complementary error function.
-
-    Hand-rolled from `math.erfc` rather than `scipy.special.erfcx`, to keep the dependency
-    surface at just `numpy` (RES037). Direct evaluation is exact (to `math.erfc`'s own
-    precision) below the overflow threshold; above it, the standard asymptotic expansion
-    ``erfcx(x) ~ (1/(x*sqrt(pi))) * (1 - 1/(2x^2) + 3/(4x^4) - 15/(8x^6))`` takes over.
-
-    ``estimate_yield`` only ever evaluates this at ``nu >= 0`` (built from sums of squares
-    under square roots), so a negative branch is not needed.
-    """
-    if nu < _ERFCX_ASYMPTOTIC_THRESHOLD:
-        return math.exp(nu * nu) * math.erfc(nu)
-    inv2 = 1.0 / (nu * nu)
-    series = 1.0 - 0.5 * inv2 + 0.75 * inv2**2 - 1.875 * inv2**3
-    return series / (nu * math.sqrt(math.pi))
-
 
 def _electron_sigma2(beam: GaussianElectronBeam, z):
     """``(sigma_ex^2(z), sigma_ey^2(z))``: the bunch's transverse variances at lab
@@ -550,7 +518,7 @@ def overlap_yield(
 ) -> float:
     """Total photon yield from the **general** Gaussian luminosity overlap integral.
 
-    Supersedes :func:`estimate_yield`'s round-beam closed form: it drops the round-beam
+    Supersedes the predecessor's round-beam closed form: it drops the round-beam
     and aligned-foci approximations and keeps the collision geometry exactly as
     `gammaforge.io` already describes it — per-axis bunch sizes and emittances, per-axis
     Twiss ``alpha`` (electron waist displacement), per-axis laser waists and Rayleigh
@@ -572,7 +540,7 @@ def overlap_yield(
     Head-on, ``S = (1 + beta_0)^2 / D^2`` and the widths regroup into
     ``sqrt(det(C_e + C_l))`` (:func:`overlap_det`), recovering the simpler §A.4 form; in
     the round, aligned, ``alpha = 0`` limit that reduces **analytically** to
-    :func:`estimate_yield`'s closed form. `tests/test_analytical.py` pins both reductions
+    the round-beam closed form (DER001 §A.4). `tests/test_analytical.py` pins both reductions
     numerically rather than asserting them in a comment.
 
     **The one approximation.** With a crossing angle the bunch's hourglass varies along
@@ -830,7 +798,7 @@ def estimate_spectrum_width(
     their geometric mean (RES038), the same x/y-combining convention this
     module already uses for the laser waist (``sigma_lr0``) and the emittance term below.
 
-    ``laser`` is the fitted `GaussianParaxialLaser` (see :func:`estimate_yield`);
+    ``laser`` is the fitted `GaussianParaxialLaser` (see `gammaforge.io.laser.fit_gaussian_paraxial`);
     ``laser.a0_peak()`` stands in for the predecessor's ``pulse.a0_interaction`` — the
     pulse's own maximum a0, not the a0 at the electron bunch's actual position.
 
@@ -883,7 +851,7 @@ def angle_integrated_spectrum(
     (to quadrature precision) over the sampled +-6 ``sigma_gamma`` window, so multiplying
     by ``N_e`` reproduces "one scattering attempt per electron," not yet a photon count —
     see `gammaforge.engines.analytical.engine` for how the caller turns this into a real
-    spectrum by construction against `estimate_yield`.
+    spectrum by construction against the overlap yield.
 
     ``n_quad``: quadrature points spanning +-6 ``sigma_gamma`` around ``gamma0`` —
     independent of ``n_particles``, so a generous default costs nothing.

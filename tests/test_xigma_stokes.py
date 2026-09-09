@@ -20,7 +20,6 @@ from gammaforge.engines.xigma.stages import (
     bunch_stokes_parameters,
     compute_stokes_components,
     polarization_factor,
-    polarization_factor_vectorized,
     rotated_laser_axes,
     stokes_parameters_vectorized,
 )

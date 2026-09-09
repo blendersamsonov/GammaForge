@@ -17,15 +17,12 @@ from __future__ import annotations
 
 import argparse
 import math
-import sys
 from typing import Sequence
-
-import numpy as np
 
 from gammaforge.engines.xigma.stages import integrate_trajectories
 from gammaforge.io.bunch import GaussianElectronBeam, sample_gaussian_bunch
 from gammaforge.io.laser import PulseTrainParaxialLaser
-from gammaforge.io.units import C_CGS, Quantity, ureg
+from gammaforge.io.units import C_CGS, Quantity
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -258,7 +255,7 @@ def plot_results(
     y_sub_sum = [r["yield_sub_sum"] for r in results]
     y_norm = y_sub_sum[-1] if y_sub_sum[-1] > 0 else 1.0
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 7), sharex=True)
+    _, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 7), sharex=True)
 
     # Top panel: Normalized Yield vs Duty Cycle
     ax1.plot(

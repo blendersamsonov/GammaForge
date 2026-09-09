@@ -19,7 +19,7 @@ from ..io.fields import (
     laser_from_parameters,
     sampling_from_parameters,
 )
-from ..io.schema import FieldKind, FieldSpec, Parameters, SchemaError
+from ..io.schema import FieldKind, Parameters, SchemaError
 from ..io.target import OutputKind, OutputRequest, SLICE_AXES, Target
 from ..io.units import Quantity
 
