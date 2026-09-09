@@ -65,6 +65,11 @@ Ordered by who is blocked. Each names the file that carries the detail.
 - **Independently validate arbitrary-angle emission.** RES060 implements the author-approved
   lab-frame polarization projection and checks it directly against Eq. `udef`, but no
   independent arbitrary-angle emission method has yet checked the resulting observables.
+  Direct resonance-binning preparation is recorded in RES074 and
+  `docs/handoffs/delta-arbitrary-angle-validation-2026-09-09.md`: independent delta
+  polarization evaluation, matched energy-bin measures, and separate convergence
+  gates. The general per-particle Doppler factor versus the current nominal-axis
+  approximation must be audited before scientific acceptance. Not yet implemented.
 
 - **Spatial autoranging under displacement.** The current Kascade reproduction captured its
   sampled photon weights inside the symmetric auto range for laser offsets through 120 µm;
