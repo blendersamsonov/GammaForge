@@ -50,8 +50,19 @@ def _polarization_factor_from_udef(
         [0.0, cos_yz, -sin_yz],
         [-sin_xz, cos_xz * sin_yz, cos_xz * cos_yz],
     ])
-    e0 = rotation @ np.array([math.cos(psi_pol), math.sin(psi_pol), 0.0])
-    e1 = rotation @ np.array([-math.sin(psi_pol), math.cos(psi_pol), 0.0])
+    e0_raw = rotation @ np.array([math.cos(psi_pol), math.sin(psi_pol), 0.0])
+    e1_raw = rotation @ np.array([-math.sin(psi_pol), math.cos(psi_pol), 0.0])
+    e0_t = np.array([e0_raw[0], e0_raw[1], 0.0])
+    n0 = math.sqrt(e0_t[0] ** 2 + e0_t[1] ** 2)
+    if n0 > 1e-12:
+        e0 = e0_t / n0
+        e1_t = np.array([-e0[1], e0[0], 0.0])
+        if e1_raw[0] * e1_t[0] + e1_raw[1] * e1_t[1] < 0.0:
+            e1_t = -e1_t
+        e1 = e1_t
+    else:
+        e0 = np.zeros(3)
+        e1 = np.zeros(3)
     n = np.array([theta_x_obs, theta_y_obs, 1.0])
     n /= np.linalg.norm(n)
     beta = math.sqrt(1.0 - gamma**-2)
@@ -474,25 +485,19 @@ def test_vectorized_polarization_accepts_each_particle_direction():
 
 
 @pytest.mark.parametrize("gamma", [2000.0, 10000.0])
-def test_polarization_factor_collinear_crossing_limit_is_cosine_squared(gamma):
-    """At high gamma with collinear rays and crossed basis, Tr(U^T Xi U) is cos^2(alpha) (RES070).
-
-    The expanded float64 expression lost accuracy for collinear electron/observer rays
-    when the laser basis had a longitudinal component (e.g. gamma 10000 and crossing 0.3 rad
-    yielded 1.3886977 instead of cos(0.3)^2 = 0.9126678).
-    """
+def test_polarization_factor_collinear_crossing_limit_is_unity(gamma):
+    """Under physical transverse dipole projection (DER012), on-axis collinear limit is unity."""
     crossing = 0.3
-    expected = math.cos(crossing) ** 2
     actual_scalar = polarization_factor(
         gamma, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, theta_xz=crossing, theta_yz=0.0,
     )
-    assert actual_scalar == pytest.approx(expected, rel=1e-12, abs=1e-12)
+    assert actual_scalar == pytest.approx(1.0, rel=1e-12, abs=1e-12)
 
     actual_vectorized = polarization_factor_vectorized(
         np.array([gamma]), np.array([0.0]), np.array([0.0]),
         0.0, 0.0, 0.0, 0.0, theta_xz=crossing, theta_yz=0.0,
     )
-    np.testing.assert_allclose(actual_vectorized, [expected], rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(actual_vectorized, [1.0], rtol=1e-12, atol=1e-12)
 
 
 def test_delta_passes_each_particle_direction_to_the_polarization_projection():
