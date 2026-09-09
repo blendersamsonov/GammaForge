@@ -11,6 +11,8 @@ import math
 import numpy as np
 import pytest
 
+pytestmark = [pytest.mark.tier0, pytest.mark.fast]
+
 from gammaforge.io.bunch import GaussianElectronBeam, sample_gaussian_bunch
 from gammaforge.io.interaction import (
     PREFILTER_OFF,

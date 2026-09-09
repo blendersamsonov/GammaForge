@@ -13,6 +13,8 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+pytestmark = [pytest.mark.tier2]
+
 from gammaforge.engines.base import Engine
 from gammaforge.engines.xigma.collision import Collision
 from gammaforge.engines.xigma.engine import XigmaEngine

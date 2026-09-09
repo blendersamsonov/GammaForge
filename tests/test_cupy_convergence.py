@@ -5,6 +5,8 @@ import json
 import numpy as np
 import pytest
 
+pytestmark = [pytest.mark.tier1, pytest.mark.fast, pytest.mark.gpu]
+
 from gammaforge.engines.xigma.stages import Table
 from gammaforge.validation.cupy_convergence import run_convergence_checks
 

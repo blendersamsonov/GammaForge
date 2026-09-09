@@ -22,6 +22,8 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+pytestmark = [pytest.mark.tier2]
+
 from gammaforge.engines.xigma import stages
 from gammaforge.engines.xigma.stages import (
     TrajectorySamples,
@@ -542,6 +544,8 @@ def test_stage2_kernel_agrees_with_delta_at_a_point():
     assert ratio == pytest.approx(1.0, abs=0.1)
 
 
+@pytest.mark.tier3
+@pytest.mark.heavy
 def test_the_table_kernel_angle_integrates_to_stage_0_total(baseline):
     """§9.1's closure, on the one quantity that can actually see it (RES033).
 

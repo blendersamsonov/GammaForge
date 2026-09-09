@@ -7,6 +7,8 @@ import math
 import numpy as np
 import pytest
 
+pytestmark = [pytest.mark.tier1, pytest.mark.fast]
+
 from gammaforge.io.laser import (
     ELLIPTICITY_IS_NOOP,
     EMISSION_IS_HEAD_ON,

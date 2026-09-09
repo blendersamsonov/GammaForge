@@ -21,6 +21,7 @@ from gammaforge.validation import scenarios
 
 
 gpu = pytest.mark.skipif(not is_gpu_available(), reason="CuPy or CUDA GPU unavailable")
+pytestmark = [pytest.mark.tier3, pytest.mark.heavy]
 
 
 @pytest.fixture(scope="module")

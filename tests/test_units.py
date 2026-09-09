@@ -15,6 +15,8 @@ import pytest
 
 from gammaforge.io import units as u
 
+pytestmark = [pytest.mark.tier0, pytest.mark.fast]
+
 
 def test_charge_matches_textbook_esu_value():
     # e = 4.80320471e-10 statC; the one constant pint cannot produce for us, so this is

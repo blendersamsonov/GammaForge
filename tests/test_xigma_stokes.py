@@ -12,6 +12,8 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+pytestmark = [pytest.mark.tier1, pytest.mark.fast]
+
 from gammaforge.engines.xigma.collision import BunchStokes, Collision
 from gammaforge.engines.xigma.engine import XigmaEngine
 from gammaforge.engines.xigma.stages import (

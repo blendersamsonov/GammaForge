@@ -97,9 +97,21 @@ browser refreshes are deferred.
 
 ## Tests
 
-`make check` is the local counterpart to CI's core tier. The optional tiers are explicit:
+`make check` (or bare `pytest`) is the local counterpart to CI's core tier, running Tier 0, Tier 1, and Tier 2 tests in ~1.2 minutes. Execution tiers and optional suites are explicit (RES075):
 
 ```bash
+# Fast iterative development loop (< 30s): Tier 0 contracts + Tier 1 component physics
+.venv/bin/python -m pytest -m fast -q
+
+# Ultra-fast contract, schema, unit, and doc lint checks (< 10s)
+.venv/bin/python -m pytest --tier=tier0 -q
+
+# Default core run (~1.2m): Tier 0, Tier 1, and Tier 2 (numerical integration, trajectory tracking)
+make check
+
+# Full physics validation (~11m): includes heavy Tier 3 Monte Carlo and 16x quadratures
+.venv/bin/python -m pytest --run-heavy
+
 # GUI plotting and import-boundary tests
 .venv/bin/python -m pytest -q tests/test_gui_boundary.py tests/test_gui_controller.py tests/test_gui_inputs.py tests/test_gui_plotting.py
 

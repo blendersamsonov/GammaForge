@@ -29,3 +29,14 @@ packages = ["src/gammaforge"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "tier0: Tier 0 fast unit, contract, boundary, format, and documentation linters (< 1s)",
+    "tier1: Tier 1 fast component physics, optics, kinematics, and schema checks (< 5s)",
+    "tier2: Tier 2 numerical integration, trajectory tracking, and validation harness (< 30s)",
+    "tier3: Tier 3 heavy Monte Carlo, high-order quadrature refinement, and slow physics (> 30s)",
+    "fast: quick development tier combining Tier 0 and Tier 1 (< 30s total)",
+    "heavy: slow computations (Tier 3) including high-order refinement and large MC (> 30s)",
+    "symbolic: SymPy symbolic derivation verifications",
+    "browser: Playwright browser tests",
+    "gpu: CuPy / CUDA GPU tests",
+]

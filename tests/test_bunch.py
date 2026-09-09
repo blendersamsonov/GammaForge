@@ -13,6 +13,8 @@ import math
 import numpy as np
 import pytest
 
+pytestmark = [pytest.mark.tier1, pytest.mark.fast]
+
 from gammaforge.io.bunch import (
     Bunch,
     GaussianElectronBeam,
@@ -763,6 +765,7 @@ def _bunch_yield(bunch, laser, beam, n_full, n_t=121):
     return float(np.trapezoid(per_t, grid)) / n_full
 
 
+@pytest.mark.tier2
 @pytest.mark.parametrize("beta_ff", [0.0, 1.0])
 def test_illumination_filter_keeps_what_actually_contributes(beta_ff):
     """The correctness statement, rather than a guess about which way the particle count

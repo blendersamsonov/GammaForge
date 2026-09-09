@@ -9,6 +9,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+pytestmark = [pytest.mark.tier1, pytest.mark.fast, pytest.mark.gpu]
+
 from gammaforge.engines.xigma.engine import XigmaEngine
 from gammaforge.engines.xigma.spectrum_sampler import is_gpu_available
 from gammaforge.io.interaction import SamplingSpec

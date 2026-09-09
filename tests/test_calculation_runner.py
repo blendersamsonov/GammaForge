@@ -6,6 +6,8 @@ from dataclasses import replace
 
 import pytest
 
+pytestmark = [pytest.mark.tier1, pytest.mark.fast]
+
 from gammaforge.engines.runner import LocalRunner
 from gammaforge.engines.kascade.engine import KascadeEngine
 from gammaforge.engines.xigma.engine import XigmaEngine

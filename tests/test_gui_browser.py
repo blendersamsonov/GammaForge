@@ -12,8 +12,13 @@ from urllib.request import urlopen
 
 import pytest
 
-pytestmark = pytest.mark.skipif(os.environ.get("GAMMAFORGE_BROWSER_TEST") != "1",
-                                reason="opt-in browser test (requires Chromium and Playwright)")
+pytestmark = [
+    pytest.mark.browser,
+    pytest.mark.skipif(
+        os.environ.get("GAMMAFORGE_BROWSER_TEST") != "1",
+        reason="opt-in browser test (requires Chromium and Playwright)",
+    ),
+]
 
 
 def test_browser_layout_and_calculation(tmp_path):

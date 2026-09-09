@@ -6,6 +6,8 @@ import h5py
 import numpy as np
 import pytest
 
+pytestmark = [pytest.mark.tier0, pytest.mark.fast]
+
 from gammaforge.engines.analytical.engine import AnalyticalEngine
 from gammaforge.engines.xigma.engine import XigmaEngine
 from gammaforge.io.calculation import CalculationRequest

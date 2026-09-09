@@ -2,6 +2,8 @@
 
 import pytest
 
+pytestmark = [pytest.mark.tier1, pytest.mark.fast, pytest.mark.gpu]
+
 from gammaforge.engines.xigma.schema import default_parameters
 from gammaforge.engines.xigma.spectrum_sampler import calculate_angular_spectrum_gpu
 from gammaforge.engines.xigma.stages import angular_spectrum_from_table

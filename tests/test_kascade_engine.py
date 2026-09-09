@@ -8,6 +8,8 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+pytestmark = [pytest.mark.tier1, pytest.mark.fast]
+
 from gammaforge.engines.base import Engine
 from gammaforge.engines.analytical.formulas import overlap_yield
 from gammaforge.engines.kascade.engine import KascadeEngine, _bunch_to_si, _histogram_slice

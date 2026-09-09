@@ -6,6 +6,8 @@ import numpy as np
 import pytest
 import yaml
 
+pytestmark = [pytest.mark.tier0, pytest.mark.fast]
+
 from gammaforge.io.bunch import Bunch, GaussianElectronBeam, fit_gaussian, sample_gaussian_bunch
 from gammaforge.io.fields import (
     BEAM_FIELDS,

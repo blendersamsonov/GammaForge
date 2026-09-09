@@ -8,6 +8,8 @@ if find_spec("plotly") is None:
     pytest.skip("requires the gui extra (plotly)", allow_module_level=True)
 import plotly.graph_objects  # noqa: F401 -- fail on a broken declared GUI installation
 
+pytestmark = [pytest.mark.tier0, pytest.mark.fast]
+
 from gammaforge.io.bunch import Bunch, GaussianElectronBeam
 from gammaforge.io.drawing import geometry_model
 from gammaforge.io.laser import GaussianParaxialLaser

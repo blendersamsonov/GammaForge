@@ -20,6 +20,8 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+pytestmark = [pytest.mark.tier2]
+
 from gammaforge.engines.base import Engine, RecomputeCost
 from gammaforge.io.results import Axis, PhasespaceSlice, Results
 from gammaforge.io.schema import DIMENSIONLESS, FieldKind, FieldSpec, Parameters

@@ -9,6 +9,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+pytestmark = [pytest.mark.tier1, pytest.mark.fast, pytest.mark.gpu]
+
 from gammaforge.engines.xigma.spectrum_sampler import (
     calculate_angular_spectrum_gpu,
     is_gpu_available,

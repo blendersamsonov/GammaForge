@@ -16,6 +16,8 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+pytestmark = [pytest.mark.tier2]
+
 from gammaforge.engines.xigma import chunking
 from gammaforge.engines.xigma.stages import (
     relative_velocity,

@@ -4,6 +4,8 @@ import importlib.util
 
 import pytest
 
+pytestmark = [pytest.mark.tier0, pytest.mark.fast]
+
 from gammaforge.engines.analytical.engine import AnalyticalEngine
 from gammaforge.gui.state import InputState
 from gammaforge.gui.inputs import _field_editor

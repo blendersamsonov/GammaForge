@@ -15,6 +15,8 @@ import math
 import numpy as np
 import pytest
 
+pytestmark = [pytest.mark.tier1, pytest.mark.fast]
+
 from gammaforge.engines.xigma.stages import integrate_trajectories
 from gammaforge.io.bunch import GaussianElectronBeam, sample_gaussian_bunch
 from gammaforge.io.laser import (

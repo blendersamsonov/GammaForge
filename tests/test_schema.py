@@ -7,6 +7,8 @@ import math
 import pytest
 
 from gammaforge.io.schema import DIMENSIONLESS, FieldKind, FieldSpec, Parameters, SchemaError
+
+pytestmark = [pytest.mark.tier0, pytest.mark.fast]
 from gammaforge.io.units import TimeConvention, WidthConvention
 
 SIGMA_X = FieldSpec(

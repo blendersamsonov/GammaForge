@@ -12,6 +12,8 @@ import numpy as np
 import pytest
 from dataclasses import replace
 
+pytestmark = [pytest.mark.tier1, pytest.mark.fast, pytest.mark.gpu]
+
 from gammaforge.engines.xigma.collision import Collision
 from gammaforge.engines.xigma.spectrum_sampler import is_gpu_available
 from gammaforge.engines.xigma.stages import polarization_factor

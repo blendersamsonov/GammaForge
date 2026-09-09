@@ -16,6 +16,8 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+pytestmark = [pytest.mark.tier1, pytest.mark.fast, pytest.mark.gpu]
+
 from gammaforge.engines.xigma.engine import XigmaEngine
 from gammaforge.engines.xigma.spectrum_sampler import (
     calculate_angular_spectrum_gpu,

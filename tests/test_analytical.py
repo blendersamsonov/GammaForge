@@ -15,6 +15,8 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+pytestmark = [pytest.mark.tier1]
+
 from gammaforge.engines.analytical.engine import AnalyticalEngine
 from gammaforge.engines.analytical.formulas import (
     NONLINEAR_BROADENING_RANGE,
@@ -417,6 +419,8 @@ def test_total_range_collapses_when_beam_quality_dominates():
     assert (hi - lo) / width.total < 0.02
 
 
+@pytest.mark.tier3
+@pytest.mark.heavy
 def test_mean_a0_sq_is_the_beam_averaged_ahat_that_xigma_computes_per_particle():
     """`overlap_mean_a0_sq` is not merely *like* the trajectory-averaged `ahat` — weighting
     per-electron `ahat_i` by luminosity cancels its denominator, leaving exactly
@@ -439,6 +443,8 @@ def test_mean_a0_sq_is_the_beam_averaged_ahat_that_xigma_computes_per_particle()
     assert mean_ahat == pytest.approx(reference, rel=1e-2)
 
 
+@pytest.mark.tier3
+@pytest.mark.heavy
 @pytest.mark.parametrize("name", ["baseline", "full_geometry"])
 def test_mean_a0_sq_matches_a_brute_force_monte_carlo(name):
     """`<a0^2>` against the same independent reference as the yield, weighting each
@@ -491,6 +497,8 @@ def test_mean_a0_sq_has_the_exact_one_over_root_two_limit(sigma_z_fs):
     assert ratio == pytest.approx(1.0 / math.sqrt(2.0), rel=1e-4)
 
 
+@pytest.mark.tier3
+@pytest.mark.heavy
 @pytest.mark.parametrize("name", ["baseline", "full_geometry"])
 def test_resolved_profiles_integrate_back_to_the_total_yield(name):
     """§7's "exact identity where the contract guarantees one", applied to the previews:
@@ -595,6 +603,8 @@ def test_zero_offset_is_bit_identical_to_no_offset_at_all():
     assert overlap_yield(beam, explicit, N_e) == overlap_yield(beam, laser, N_e)
 
 
+@pytest.mark.tier3
+@pytest.mark.heavy
 @pytest.mark.parametrize("name, kwargs, tol", [
     ("transverse x", dict(x_off=Quantity(8.0, "um")), 5e-3),
     ("transverse y", dict(y_off=Quantity(-12.0, "um")), 5e-3),
@@ -683,6 +693,8 @@ def test_offsets_reach_the_engine_and_reduce_its_yield():
 # ---------------------------------------------------------------------------
 # Flying focus (DER002)
 # ---------------------------------------------------------------------------
+@pytest.mark.tier3
+@pytest.mark.heavy
 @pytest.mark.parametrize("beta_ff", [0.5, 1.0, 2.0, -0.5])
 def test_flying_focus_yield_matches_a_brute_force_monte_carlo(beta_ff):
     """A flying focus makes the spot-size coordinate depend on time, so the widths depend
@@ -802,6 +814,8 @@ def _monte_carlo_yield(beam, laser, n_particles=50_000, n_t=151, seed=0):
             * float(np.trapezoid(per_t, t_grid)))
 
 
+@pytest.mark.tier3
+@pytest.mark.heavy
 @pytest.mark.parametrize("name", ["head_on", "crossing", "crossing_plus_everything", "both_planes"])
 def test_overlap_yield_matches_a_brute_force_monte_carlo(name):
     """The end-to-end independent check: no step of the derivation is shared with the
@@ -922,6 +936,8 @@ def test_angle_integrated_spectrum_fast_at_reported_scale():
     assert np.all(np.isfinite(out))
 
 
+@pytest.mark.tier3
+@pytest.mark.heavy
 def test_angle_integrated_spectrum_matches_monte_carlo_reference():
     """Independent physics check: draw real gamma samples from the same Gaussian, sum the
     per-particle kinematic shape directly here (not via any production code path), and

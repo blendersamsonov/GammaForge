@@ -80,3 +80,5 @@ cross-checks this table against the files on disk.
 | RES072 | CuPy resolution controls and numerical release gate | testing | implemented | implemented/testing/RES072-cupy-resolution-controls-and-release-gate.md |
 | RES073 | Smooth laboratory observer basis Stokes parameters | feature | implemented | implemented/feature/RES073-smooth-laboratory-observer-basis-stokes-parameters.md |
 | RES074 | Delta arbitrary-angle emission validation | testing | proposed | proposed/testing/RES074-delta-arbitrary-angle-emission-validation.md |
+| RES075 | Test suite tiering and execution markers | testing | implemented | implemented/testing/RES075-test-suite-tiering-and-markers.md |
+

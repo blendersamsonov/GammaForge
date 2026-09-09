@@ -1,6 +1,10 @@
 """Phase 0 exit criterion: the package installs and imports cleanly."""
 
+import pytest
+
 import gammaforge
+
+pytestmark = [pytest.mark.tier0, pytest.mark.fast]
 
 
 def test_import():

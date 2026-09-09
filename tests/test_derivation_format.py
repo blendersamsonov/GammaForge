@@ -19,6 +19,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = [pytest.mark.tier0, pytest.mark.fast]
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 STATUSES = ("derived", "validated", "verified", "rejected", "archived")

@@ -4,7 +4,12 @@ import pytest
 
 from gammaforge.engines.xigma import spectrum_sampler as sampler
 
-pytestmark = pytest.mark.skipif(not sampler.is_gpu_available(), reason="CUDA unavailable")
+pytestmark = [
+    pytest.mark.tier1,
+    pytest.mark.fast,
+    pytest.mark.gpu,
+    pytest.mark.skipif(not sampler.is_gpu_available(), reason="CUDA unavailable"),
+]
 
 
 def test_exact_cdf_search_and_weights_integrate_constant_with_peaked_proposal():

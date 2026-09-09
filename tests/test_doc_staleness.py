@@ -32,6 +32,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import gammaforge
+import pytest
+
+pytestmark = [pytest.mark.tier0, pytest.mark.fast]
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CHECKED_DECISION_LIFECYCLES = ("proposed", "implemented", "rejected")

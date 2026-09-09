@@ -4,6 +4,9 @@ import asyncio
 import threading
 
 import numpy as np
+import pytest
+
+pytestmark = [pytest.mark.tier0, pytest.mark.fast]
 
 from gammaforge.engines.base import RecomputeCost
 from gammaforge.gui.controller import Workspace

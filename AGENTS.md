@@ -90,6 +90,19 @@ constraints (`GRAND_PLAN.md` §1 has the full table with provenance — P1–P15
 - **Tests:** `pytest` from the repo root (or `source .venv/bin/activate && pytest`).
   Keep `pytest` green — Phase exit criteria in `GRAND_PLAN.md` §11 are the actual
   definition of "done" for a phase, not just "tests pass."
+  The test suite is structured into execution tiers (RES075):
+  - `pytest -m fast` (or `pytest --tier=fast`): **~20s fast agentic loop** running Tier 0
+    (contracts, schemas, units, formats, doc linters) and Tier 1 (fast component physics,
+    optics, runner, GPU logic). Default to this during iterative coding.
+  - `pytest --tier=tier0`: **~5s ultra-fast check** of contracts, schema, CGS units,
+    formats, and doc/decision guards.
+  - `pytest`: **~1.2m default check** running Tier 0, Tier 1, and Tier 2 (numerical integration,
+    trajectory tracking, validation harness). Heavy Tier 3 tests (>30s) are automatically
+    deselected on broad sweeps.
+  - `pytest --run-heavy` (or `pytest --tier=all`): **~11m full run** including heavy Tier 3
+    Monte Carlo validations, 16× quadrature refinement, and external SymPy proofs. Run before
+    phase exits or major commits.
+  - Specific files or tests run directly without flags (e.g. `pytest tests/test_analytical.py`).
 - **Decisions:** file one under `docs/decisions/implemented/<class>/` when you make a
   real implementation choice with a rejected alternative, *after* it's built (not as a
   promise) — or `docs/decisions/proposed/<class>/` for something reviewed but not yet

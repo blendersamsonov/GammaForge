@@ -8,6 +8,8 @@ import sys
 
 import pytest
 
+pytestmark = [pytest.mark.tier0, pytest.mark.fast]
+
 
 ROOT = Path(__file__).resolve().parents[1]
 

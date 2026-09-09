@@ -15,6 +15,8 @@ if find_spec("sympy") is None:
     pytest.skip("requires the symbolic extra (sympy)", allow_module_level=True)
 import sympy  # noqa: F401 -- fail on a broken declared symbolic installation
 
+pytestmark = [pytest.mark.tier3, pytest.mark.heavy, pytest.mark.symbolic]
+
 
 SCRIPTS = Path(__file__).parents[1] / "scripts" / "verifications"
 
