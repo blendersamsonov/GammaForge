@@ -41,8 +41,19 @@ def _udef_longdouble(
         [[cx, sx * sy, sx * cy], [ld(0), cy, -sy], [-sx, cx * sy, cx * cy]], dtype=ld
     )
     cp, sp = np.cos(psi_pol), np.sin(psi_pol)
-    e0 = rotation @ np.array([cp, sp, ld(0)], dtype=ld)
-    e1 = rotation @ np.array([-sp, cp, ld(0)], dtype=ld)
+    e0_raw = rotation @ np.array([cp, sp, ld(0)], dtype=ld)
+    e1_raw = rotation @ np.array([-sp, cp, ld(0)], dtype=ld)
+    e0_t = np.array([e0_raw[0], e0_raw[1], ld(0)], dtype=ld)
+    n0 = np.sqrt(e0_t[0] ** 2 + e0_t[1] ** 2)
+    if n0 > ld(1e-12):
+        e0 = e0_t / n0
+        e1_t = np.array([-e0[1], e0[0], ld(0)], dtype=ld)
+        if e1_raw[0] * e1_t[0] + e1_raw[1] * e1_t[1] < ld(0):
+            e1_t = -e1_t
+        e1 = e1_t
+    else:
+        e0 = np.zeros(3, dtype=ld)
+        e1 = np.zeros(3, dtype=ld)
 
     txo, tyo = ld(theta_x_obs), ld(theta_y_obs)
     n = np.array([txo, tyo, ld(1)], dtype=ld)
@@ -149,15 +160,14 @@ def test_cuda_polarization_helper_matches_independent_longdouble_udef(
 
 @gpu
 @pytest.mark.parametrize("gamma", [2000.0, 10000.0])
-def test_cuda_collinear_crossing_limit_is_cosine_squared(gamma):
+def test_cuda_collinear_crossing_limit_is_unity(gamma):
     helper = _production_helper()
     crossing = np.float32(0.3)
     actual = _as_host(helper(
         np.asarray([gamma], dtype=np.float32), np.zeros(1, np.float32), np.zeros(1, np.float32),
         np.float32(0.0), np.float32(0.0), np.float32(0.0), np.float32(0.0), crossing, np.float32(0.0),
     ))
-    expected = np.cos(np.longdouble(crossing)) ** 2
-    np.testing.assert_allclose(actual, [float(expected)], rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(actual, [1.0], rtol=1e-5, atol=1e-6)
 
 
 @gpu

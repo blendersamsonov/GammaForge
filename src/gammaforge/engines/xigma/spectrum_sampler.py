@@ -30,7 +30,11 @@ except Exception:
     jit = None
     _HAS_CUPY = False
 
-from .stages import KERNEL_NORMALIZATION_CONSTANT, rotated_laser_axes
+from .stages import (
+    KERNEL_NORMALIZATION_CONSTANT,
+    physical_transverse_axes,
+    rotated_laser_axes,
+)
 
 __all__ = [
     "is_gpu_available",
@@ -541,7 +545,7 @@ def _polarization_parameters(
     psi = values["psi_pol"]
     txz = values["theta_xz"]
     tyz = values["theta_yz"]
-    e0, e1 = rotated_laser_axes(psi_pol=psi, theta_xz=txz, theta_yz=tyz)
+    e0, e1 = physical_transverse_axes(psi_pol=psi, theta_xz=txz, theta_yz=tyz)
     e0x, e0y, e0z = float(e0[0]), float(e0[1]), float(e0[2])
     e1x, e1y, e1z = float(e1[0]), float(e1[1]), float(e1[2])
     eps2 = values["ellipticity"] ** 2

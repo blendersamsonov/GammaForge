@@ -66,6 +66,7 @@ __all__ = [
     "SPECTRUM_MAX_ENERGY_CHUNK",
     "stage2_backend",
     "rotated_laser_axes",
+    "physical_transverse_axes",
     "compute_stokes_components",
     "stokes_parameters_vectorized",
     "bunch_stokes_parameters",
@@ -185,6 +186,34 @@ def rotated_laser_axes(
     e0 = R @ np.array([cp, sp, 0.0], dtype=float)
     e1 = R @ np.array([-sp, cp, 0.0], dtype=float)
     return e0, e1
+
+
+def physical_transverse_axes(
+    psi_pol: float = 0.0,
+    theta_xz: float = 0.0,
+    theta_yz: float = 0.0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Physical transverse dipole radiation unit vectors in the electron frame (DER012).
+
+    Projects the rotated laser polarization basis onto the plane transverse to the
+    electron beam axis, reflecting that relativistic longitudinal inertia gamma^3 * m
+    suppresses longitudinal acceleration to O(alpha / gamma^2) ~ 10^-11.
+    """
+    e0, e1 = rotated_laser_axes(psi_pol=psi_pol, theta_xz=theta_xz, theta_yz=theta_yz)
+    e0_t = np.array([e0[0], e0[1], 0.0], dtype=float)
+    n0 = math.sqrt(e0_t[0] ** 2 + e0_t[1] ** 2)
+    if n0 > 1e-12:
+        e0_out = e0_t / n0
+        # Gram-Schmidt orthonormal minor axis in the transverse plane
+        e1_t = np.array([-e0_out[1], e0_out[0], 0.0], dtype=float)
+        if e1[0] * e1_t[0] + e1[1] * e1_t[1] < 0.0:
+            e1_t = -e1_t
+        e1_out = e1_t
+    else:
+        e0_out = np.zeros(3, dtype=float)
+        e1_out = np.zeros(3, dtype=float)
+
+    return e0_out, e1_out
 
 
 def compute_stokes_components(
@@ -316,7 +345,7 @@ def stokes_parameters_vectorized(
 
     Signature mirrors :func:`polarization_factor_vectorized` for drop-in convenience.
     """
-    e0, e1 = rotated_laser_axes(psi_pol=psi_pol, theta_xz=theta_xz, theta_yz=theta_yz)
+    e0, e1 = physical_transverse_axes(psi_pol=psi_pol, theta_xz=theta_xz, theta_yz=theta_yz)
     return compute_stokes_components(
         gamma=gamma,
         theta_ex=theta_x,
@@ -405,7 +434,7 @@ def polarization_factor_vectorized(
     are removed by the calling kernel's physical-resonance mask. Stable vector evaluation
     evaluates Eq. ``udef`` directly (RES069, RES070).
     """
-    e0, e1 = rotated_laser_axes(psi_pol=psi_pol, theta_xz=theta_xz, theta_yz=theta_yz)
+    e0, e1 = physical_transverse_axes(psi_pol=psi_pol, theta_xz=theta_xz, theta_yz=theta_yz)
     no = math.sqrt(1.0 + theta_x_obs**2 + theta_y_obs**2)
     n = np.array([theta_x_obs, theta_y_obs, 1.0]) / no
 
