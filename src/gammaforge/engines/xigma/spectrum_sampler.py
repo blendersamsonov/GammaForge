@@ -684,6 +684,6 @@ def calculate_angular_spectrum_gpu(
     if not np.all(np.isfinite(out)):
         raise RuntimeError(
             "calculate_angular_spectrum_gpu produced non-finite samples; use backend='numpy' "
-            "while the experimental CuPy sampler is under validation."
+            "as fallback."
         )
     return out

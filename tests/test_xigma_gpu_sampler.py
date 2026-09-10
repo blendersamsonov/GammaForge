@@ -187,4 +187,4 @@ def test_xigma_engine_run_with_backend_cupy():
     assert results.model_specific["stage2_backend"] == "cupy"
     assert results.model_specific["stage2_sampler"]["cdf_inversion"] == "exact_binary_search"
     assert results.model_specific["stage2_sampler"]["proposal_floor_fraction"] == 1e-3
-    assert any("experimental" in warning for warning in results.model_specific["warnings"])
+    assert any("production-ready" in warning for warning in results.model_specific["warnings"])

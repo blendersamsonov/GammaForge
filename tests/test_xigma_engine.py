@@ -58,7 +58,7 @@ def _empty_interaction(outputs, *, through_prefilter: bool):
 
 def test_xigma_engine_conforms_to_the_engine_protocol():
     assert isinstance(XigmaEngine(), Engine)
-    assert XigmaEngine.schema.get_choice("backend") == "numpy"
+    assert XigmaEngine.schema.get_choice("backend") == "cupy"
 
 
 def test_supported_outputs_matches_what_run_actually_fills():
@@ -246,7 +246,7 @@ def test_angular_and_collimated_slices_are_nonnegative():
     results = XigmaEngine().run(interaction, _engine_params())
     for kind in (OutputKind.ANGULAR_DISTRIBUTION, OutputKind.COLLIMATED_SPECTRUM):
         assert np.all(results.photon_slices[kind].distr >= 0.0)
-    assert results.model_specific["stage2_backend"] == "numpy"
+    assert results.model_specific["stage2_backend"] == "cupy"
 
 
 # ---------------------------------------------------------------------------

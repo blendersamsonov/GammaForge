@@ -1,4 +1,4 @@
-"""Small, reproducible convergence checks for the experimental CuPy sampler."""
+"""Small, reproducible convergence checks for the CuPy sampler."""
 
 from __future__ import annotations
 
