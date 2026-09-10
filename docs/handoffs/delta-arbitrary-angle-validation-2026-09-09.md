@@ -18,7 +18,46 @@ reference evaluates exact per-particle resonance/polarization; xigma evaluates a
 cell centers. Same DER012 formulas, same normalization. No code change needed —
 convergence requires finer shape bins (memory/compute trade-off).
 
+**Angular refinement packet completed (2026-09-10):** Bounded probe with gamma/shape-ahat
+bins at 32, retarget 256, 16k particles, 64 Stage-0 steps, seed 20260721, q32/q64.
+Three theta-bin configurations tested (16, 32, 64) for baseline scenario, both
+geometries (head-on/crossed), both observers (on-axis/off-axis). Report:
+`/tmp/delta-angular-refinement-2026-09-10.json`.
+
+| Geometry | Observer | (32,16,16,32) | (32,32,32,32) | (32,64,64,32) |
+|---|---|---:|---:|---:|
+| Crossed | off-axis | 14.1% | 2.16% | 0.77% |
+| Head-on | off-axis | 13.0% | 1.81% | 0.77% |
+| Crossed | on-axis | 1.81% | 1.22% | 1.17% |
+| Head-on | on-axis | 1.26% | 1.26% | 1.17% |
+
+Yield matches <0.2% at all resolutions. All q32/q64 refinements converged.
+Off-axis L1 converges monotonically with theta bins (14% → 2% → 0.8%).
+On-axis already converged at production resolution (~1.2–1.8%).
+Next: refine gamma and shape/retarget ahat separately, then particle/seed and Stage-0
+studies before matched-bin actual-CUDA acceptance.
+
 ## Current implementation and authority
+
+### Bounded angular-refinement packet (in progress)
+
+The next controlled probe holds gamma/shape-ahat bins at 32, retarget bins at 256,
+16,000 particles, 64 Stage-0 steps, seed 20260721 and q32/q64 energy integration.
+Only the two electron-angle table axes change together: 16, 32, 64. Baseline only,
+both existing geometries and observers; energy reporting edges and particles stay
+fixed within each geometry/observer comparison. Production formulas are unchanged.
+
+The pilot is being extended with repeatable explicit table configurations and a
+scenario selector. Resume command after its focused tests pass:
+
+```sh
+.venv/bin/python scripts/validate_delta_emission.py --scenario baseline --quadrature-order 32 --table 32,16,16,32,256 --table 32,32,32,32,256 --table 32,64,64,32,256 --output /tmp/delta-angular-refinement-2026-09-09.json > /dev/null
+```
+
+Do not treat execution completion as convergence. Inspect q32/q64 changes and
+successive table-bin masses as well as disagreement with delta. After this probe,
+refine gamma and shape/retarget ahat separately before particle/seed and Stage-0
+studies. Fixed edges here apply across table settings, not yet across particle runs.
 
 ### Current corrected basis (DER012 / RES078)
 

@@ -79,10 +79,13 @@ Ordered by who is blocked. Each names the file that carries the detail.
   -0.20%, but off-axis spectral L1 remains about 14%. **Root cause identified (RES079):**
   the off-axis L1 discrepancy is a numerical convergence issue of the table-based
   quadrature method (cell-centered vs per-particle evaluation), not a physics or
-  algorithmic bug. Yield matches to <0.5% at all resolutions; L1 decreases monotonically
-  with finer gamma/theta shape bins (13% → 1.8% from (32,16,16,32) → (64,32,32,64)).
-  Full convergence and actual-CUDA delta comparisons remain open; see the handoff for
-  saved reports and the next bounded packet.
+  algorithmic bug. **Angular refinement packet completed (2026-09-10):** bounded probe
+  with theta bins 16/32/64 at fixed gamma=32, retarget=256, 16k particles, q32/q64.
+  Off-axis L1 converges monotonically: crossed 14.1% → 2.16% → 0.77%, head-on 13.0%
+  → 1.81% → 0.77%. Yield matches <0.2% at all resolutions. On-axis already converged
+  at production resolution (~1.2–1.8%). Next: refine gamma and shape/retarget ahat
+  separately, then particle/seed and Stage-0 studies before matched-bin actual-CUDA
+  acceptance; see the handoff for saved reports and the next bounded packet.
 
 - **Spatial autoranging under displacement.** The current Kascade reproduction captured its
   sampled photon weights inside the symmetric auto range for laser offsets through 120 µm;
