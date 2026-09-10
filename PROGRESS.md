@@ -54,15 +54,6 @@ Ordered by who is blocked. Each names the file that carries the detail.
 
 ### Available to pick up (no external dependency)
 
-- **CuPy promotion — DONE (2026-09-10).** Ring and sample controls plus the actual-CUDA release
-  gate are implemented (RES072), rerun after DER012/RES078 in
-  `docs/validation/cupy-release-transverse-2026-09-09.json`.
-  Eight finite-window cases pass reference refinement,
-  default/fine GPU agreement, and successive GPU refinement checks. **CuPy is now the
-  default backend (RES074/RES079).** Independent arbitrary-angle emission validation
-  converged (<1% L1 off-axis). Scope and measurements:
-  `docs/ALPHA_GPU_VALIDATION.md`.
-
 - **Independently validate arbitrary-angle emission.** DER012/RES078 updates production
   and the independently constructed delta reference to local transverse-dipole emission.
   Actual-kernel angular conservation and real-CUDA polarization/target bounds pass,
