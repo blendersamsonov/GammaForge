@@ -54,38 +54,21 @@ Ordered by who is blocked. Each names the file that carries the detail.
 
 ### Available to pick up (no external dependency)
 
-- **Independently validate arbitrary-angle emission.** DER012/RES078 updates production
+- **Independently validate arbitrary-angle emission — CONVERGENCE DONE (2026-09-10).** DER012/RES078 updates production
   and the independently constructed delta reference to local transverse-dipole emission.
-  Actual-kernel angular conservation and real-CUDA polarization/target bounds pass,
-  but full arbitrary-angle convergence and scientific acceptance remain open.
-  Direct resonance-binning preparation is recorded in RES074 and
+  Actual-kernel angular conservation and real-CUDA polarization/target bounds pass.
+  **Convergence achieved:** angular/gamma/retarget refinement packets + particle/seed/Stage-0
+  studies all converged. Best config (gamma=32, theta=64, retarget=512): crossed off-axis
+  0.65%, head-on off-axis 0.65%, on-axis ~1.1%. Yield <0.05%, all q32/q64 converged.
+  **Scientific acceptance pending:** author audit of nominal-axis vs per-particle Doppler
+  factor (general per-particle Doppler factor vs current nominal-axis approximation).
+  Direct resonance-binning preparation recorded in RES074 and
   `docs/handoffs/delta-arbitrary-angle-validation-2026-09-09.md`: independent delta
   polarization evaluation, matched energy-bin measures, and separate convergence
-  gates. The general per-particle Doppler factor versus the current nominal-axis
-  approximation must be audited before scientific acceptance. The independent line
-  reference and first Doppler diagnostic are implemented (RES076); measured shifts
-  are small for the tested Gaussian bank. A matched-bin NumPy pilot is implemented
-  (RES077/RES078): the corrected refined baseline crossed on-axis count error is
-  -0.20%, but off-axis spectral L1 remains about 14%. **Root cause identified (RES079):**
-  the off-axis L1 discrepancy is a numerical convergence issue of the table-based
-  quadrature method (cell-centered vs per-particle evaluation), not a physics or
-  algorithmic bug. **Angular refinement packet completed (2026-09-10):** bounded probe
-  with theta bins 16/32/64 at fixed gamma=32, retarget=256, 16k particles, q32/q64.
-  Off-axis L1 converges monotonically: crossed 14.1% → 2.16% → 0.77%, head-on 13.0%
-  → 1.81% → 0.77%. **Gamma refinement completed:** theta=64, retarget=256, gamma 16/32/64.
-  Off-axis L1: crossed 2.56% → 1.17% → 0.91%. **Retarget ahat refinement completed:**
-  theta=64, gamma=32, retarget 128/256/512. Off-axis L1: crossed 4.63% → 1.17% → 0.65%.
-  **Best convergence (gamma=32, theta=64, retarget=512):** crossed off-axis 0.65%,
-  head-on off-axis 0.65%, on-axis ~1.1%. Yield matches <0.05% at all resolutions.
-  **Particle/seed studies (2026-09-10):** 5 seeds, 8k–64k particles. L1 stable 0.41%–1.02%,
-  yield <0.04%. **Stage-0 studies:** n_steps 64→128→256 converged; window type diff <0.01%.
-  **CuPy matched-bin (2026-09-10):** NumPy L1=0.73%, CuPy L1=0.81% (crossed off-axis).
-  **Full CuPy release gate (2026-09-10):** 80+ checks pass across 8 scenario cases.
-  Max L1: 0.85% (crossed), 0.66% (wide_offaxis), 0.24% (highgamma). CuPy numerically
-  consistent with CPU reference.
-  **Full CuPy vs delta comparison (2026-09-10):** 8 scenarios × 2 geometries × 2 observers
-  completed. Max L1: 1.91% (baseline crossed on-axis), typical off-axis 0.8-0.9%.
-  Yield <0.4%, centroid <0.04%. All converged. **CuPy promotion complete — default backend.**
+  gates. The independent line reference and first Doppler diagnostic are implemented
+  (RES076); measured shifts are small for the tested Gaussian bank. A matched-bin
+  NumPy pilot is implemented (RES077/RES078): corrected refined baseline crossed
+  on-axis count error -0.20%. **CuPy promotion complete — default backend.**
 
 - **Spatial autoranging under displacement.** The current Kascade reproduction captured its
   sampled photon weights inside the symmetric auto range for laser offsets through 120 µm;
