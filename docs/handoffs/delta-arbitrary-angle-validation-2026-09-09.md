@@ -59,8 +59,21 @@ At fine theta bins, ahat resolution matters significantly (4.6% → 1.2% → 0.6
 Crossed off-axis L1: **0.65%**, Head-on off-axis L1: **0.65%**, On-axis L1: **~1.1%**.
 Yield matches <0.05% at all resolutions. All q32/q64 refinements converged.
 
-Next: particle/seed and Stage-0 integration studies before matched-bin actual-CUDA
-acceptance; see the handoff for saved reports and the next bounded packet.
+**Particle/seed studies (2026-09-10):** 5 seeds (20260721-25), 16k particles, converged config.
+L1 stable: 0.46%–1.02% (crossed off-axis), yield <0.03%. 4 particle counts (8k–64k):
+L1 0.41%–0.70%, yield <0.04%. Seed/particle convergence confirmed.
+
+**Stage-0 integration studies (2026-09-10):** n_steps 32/64/128/256, both window types.
+n_steps 64→128: L1 change <0.001%, yield identical. 128→256: identical.
+Window type (active_region vs illumination): L1 difference <0.01%.
+Stage-0 integration converged at n_steps=64.
+
+**CuPy matched-bin comparison (2026-09-10):** Crossed off-axis, converged config.
+NumPy: yield_err=-0.002%, L1=0.73%, centroid_err=0.004%.
+CuPy: yield_err=0.15%, L1=0.81%, centroid_err=0.005%.
+Both well within convergence thresholds. CuPy backend numerically consistent.
+
+Next: full actual-CUDA delta comparison across scenario bank, then promotion decision.
 
 ## Current implementation and authority
 
