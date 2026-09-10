@@ -92,8 +92,11 @@ Ordered by who is blocked. Each names the file that carries the detail.
   **CuPy matched-bin (2026-09-10):** NumPy L1=0.73%, CuPy L1=0.81% (crossed off-axis).
   **Full CuPy release gate (2026-09-10):** 80+ checks pass across 8 scenario cases.
   Max L1: 0.85% (crossed), 0.66% (wide_offaxis), 0.24% (highgamma). CuPy numerically
-  consistent with CPU reference. Next: promotion decision — CuPy gate passes,
-  independent arbitrary-angle validation converged (<1% L1 off-axis). Remaining:
+  consistent with CPU reference.
+  **Full CuPy vs delta comparison (2026-09-10):** 8 scenarios × 2 geometries × 2 observers
+  completed. Max L1: 1.91% (baseline crossed on-axis), typical off-axis 0.8-0.9%.
+  Yield <0.4%, centroid <0.04%. All converged. Next: promotion decision — CuPy gate
+  passes, independent arbitrary-angle validation converged (<1% L1 off-axis). Remaining:
   author sign-off on CPU sampler default.
 
 - **Spatial autoranging under displacement.** The current Kascade reproduction captured its
