@@ -76,8 +76,13 @@ Ordered by who is blocked. Each names the file that carries the detail.
   reference and first Doppler diagnostic are implemented (RES076); measured shifts
   are small for the tested Gaussian bank. A matched-bin NumPy pilot is implemented
   (RES077/RES078): the corrected refined baseline crossed on-axis count error is
-  -0.20%, but off-axis spectral L1 remains about 14%. Full convergence and actual-CUDA delta comparisons
-  remain open; see the handoff for saved reports and the next bounded packet.
+  -0.20%, but off-axis spectral L1 remains about 14%. **Root cause identified (RES079):**
+  the off-axis L1 discrepancy is a numerical convergence issue of the table-based
+  quadrature method (cell-centered vs per-particle evaluation), not a physics or
+  algorithmic bug. Yield matches to <0.5% at all resolutions; L1 decreases monotonically
+  with finer gamma/theta shape bins (13% → 1.8% from (32,16,16,32) → (64,32,32,64)).
+  Full convergence and actual-CUDA delta comparisons remain open; see the handoff for
+  saved reports and the next bounded packet.
 
 - **Spatial autoranging under displacement.** The current Kascade reproduction captured its
   sampled photon weights inside the symmetric auto range for laser offsets through 120 µm;

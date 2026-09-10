@@ -9,6 +9,15 @@ resonant photon energy, comparing with NumPy and CuPy spectral-angular calculati
 No GUI, Kascade optimization or GPU Stokes extension. The author-provided DER012
 production polarization correction was merged separately and incorporated below.
 
+**Root cause of off-axis spectral discrepancy (RES079, 2026-09-10):** The ~13–14% L1
+off-axis discrepancy (head-on/crossed) at production table resolution is a **numerical
+convergence issue of the table-based quadrature method**, not a physics or algorithmic
+bug. Yield matches to <0.5% at all resolutions; L1 decreases monotonically with finer
+gamma/theta shape bins (13% → 1.8% from (32,16,16,32) → (64,32,32,64)). The delta
+reference evaluates exact per-particle resonance/polarization; xigma evaluates at
+cell centers. Same DER012 formulas, same normalization. No code change needed —
+convergence requires finer shape bins (memory/compute trade-off).
+
 ## Current implementation and authority
 
 ### Current corrected basis (DER012 / RES078)
