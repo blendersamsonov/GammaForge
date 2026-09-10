@@ -82,10 +82,13 @@ Ordered by who is blocked. Each names the file that carries the detail.
   algorithmic bug. **Angular refinement packet completed (2026-09-10):** bounded probe
   with theta bins 16/32/64 at fixed gamma=32, retarget=256, 16k particles, q32/q64.
   Off-axis L1 converges monotonically: crossed 14.1% → 2.16% → 0.77%, head-on 13.0%
-  → 1.81% → 0.77%. Yield matches <0.2% at all resolutions. On-axis already converged
-  at production resolution (~1.2–1.8%). Next: refine gamma and shape/retarget ahat
-  separately, then particle/seed and Stage-0 studies before matched-bin actual-CUDA
-  acceptance; see the handoff for saved reports and the next bounded packet.
+  → 1.81% → 0.77%. **Gamma refinement completed:** theta=64, retarget=256, gamma 16/32/64.
+  Off-axis L1: crossed 2.56% → 1.17% → 0.91%. **Retarget ahat refinement completed:**
+  theta=64, gamma=32, retarget 128/256/512. Off-axis L1: crossed 4.63% → 1.17% → 0.65%.
+  **Best convergence (gamma=32, theta=64, retarget=512):** crossed off-axis 0.65%,
+  head-on off-axis 0.65%, on-axis ~1.1%. Yield matches <0.05% at all resolutions.
+  Next: particle/seed and Stage-0 studies before matched-bin actual-CUDA acceptance;
+  see the handoff for saved reports and the next bounded packet.
 
 - **Spatial autoranging under displacement.** The current Kascade reproduction captured its
   sampled photon weights inside the symmetric auto range for laser offsets through 120 µm;

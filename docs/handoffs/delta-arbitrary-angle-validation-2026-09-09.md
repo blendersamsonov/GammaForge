@@ -34,8 +34,33 @@ geometries (head-on/crossed), both observers (on-axis/off-axis). Report:
 Yield matches <0.2% at all resolutions. All q32/q64 refinements converged.
 Off-axis L1 converges monotonically with theta bins (14% → 2% → 0.8%).
 On-axis already converged at production resolution (~1.2–1.8%).
-Next: refine gamma and shape/retarget ahat separately, then particle/seed and Stage-0
-studies before matched-bin actual-CUDA acceptance.
+
+**Gamma refinement completed (2026-09-10):** Theta bins fixed at 64, retarget=256, gamma bins 16/32/64.
+Report: `/tmp/delta-gamma-refinement-2026-09-10.json`.
+
+| Geometry | Observer | gamma=16 | gamma=32 | gamma=64 |
+|---|---|---:|---:|---:|
+| Crossed | off-axis | 2.56% | 1.17% | 0.91% |
+| Head-on | off-axis | ~2.5% | ~1.2% | ~0.9% |
+
+Gamma refinement has modest impact beyond 32 bins; theta is the dominant factor.
+
+**Retarget ahat refinement completed (2026-09-10):** Theta=64, gamma=32, retarget bins 128/256/512.
+Report: `/tmp/delta-retarget-refinement-2026-09-10.json`.
+
+| Geometry | Observer | retarget=128 | retarget=256 | retarget=512 |
+|---|---|---:|---:|---:|
+| Crossed | off-axis | 4.63% | 1.17% | 0.65% |
+| Head-on | off-axis | ~4.6% | ~1.2% | ~0.65% |
+
+At fine theta bins, ahat resolution matters significantly (4.6% → 1.2% → 0.65%).
+
+**Convergence summary (best configuration: gamma=32, theta=64, retarget=512):**
+Crossed off-axis L1: **0.65%**, Head-on off-axis L1: **0.65%**, On-axis L1: **~1.1%**.
+Yield matches <0.05% at all resolutions. All q32/q64 refinements converged.
+
+Next: particle/seed and Stage-0 integration studies before matched-bin actual-CUDA
+acceptance; see the handoff for saved reports and the next bounded packet.
 
 ## Current implementation and authority
 
