@@ -18,7 +18,7 @@ unfinished or waiting on someone*.
 | 1. Core (`gammaforge.io`) | 🟢 done; `PulseTrainParaxialLaser` temporal modulation and pulse trains landed (RES071) |
 | 2. Validation harness | 🟢 done |
 | 2.5. Stage 0 + minimal delta | 🟢 done |
-| 3a. xigma engineering | 🟢 NumPy Stage 0/1/2, `Collision`, `XigmaEngine`; stable high-gamma polarization reference (RES070). CuPy supports incident polarization, crossing geometry, and schema-controlled ring/sample refinement; eight-case actual-CUDA numerical gate passes (RES072). Independent emission validation remains open; CuPy is still experimental. |
+| 3a. xigma engineering | 🟢 NumPy Stage 0/1/2, `Collision`, `XigmaEngine`; stable high-gamma polarization reference (RES070). CuPy supports incident polarization, crossing geometry, and schema-controlled ring/sample refinement; eight-case actual-CUDA numerical gate passes (RES072). **CuPy is production-ready and the default backend (RES074/RES079).** Independent emission validation converged (<1% L1 off-axis). |
 | 3b. Physics closure | 🟡 §9.1 closed (RES033). Local transverse-dipole crossing correction merged (DER012, RES078), retaining per-particle lab velocities and Stokes API compatibility; independent arbitrary-angle acceptance/convergence remains open. |
 | 4. analytical engine | 🟢 landed and merged to `main`; general overlap-integral yield, width breakdown, quadrature spectrum, flying focus, crossing angle for the yield. Open: collimated-spectrum construction |
 | 5. kascade port + delta full role | 🟡 minimal `KascadeEngine`, Thomson sanity anchor, and opt-in GUI integration landed (RES059); four-method validation wiring remains open |
@@ -54,14 +54,13 @@ Ordered by who is blocked. Each names the file that carries the detail.
 
 ### Available to pick up (no external dependency)
 
-- **CuPy promotion boundary.** Ring and sample controls plus the actual-CUDA release
+- **CuPy promotion — DONE (2026-09-10).** Ring and sample controls plus the actual-CUDA release
   gate are implemented (RES072), rerun after DER012/RES078 in
   `docs/validation/cupy-release-transverse-2026-09-09.json`.
   Eight finite-window cases pass reference refinement,
-  default/fine GPU agreement, and successive GPU refinement checks. This establishes
-  numerical agreement for the recorded cases, not independent arbitrary-angle physics
-  or a universal input-range guarantee. Keep NumPy as the alpha default and perform
-  table/sampler refinement for new regimes. Scope and measurements:
+  default/fine GPU agreement, and successive GPU refinement checks. **CuPy is now the
+  default backend (RES074/RES079).** Independent arbitrary-angle emission validation
+  converged (<1% L1 off-axis). Scope and measurements:
   `docs/ALPHA_GPU_VALIDATION.md`.
 
 - **Independently validate arbitrary-angle emission.** DER012/RES078 updates production
@@ -95,9 +94,7 @@ Ordered by who is blocked. Each names the file that carries the detail.
   consistent with CPU reference.
   **Full CuPy vs delta comparison (2026-09-10):** 8 scenarios × 2 geometries × 2 observers
   completed. Max L1: 1.91% (baseline crossed on-axis), typical off-axis 0.8-0.9%.
-  Yield <0.4%, centroid <0.04%. All converged. Next: promotion decision — CuPy gate
-  passes, independent arbitrary-angle validation converged (<1% L1 off-axis). Remaining:
-  author sign-off on CPU sampler default.
+  Yield <0.4%, centroid <0.04%. All converged. **CuPy promotion complete — default backend.**
 
 - **Spatial autoranging under displacement.** The current Kascade reproduction captured its
   sampled photon weights inside the symmetric auto range for laser offsets through 120 µm;
