@@ -87,8 +87,14 @@ Ordered by who is blocked. Each names the file that carries the detail.
   theta=64, gamma=32, retarget 128/256/512. Off-axis L1: crossed 4.63% → 1.17% → 0.65%.
   **Best convergence (gamma=32, theta=64, retarget=512):** crossed off-axis 0.65%,
   head-on off-axis 0.65%, on-axis ~1.1%. Yield matches <0.05% at all resolutions.
-  Next: particle/seed and Stage-0 studies before matched-bin actual-CUDA acceptance;
-  see the handoff for saved reports and the next bounded packet.
+  **Particle/seed studies (2026-09-10):** 5 seeds, 8k–64k particles. L1 stable 0.41%–1.02%,
+  yield <0.04%. **Stage-0 studies:** n_steps 64→128→256 converged; window type diff <0.01%.
+  **CuPy matched-bin (2026-09-10):** NumPy L1=0.73%, CuPy L1=0.81% (crossed off-axis).
+  **Full CuPy release gate (2026-09-10):** 80+ checks pass across 8 scenario cases.
+  Max L1: 0.85% (crossed), 0.66% (wide_offaxis), 0.24% (highgamma). CuPy numerically
+  consistent with CPU reference. Next: promotion decision — CuPy gate passes,
+  independent arbitrary-angle validation converged (<1% L1 off-axis). Remaining:
+  author sign-off on CPU sampler default.
 
 - **Spatial autoranging under displacement.** The current Kascade reproduction captured its
   sampled photon weights inside the symmetric auto range for laser offsets through 120 µm;

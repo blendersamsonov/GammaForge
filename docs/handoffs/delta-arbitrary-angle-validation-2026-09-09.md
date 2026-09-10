@@ -73,7 +73,14 @@ NumPy: yield_err=-0.002%, L1=0.73%, centroid_err=0.004%.
 CuPy: yield_err=0.15%, L1=0.81%, centroid_err=0.005%.
 Both well within convergence thresholds. CuPy backend numerically consistent.
 
-Next: full actual-CUDA delta comparison across scenario bank, then promotion decision.
+**Full actual-CUDA delta comparison (2026-09-10):** CuPy release gate passed across
+full scenario bank (8 cases: baseline, low_a0, near_a0_max, crossed, wide_offaxis,
+narrow_offaxis, highgamma10000_crossed, highgamma10000_circular). All 80+ checks pass:
+CPU/GPU agreement, ring/subsampling refinement, convergence. Max L1: 0.85% (crossed),
+0.66% (wide_offaxis), 0.24% (highgamma). CuPy numerically consistent with CPU reference.
+
+Next: promotion decision — CuPy gate passes, independent arbitrary-angle validation
+converged (<1% L1 off-axis). Remaining: author sign-off on CPU sampler default.
 
 ## Current implementation and authority
 
