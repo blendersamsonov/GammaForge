@@ -72,6 +72,8 @@ __all__ = [
     "bunch_stokes_parameters",
     "polarization_factor",
     "polarization_factor_vectorized",
+    "relative_velocity",
+    "doppler_factor_per_particle",
 ]
 
 #: Relative-velocity factor for the near-backscattering geometry: electron and photon
@@ -104,6 +106,102 @@ def relative_velocity(
     if k_hat is not None:
         return 1.0 - beta * float(k_hat[2])
     return 1.0 + beta * math.cos(theta_xz) * math.cos(theta_yz)
+
+
+def doppler_factor_per_particle(
+    gamma: np.ndarray,
+    theta_x: np.ndarray,
+    theta_y: np.ndarray,
+    theta_xz: float = 0.0,
+    theta_yz: float = 0.0,
+    *,
+    k_hat: np.ndarray | None = None,
+) -> np.ndarray:
+    """Per-particle Doppler factor relative to the nominal-axis approximation.
+
+    The nominal-axis Doppler factor (used in production xigma) is ``cos^2(alpha/2)``
+    where ``cos(alpha) = cos(theta_xz) * cos(theta_yz)``. This function computes the
+    exact per-particle factor ``(1 - v.n0_hat) / (1 + cos(alpha))`` for each electron,
+    where ``v`` is the electron's lab-frame velocity vector and ``n0_hat`` is the
+    laser propagation direction.
+
+    Parameters
+    ----------
+    gamma : np.ndarray
+        Per-particle Lorentz factors, shape (n_particles,).
+    theta_x : np.ndarray
+        Per-particle x divergence angles (rad), shape (n_particles,).
+    theta_y : np.ndarray
+        Per-particle y divergence angles (rad), shape (n_particles,).
+    theta_xz : float
+        Laser crossing angle in x-z plane (radians).
+    theta_yz : float
+        Laser crossing angle in y-z plane (radians).
+    k_hat : np.ndarray | None
+        Laser propagation unit vector (3,). If provided, used directly instead of
+        computing from crossing angles.
+
+    Returns
+    -------
+    np.ndarray
+        Per-particle Doppler factors relative to nominal, shape (n_particles,).
+        For head-on (theta_xz=theta_yz=0) and zero divergence, this equals
+        ``(1 + beta) / 2`` -> 1 for ultra-relativistic beams.
+
+    Notes
+    -----
+    The nominal-axis approximation uses the beam-axis velocity (theta_x=theta_y=0)
+    and the laser propagation direction. The per-particle version accounts for each
+    electron's individual divergence, which matters for beams with significant
+    angular spread or large crossing angles.
+    """
+    gamma = np.asarray(gamma, dtype=float)
+    theta_x = np.asarray(theta_x, dtype=float)
+    theta_y = np.asarray(theta_y, dtype=float)
+
+    if gamma.ndim != 1 or theta_x.ndim != 1 or theta_y.ndim != 1:
+        raise ValueError("gamma, theta_x, theta_y must be 1D arrays")
+    if not (gamma.shape == theta_x.shape == theta_y.shape):
+        raise ValueError("gamma, theta_x, theta_y must have the same shape")
+
+    # Electron velocity vector (normalized)
+    # v = beta * (theta_x, theta_y, 1) / sqrt(1 + theta_x^2 + theta_y^2)
+    beta = np.sqrt(1.0 - 1.0 / (gamma * gamma))
+    norm = np.sqrt(1.0 + theta_x * theta_x + theta_y * theta_y)
+    vx = beta * theta_x / norm
+    vy = beta * theta_y / norm
+    vz = beta / norm
+
+    # Laser propagation direction n0_hat
+    if k_hat is not None:
+        n0 = np.asarray(k_hat, dtype=float)
+        if n0.shape != (3,):
+            raise ValueError("k_hat must have shape (3,)")
+    else:
+        cos_xz = math.cos(theta_xz)
+        cos_yz = math.cos(theta_yz)
+        sin_xz = math.sin(theta_xz)
+        sin_yz = math.sin(theta_yz)
+        n0 = np.array([
+            -sin_xz * cos_yz,
+            sin_yz,
+            -cos_xz * cos_yz,
+        ], dtype=float)
+
+    # 1 - v.n0_hat
+    v_dot_n0 = vx * n0[0] + vy * n0[1] + vz * n0[2]
+    one_minus_v_dot_n0 = 1.0 - v_dot_n0
+
+    # Nominal factor: 1 + cos(alpha) = 1 + cos(theta_xz) * cos(theta_yz)
+    if k_hat is not None:
+        # For arbitrary k_hat, the nominal factor is 1 - k_hat[2] (head-on beta=1)
+        # But we need the general form. The nominal axis is the beam axis (0,0,1)
+        # so nominal = 1 - (0,0,1).n0 = 1 - n0[2]
+        nominal = 1.0 - n0[2]
+    else:
+        nominal = 1.0 + math.cos(theta_xz) * math.cos(theta_yz)
+
+    return one_minus_v_dot_n0 / nominal
 
 
 #: Backward-compatible alias for code/docs that still reference the constant name.
@@ -1219,6 +1317,30 @@ def spectrum_from_table(
     # into the sum below rather than factored out as a scalar the way theta's still is.
     ahat_widths = table.ahat_widths[None, None, :]
 
+    # Per-cell Doppler factor: D_cell = 1 - v·n0, where v is the electron velocity
+    # at the cell center (tx_c, ty_c) and n0 is the laser propagation direction.
+    # The nominal-axis Doppler factor (used to scale photon_energy upstream) is
+    # D_nominal = 1 - n0_z = 1 + cos(theta_xz) * cos(theta_yz).
+    # The relative factor D_rel = D_cell / D_nominal corrects the resonance condition.
+    cos_xz = math.cos(theta_xz)
+    cos_yz = math.cos(theta_yz)
+    sin_xz = math.sin(theta_xz)
+    sin_yz = math.sin(theta_yz)
+    n0_x = -sin_xz * cos_yz
+    n0_y = sin_yz
+    n0_z = -cos_xz * cos_yz
+
+    # Electron velocity (ultra-relativistic, beta ≈ 1): v = (tx, ty, 1) / sqrt(1 + tx^2 + ty^2)
+    norm = np.sqrt(1.0 + tx_c**2 + ty_c**2)
+    vx = tx_c / norm
+    vy = ty_c / norm
+    vz = 1.0 / norm
+
+    v_dot_n0 = vx * n0_x + vy * n0_y + vz * n0_z
+    D_cell = 1.0 - v_dot_n0
+    D_nominal = 1.0 - n0_z  # = 1 + cos_xz * cos_yz
+    D_rel = D_cell / D_nominal
+
     out = np.zeros(s_arr.shape[0])
     for k, s_val in enumerate(s_arr):
         # s <= 0 is not a resonance to invert (the formula's own 1/s and 1/s**2 factors
@@ -1226,7 +1348,7 @@ def spectrum_from_table(
         # zero, so there is nothing to compute.
         if s_val <= 0.0:
             continue
-        inv_base = 1.0 / s_val - r_sq
+        inv_base = D_rel / s_val - r_sq
         # A resonance exists only where inv_base > 0 (g_sq would otherwise be negative or
         # infinite); `valid` gates every quantity built from it, including the gamma this
         # cell would query `H` at, so an invalid cell contributes exactly zero rather than

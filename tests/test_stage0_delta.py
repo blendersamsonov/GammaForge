@@ -21,6 +21,7 @@ pytestmark = [pytest.mark.tier2]
 from gammaforge.engines.xigma import chunking
 from gammaforge.engines.xigma.stages import (
     relative_velocity,
+    doppler_factor_per_particle,
     TrajectorySamples,
     ahat_from_shape,
     integrate_trajectories,
@@ -358,6 +359,134 @@ def test_an_unbuilt_backend_says_so_rather_than_running_on_the_host():
 
 def test_the_relative_velocity_factor_is_the_head_on_one():
     assert relative_velocity(beta=1.0) == 2.0
+
+
+def test_doppler_factor_per_particle_head_on():
+    """Per-particle Doppler factor for head-on collision with zero divergence."""
+    from gammaforge.engines.xigma.stages import doppler_factor_per_particle
+
+    gamma = np.array([2.0, 2000.0, 10000.0])
+    theta_x = np.zeros_like(gamma)
+    theta_y = np.zeros_like(gamma)
+
+    factors = doppler_factor_per_particle(gamma, theta_x, theta_y, theta_xz=0.0, theta_yz=0.0)
+
+    # For head-on, zero divergence: factor = (1 + beta) / 2
+    beta = np.sqrt(1.0 - 1.0 / (gamma * gamma))
+    expected = (1.0 + beta) / 2.0
+
+    np.testing.assert_allclose(factors, expected, rtol=1e-12, atol=1e-15)
+
+
+def test_doppler_factor_per_particle_with_divergence():
+    """Per-particle Doppler factor with non-zero electron divergence."""
+    from gammaforge.engines.xigma.stages import doppler_factor_per_particle
+
+    gamma = np.array([2000.0, 2000.0, 2000.0])
+    theta_x = np.array([0.0, 0.001, -0.0005])
+    theta_y = np.array([0.0, -0.0006, 0.0003])
+
+    factors = doppler_factor_per_particle(gamma, theta_x, theta_y, theta_xz=0.0, theta_yz=0.0)
+
+    # For head-on: n0 = [0, 0, -1], so 1 - v.n0 = 1 + vz
+    # vz = beta / sqrt(1 + theta_x^2 + theta_y^2)
+    beta = np.sqrt(1.0 - 1.0 / (gamma * gamma))
+    norm = np.sqrt(1.0 + theta_x**2 + theta_y**2)
+    vz = beta / norm
+    one_minus_v_dot_n0 = 1.0 + vz
+    nominal = 2.0  # 1 + cos(0)*cos(0) = 2
+    expected = one_minus_v_dot_n0 / nominal
+
+    np.testing.assert_allclose(factors, expected, rtol=1e-12, atol=1e-15)
+
+
+def test_doppler_factor_per_particle_crossing_angle():
+    """Per-particle Doppler factor with crossing angles."""
+    from gammaforge.engines.xigma.stages import doppler_factor_per_particle
+
+    gamma = np.array([2000.0, 2000.0])
+    theta_x = np.array([0.0, 0.001])
+    theta_y = np.array([0.0, -0.0006])
+    theta_xz = 0.3
+    theta_yz = 0.2
+
+    factors = doppler_factor_per_particle(gamma, theta_x, theta_y, theta_xz=theta_xz, theta_yz=theta_yz)
+
+    # Verify against manual calculation
+    beta = np.sqrt(1.0 - 1.0 / (gamma * gamma))
+    norm = np.sqrt(1.0 + theta_x**2 + theta_y**2)
+    vx = beta * theta_x / norm
+    vy = beta * theta_y / norm
+    vz = beta / norm
+
+    cos_xz = math.cos(theta_xz)
+    cos_yz = math.cos(theta_yz)
+    sin_xz = math.sin(theta_xz)
+    sin_yz = math.sin(theta_yz)
+    n0 = np.array([-sin_xz * cos_yz, sin_yz, -cos_xz * cos_yz])
+
+    v_dot_n0 = vx * n0[0] + vy * n0[1] + vz * n0[2]
+    one_minus_v_dot_n0 = 1.0 - v_dot_n0
+    nominal = 1.0 + cos_xz * cos_yz
+    expected = one_minus_v_dot_n0 / nominal
+
+    np.testing.assert_allclose(factors, expected, rtol=1e-12, atol=1e-15)
+
+
+def test_doppler_factor_per_particle_k_hat():
+    """Per-particle Doppler factor with explicit k_hat."""
+    from gammaforge.engines.xigma.stages import doppler_factor_per_particle
+
+    gamma = np.array([2000.0, 2000.0])
+    theta_x = np.array([0.0, 0.001])
+    theta_y = np.array([0.0, -0.0006])
+    k_hat = np.array([-0.1, 0.05, -0.99])
+
+    factors = doppler_factor_per_particle(gamma, theta_x, theta_y, k_hat=k_hat)
+
+    # Verify against manual calculation
+    beta = np.sqrt(1.0 - 1.0 / (gamma * gamma))
+    norm = np.sqrt(1.0 + theta_x**2 + theta_y**2)
+    vx = beta * theta_x / norm
+    vy = beta * theta_y / norm
+    vz = beta / norm
+
+    v_dot_n0 = vx * k_hat[0] + vy * k_hat[1] + vz * k_hat[2]
+    one_minus_v_dot_n0 = 1.0 - v_dot_n0
+    nominal = 1.0 - k_hat[2]  # beam axis (0,0,1) dot k_hat
+    expected = one_minus_v_dot_n0 / nominal
+
+    np.testing.assert_allclose(factors, expected, rtol=1e-12, atol=1e-15)
+
+
+def test_doppler_factor_per_particle_input_validation():
+    """Test input validation for per-particle Doppler factor."""
+    from gammaforge.engines.xigma.stages import doppler_factor_per_particle
+
+    gamma = np.array([2000.0, 2000.0])
+    theta_x = np.array([0.0, 0.001])
+    theta_y = np.array([0.0, -0.0006])
+
+    # Mismatched shapes
+    try:
+        doppler_factor_per_particle(gamma[:1], theta_x, theta_y)
+        assert False, "Should have raised ValueError"
+    except ValueError as e:
+        assert "same shape" in str(e)
+
+    # Non-1D arrays
+    try:
+        doppler_factor_per_particle(gamma.reshape(2, 1), theta_x, theta_y)
+        assert False, "Should have raised ValueError"
+    except ValueError as e:
+        assert "1D arrays" in str(e)
+
+    # Invalid k_hat shape
+    try:
+        doppler_factor_per_particle(gamma, theta_x, theta_y, k_hat=np.array([1.0, 2.0]))
+        assert False, "Should have raised ValueError"
+    except ValueError as e:
+        assert "shape (3,)" in str(e)
 
 
 # ---------------------------------------------------------------------------
