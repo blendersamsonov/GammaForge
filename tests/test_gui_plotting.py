@@ -57,7 +57,8 @@ def test_display_density_jacobian_preserves_integral():
 def test_geometry_model_uses_the_laser_rotation_not_a_second_convention():
     beam = GaussianElectronBeam(Q(100, "pC"), Q(100, "MeV"), .01, Q(20, "um"), Q(30, "um"),
                                 Q(1e-7, "cm * rad"), Q(2e-7, "cm * rad"), Q(100, "um"))
-    laser = GaussianParaxialLaser(Q(1, "J"), Q(800, "nm"), Q(10, "um"), Q(15, "um"), Q(30, "fs"),
+    laser = GaussianParaxialLaser(Q(1, "J"), Q(800, "nm"), Q(10, "um"), Q(15, "um"),
+                                  duration=Q(30, "fs"),
                                   theta_xz=Q(.3, "rad"), theta_yz=Q(-.2, "rad"), psi_focus=Q(.4, "rad"))
     model = geometry_model(beam, laser)
     expected = laser.focusing_axes()

@@ -56,10 +56,38 @@ from __future__ import annotations
 
 import math
 import numbers
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from types import ModuleType
 from typing import Protocol, runtime_checkable
 
 import numpy as np
+
+try:
+    import cupy as cp
+    _HAS_CUPY = True
+except ImportError:
+    cp = None
+    _HAS_CUPY = False
+
+
+def _get_array_module(*arrays):
+    """Get the array module (numpy or cupy) from input arrays."""
+    # Try cupy's get_array_module first (works for both numpy and cupy arrays)
+    if _HAS_CUPY:
+        try:
+            return cp.get_array_module(*arrays)
+        except Exception:
+            pass
+    # Fallback: check if any array is a cupy array
+    for arr in arrays:
+        if arr is not None:
+            if _HAS_CUPY and isinstance(arr, cp.ndarray):
+                return cp
+            # Check for numpy array
+            if isinstance(arr, np.ndarray):
+                return np
+    return np
+
 
 from .units import (
     C_CGS,
@@ -241,65 +269,192 @@ def lab_frame_axes(
 
 
 # ---------------------------------------------------------------------------
-# The paraxial Gaussian implementation
+# Temporal Envelope Protocol
 # ---------------------------------------------------------------------------
-@dataclass(frozen=True)
-class GaussianParaxialLaser:
-    """Elliptical, astigmatic paraxial Gaussian pulse. CGS-Gaussian throughout (P1).
+@runtime_checkable
+class TemporalEnvelope(Protocol):
+    """Protocol for temporal envelopes in phase time.
 
-    ``sigma_x``/``sigma_y`` are the RMS widths of the **intensity** profile at each axis's
-    own waist (`WidthConvention.SIGMA_INTENSITY_RMS`), along the focusing axes set by
-    ``psi_focus``. ``z_fx``/``z_fy`` place those two waists at (generally different)
-    positions along the propagation direction — astigmatism; the round, stigmatic beam is
-    the degenerate case ``sigma_x == sigma_y`` and ``z_fx == z_fy``.
-
-    ``duration`` is the RMS intensity duration. ``ellipticity`` is the polarization
-    degree — *distinct from spot ellipticity*, which the per-axis waists express.
-    It is applied to the angle-resolved kernel (DER004 §1.2, DER006): the polarization
-    factor is ``(cos^2 psi + eps^2 sin^2 psi)/(1 + eps^2)`` in the head-on limit,
-    and the full DER006 expression with crossing angle. ``beta_ff`` is the flying-focus
-    factor, entering only the spot-size term (never the longitudinal envelope), ported
-    from the predecessor's xigma formalism.
-
-    Derived quantities (photon energy, peak a0, photon count) are module-level helpers or
-    plain methods evaluated at the point of use, never cached properties (P9).
+    Phase time τ = φ(x,y,z,t) / ω₀ is the optical phase divided by carrier frequency.
+    This makes the envelope follow the actual paraxial phase structure including
+    Gouy phase and wavefront curvature.
     """
 
-    pulse_energy: Quantity  # energy
-    wavelength: Quantity  # length
-    sigma_x: Quantity  # length, RMS intensity width along focusing axis 1
-    sigma_y: Quantity  # length, RMS intensity width along focusing axis 2
-    duration: Quantity  # time, RMS intensity duration
-    z_fx: Quantity = Quantity(0.0, "cm")  # focal offset of axis 1 along k_hat
-    z_fy: Quantity = Quantity(0.0, "cm")  # focal offset of axis 2 along k_hat
-    # Misalignment of the pulse against the bunch, which defines the origin. There is no
-    # `z_off` because a longitudinal spatial offset is degenerate with `t_off` **given** `z_fx`/`z_fy`: a rigid shift of the pulse by `Delta`
-    # along `k_hat` moves the focus *and* the envelope, so it is exactly
-    # `(z_fx += Delta, z_fy += Delta, t_off += Delta/c)`. Focus position and arrival time
-    # are genuinely independent — coincident foci still miss if the arrival times differ —
-    # and both are present; only the redundant fourth combination is omitted.
+    def envelope(self, phase_time: float | np.ndarray, xp: ModuleType) -> float | np.ndarray:
+        """Evaluate envelope at given phase time(s).
+
+        Parameters
+        ----------
+        phase_time : float or array
+            Phase time τ = φ/ω₀ in seconds.
+        xp : module
+            Array module (numpy or cupy).
+
+        Returns
+        -------
+        float or array
+            Envelope value(s), normalized such that ∫|envelope|² dτ = 1.
+        """
+        ...
+
+    def phase_time_width(self) -> float:
+        """RMS width of the envelope in phase time (seconds)."""
+        ...
+
+    def peak_value(self, xp: ModuleType) -> float:
+        """Peak value of the envelope (for active_region bounding)."""
+        ...
+
+
+@dataclass(frozen=True)
+class GaussianTemporalEnvelope:
+    """Simple Gaussian envelope in phase time.
+
+    This reproduces the current GaussianParaxialLaser behavior when used with
+    the full paraxial phase.
+    """
+
+    duration: Quantity  # RMS duration in phase time
+
+    UNITS = {"duration": "s"}
+    LIGHT_TIME_FIELDS = frozenset({"duration"})
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "duration",
+            as_canonical_quantity(self.duration, "s", "duration", light_time=True),
+        )
+        if self.m("duration") <= 0.0:
+            raise ValueError(f"GaussianTemporalEnvelope: duration must be > 0, got {self.m('duration')!r}")
+
+    def m(self, name: str) -> float:
+        return float(getattr(self, name).magnitude)
+
+    def envelope(self, phase_time, xp):
+        """Gaussian envelope: exp(-τ²/2σ²) / √(2π)σ"""
+        sigma_t = self.m("duration")
+        norm = 1.0 / (xp.sqrt(2.0 * xp.pi) * sigma_t)
+        return norm * xp.exp(-0.5 * (phase_time / sigma_t) ** 2)
+
+    def phase_time_width(self) -> float:
+        return self.m("duration")
+
+    def peak_value(self, xp) -> float:
+        sigma_t = self.m("duration")
+        return 1.0 / (xp.sqrt(2.0 * xp.pi) * sigma_t)
+
+
+@dataclass(frozen=True)
+class PulseTrainTemporalEnvelope:
+    """Train of Gaussian sub-pulses in phase time.
+
+    Reproduces PulseTrainParaxialLaser behavior with phase-aware envelope.
+    """
+
+    subpulse_duration: Quantity  # RMS duration of one sub-pulse
+    repetition_period: Quantity  # Time between sub-pulses
+    n_subpulses: int = 10
+
+    UNITS = {"subpulse_duration": "s", "repetition_period": "s"}
+    LIGHT_TIME_FIELDS = frozenset({"subpulse_duration", "repetition_period"})
+
+    def __post_init__(self) -> None:
+        for name, unit in self.UNITS.items():
+            object.__setattr__(
+                self,
+                name,
+                as_canonical_quantity(getattr(self, name), unit, name, light_time=True),
+            )
+        if (
+            isinstance(self.n_subpulses, bool)
+            or not isinstance(self.n_subpulses, numbers.Integral)
+            or self.n_subpulses < 1
+        ):
+            raise ValueError(f"PulseTrainTemporalEnvelope: n_subpulses must be int >= 1, got {self.n_subpulses!r}")
+        object.__setattr__(self, "n_subpulses", int(self.n_subpulses))
+
+        for name in ("subpulse_duration", "repetition_period"):
+            if self.m(name) <= 0.0:
+                raise ValueError(f"PulseTrainTemporalEnvelope: {name} must be > 0, got {self.m(name)!r}")
+
+    def m(self, name: str) -> float:
+        return float(getattr(self, name).magnitude)
+
+    def subpulse_delays(self) -> np.ndarray:
+        """Temporal offsets of sub-pulses relative to train center (seconds)."""
+        k = np.arange(1, self.n_subpulses + 1, dtype=float)
+        return (k - 0.5 * (self.n_subpulses + 1)) * self.m("repetition_period")
+
+    def envelope(self, phase_time, xp):
+        """Sum of Gaussian sub-pulses in phase time."""
+        sigma_t = self.m("subpulse_duration")
+        delays = self.subpulse_delays()
+
+        # phase_time and delays broadcast: (..., n_subpulses)
+        phase_time = xp.asarray(phase_time)
+        diff = xp.expand_dims(phase_time, -1) - delays
+        longitudinal = xp.sum(xp.exp(-0.5 * (diff / sigma_t) ** 2), axis=-1) / (
+            xp.sqrt(2.0 * xp.pi) * sigma_t * self.n_subpulses
+        )
+        return longitudinal
+
+    def phase_time_width(self) -> float:
+        # For a single sub-pulse, the width is the sub-pulse duration.
+        # For a train, approximate as n_subpulses * repetition_period.
+        if self.n_subpulses == 1:
+            return self.m("subpulse_duration")
+        return self.m("repetition_period") * self.n_subpulses
+
+    def peak_value(self, xp) -> float:
+        # Peak occurs at center of central sub-pulse
+        sigma_t = self.m("subpulse_duration")
+        return 1.0 / (xp.sqrt(2.0 * xp.pi) * sigma_t)
+
+
+# ---------------------------------------------------------------------------
+# Separable Paraxial Laser Base Class
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class SeparableParaxialLaser:
+    """Paraxial beam × phase-aware temporal envelope.
+
+    The photon density factorizes as:
+        density(x,y,z,t) = transverse(xi1,xi2,u) × temporal(φ(x,y,z,t)/ω₀)
+
+    where φ is the full paraxial phase including Gouy and curvature.
+    This makes the envelope follow the actual optical phase structure.
+    """
+
+    # Spatial (paraxial beam)
+    pulse_energy: Quantity
+    wavelength: Quantity
+    sigma_x: Quantity
+    sigma_y: Quantity
+    z_fx: Quantity = Quantity(0.0, "cm")
+    z_fy: Quantity = Quantity(0.0, "cm")
+    psi_focus: Quantity = Quantity(0.0, "rad")
+
+    # Temporal envelope (pluggable) - must be set by subclass in __post_init__
+    temporal_envelope: TemporalEnvelope = field(default=None, repr=False)
+
+    # Geometry
     x_off: Quantity = Quantity(0.0, "cm")
     y_off: Quantity = Quantity(0.0, "cm")
-    t_off: Quantity = Quantity(0.0, "s")  # pulse centre reaches the origin at t = t_off
+    t_off: Quantity = Quantity(0.0, "s")
     theta_xz: Quantity = Quantity(0.0, "rad")
     theta_yz: Quantity = Quantity(0.0, "rad")
-    psi_focus: Quantity = Quantity(0.0, "rad")
     psi_pol: Quantity = Quantity(0.0, "rad")
     ellipticity: float = 0.0
     beta_ff: float = 0.0
 
-    #: The convention every stored width is in — see `WidthConvention` (§2.1).
     width_convention = WidthConvention.SIGMA_INTENSITY_RMS
 
-    #: Canonical CGS unit of each dimensioned field; also what `__post_init__` converts
-    #: incoming values into, so `.m` below always yields CGS. Angles are typed too, so a
-    #: crossing angle can be given in degrees without a hand-written conversion.
     UNITS = {
         "pulse_energy": "erg",
         "wavelength": "cm",
         "sigma_x": "cm",
         "sigma_y": "cm",
-        "duration": "s",
         "z_fx": "cm",
         "z_fy": "cm",
         "x_off": "cm",
@@ -311,10 +466,7 @@ class GaussianParaxialLaser:
         "psi_pol": "rad",
     }
 
-    #: Longitudinal extents, which §2.1 allows to be quoted as either a length or a
-    #: duration. Only these opt into the `light_time` equivalence — a transverse size
-    #: given in femtoseconds is a mistake, not a unit choice.
-    LIGHT_TIME_FIELDS = frozenset({"duration", "t_off"})
+    LIGHT_TIME_FIELDS = frozenset({"t_off"})
 
     def __post_init__(self) -> None:
         for name, unit in self.UNITS.items():
@@ -325,20 +477,27 @@ class GaussianParaxialLaser:
                     getattr(self, name), unit, name, light_time=name in self.LIGHT_TIME_FIELDS
                 ),
             )
+        # Validate temporal envelope
+        if not isinstance(self.temporal_envelope, TemporalEnvelope):
+            raise TypeError(f"temporal_envelope must implement TemporalEnvelope protocol, got {type(self.temporal_envelope)}")
+
         for name in ("ellipticity", "beta_ff"):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, numbers.Real) or not math.isfinite(float(value)):
-                raise ValueError(f"GaussianParaxialLaser: {name} must be a finite scalar, got {value!r}")
+                raise ValueError(f"SeparableParaxialLaser: {name} must be a finite scalar, got {value!r}")
         for name in self.UNITS:
             if not math.isfinite(self.m(name)):
-                raise ValueError(f"GaussianParaxialLaser: {name} must be finite, got {getattr(self, name)!r}")
+                raise ValueError(f"SeparableParaxialLaser: {name} must be finite, got {getattr(self, name)!r}")
+        for name in ("pulse_energy", "wavelength", "sigma_x", "sigma_y"):
+            if self.m(name) <= 0.0:
+                raise ValueError(f"SeparableParaxialLaser: {name} must be > 0, got {self.m(name)!r}")
+        if self.beta_ff <= -1.0:
+            raise ValueError("SeparableParaxialLaser: beta_ff must be > -1 (Rayleigh range scales as 1 + beta_ff)")
+        if not 0.0 <= self.ellipticity <= 1.0:
+            raise ValueError("SeparableParaxialLaser: ellipticity must be in [0, 1]")
 
     def m(self, name: str) -> float:
-        """Magnitude of a dimensioned field in its canonical CGS unit.
-
-        Every method below unpacks through this once at the top, so the vectorized field
-        arithmetic underneath is plain numpy — pint never enters a hot path (§2.1).
-        """
+        """Magnitude of a dimensioned field in its canonical CGS unit."""
         return float(getattr(self, name).magnitude)
 
     # -- geometry -----------------------------------------------------------
@@ -364,33 +523,11 @@ class GaussianParaxialLaser:
         return self.m("pulse_energy") / self.photon_energy()
 
     def rayleigh_x(self) -> float:
-        """Rayleigh range of focusing axis 1, cm.
-
-        **The conversion is the whole content of this method** (RES040). The textbook formula
-        ``z_R = pi w0^2 / lambda`` is stated in the **1/e² convention**: ``w0`` is the
-        radius at which intensity falls to ``e^-2`` of its on-axis value. This class stores
-        widths as **RMS of the photon-density (= intensity) profile**
-        (`WidthConvention.SIGMA_INTENSITY_RMS`), which is a different number — at
-        ``r = sigma`` the density is down only by ``e^-1/2``, not ``e^-2``.
-
-        Converting first, then applying the standard formula: matching
-        ``exp(-r^2 / (2 sigma^2))`` against ``exp(-2 r^2 / w0^2)`` gives ``w0 = 2 sigma``,
-        hence ``z_R = 4 pi sigma^2 / lambda``. Anything that reads a Rayleigh range or a
-        divergence off a stored ``sigma`` **must** go through that factor of two in the
-        radius — skipping it is a factor of 4 in ``z_R`` and in the far-field angle
-        ``sigma / z_R`` (RES040).
-
-        The flying-focus factor stretches it by ``(1 + beta_ff)``, the predecessor's xigma
-        convention.
-        """
+        """Rayleigh range of focusing axis 1, cm."""
         return 4.0 * math.pi * self.m("sigma_x") ** 2 / self.m("wavelength") * (1.0 + self.beta_ff)
 
     def rayleigh_y(self) -> float:
         return 4.0 * math.pi * self.m("sigma_y") ** 2 / self.m("wavelength") * (1.0 + self.beta_ff)
-
-    def sigma_ct(self) -> float:
-        """RMS pulse duration expressed as a length, cm."""
-        return C_CGS * self.m("duration")
 
     def spot_sizes(self, u_spot):
         """RMS intensity spot sizes ``(s1, s2)`` at longitudinal position ``u_spot``."""
@@ -398,208 +535,102 @@ class GaussianParaxialLaser:
         s2 = self.m("sigma_y") * np.sqrt(1.0 + ((u_spot - self.m("z_fy")) / self.rayleigh_y()) ** 2)
         return s1, s2
 
-    def a0_peak(self) -> float:
-        """Peak period-averaged a0 anywhere in the pulse.
-
-        The pulse's own maximum, attained where both spots are smallest and the temporal
-        envelope peaks. With astigmatism the two waists are at different ``u``, so the
-        joint maximum of ``1 / (s1 s2)`` sits between them and is found numerically over
-        the interval they span (a 1D unimodal problem, not worth an optimizer).
-        """
-        return float(self._a0_from_density(self._peak_density()))
-
-    def intensity_peak(self) -> float:
-        """Peak cycle-averaged ``<a^2>`` anywhere in the pulse — :meth:`a0_peak`'s
-        polarization-agnostic counterpart, and what engines should key off.
-
-        Same peak-density search as :meth:`a0_peak`, converted through the ``4 pi`` chain
-        (:meth:`intensity_profile`) instead of the ``8 pi`` amplitude one.
-
-        Equal to ``cycle_average_factor() * a0_peak()**2`` **only for linear polarization**,
-        and the difference is a trap worth naming: :meth:`a0_peak` reports the
-        *linear-equivalent* amplitude by convention, so rebuilding the peak intensity as
-        ``C * a0_peak()**2`` applies the cycle average without the ``1/sqrt(2C)`` that
-        belongs in the amplitude — the result then varies with ``ellipticity`` although the
-        physical quantity does not.
-        """
-        return (E_ESU / (ME_CGS * C_CGS * self.omega0())) ** 2 * 4.0 * np.pi * self.m(
-            "pulse_energy"
-        ) * self._peak_density()
-
-    def _peak_density(self) -> float:
-        """Peak normalized photon density: where both spots are smallest and the temporal
-        envelope peaks. Shared by :meth:`a0_peak` and :meth:`intensity_peak` so the two
-        cannot disagree about *where* the pulse peaks, only about what they report there.
-        """
-        lo, hi = sorted((self.m("z_fx"), self.m("z_fy")))
-        u = np.linspace(lo, hi, 257) if hi > lo else np.array([lo])
-        s1, s2 = self.spot_sizes(u)
-        return float(np.max(1.0 / ((2.0 * np.pi) ** 1.5 * s1 * s2 * self.sigma_ct())))
-
-    def cycle_average_factor(self) -> float:
-        """``C`` in ``<a^2> = C a0^2``, the cycle average of the normalized intensity.
-
-        From the paper's own normalization ``sum_i |eps_i|^2 = 1`` (eq. `field`) with an
-        ellipse of axis ratio ``eps = ellipticity``, ``eps_0 = 1/sqrt(1+eps^2)`` and
-        ``eps_1 = i eps/sqrt(1+eps^2)``::
-
-            C = (1 + eps^2) / 2
-
-        ``1/2`` for linear (``<cos^2> = 1/2``), ``1`` for circular (constant magnitude),
-        and the exact interpolation between — verified numerically against a
-        period-resolved ellipse at ``eps = 0, 1/4, 1/2, 1/sqrt(3), 1``.
-
-        **This is a property of the polarization state, not a physical prediction**, and
-        it is deliberately *not* how any yield or red-shift is computed — see
-        :meth:`intensity_profile` for why those never need it. It exists because ``a0``
-        itself is a reported number whose definition depends on the convention.
-        """
-        return 0.5 * (1.0 + self.ellipticity**2)
-
-    def intensity_profile(self, x, y, z, t):
-        """Cycle-averaged normalized intensity ``<a^2>`` at ``(x, y, z, t)``.
-
-        **The polarization-agnostic quantity, and the one physics actually depends on.**
-        Every angle-integrated observable — the photon yield, and the mean nonlinear
-        red-shift through ``ahat`` — is a functional of ``<a^2>`` along a trajectory, never
-        of ``a0`` separately. And ``<a^2>`` does not depend on the polarization state at
-        all, at fixed pulse energy::
-
-            <a^2> = C a0^2,   a0^2 = (e / m_e c omega0)^2 * 4 pi U_density / C
-
-        so ``C`` cancels identically, leaving
-
-            <a^2> = (e / m_e c omega0)^2 * 4 pi E_pulse * photon_density
-
-        with no ``C`` and therefore no ``ellipticity`` anywhere in it (RES054's Rationale has
-        the numeric check).
-
-        That is why `engines.xigma.stages` integrates this method, not :meth:`a0_profile` —
-        forming ``a0`` first and re-applying a polarization factor round-trips through a
-        convention-dependent number (RES053/RES054).
-
-        Note the ``4 pi`` rather than ``8 pi``: this is the cycle **average**, whereas
-        :meth:`a0_profile` returns the **peak** amplitude of a linearly polarized field.
-        """
-        density = np.asarray(self.photon_density(x, y, z, t), dtype=float)
-        return (E_ESU / (ME_CGS * C_CGS * self.omega0())) ** 2 * 4.0 * np.pi * self.m("pulse_energy") * density
-
-    def _a0_from_density(self, density):
-        """Peak normalized amplitude ``a0`` from a normalized photon-density envelope.
-
-        The chain in CGS-Gaussian: energy density ``U = E_pulse * density``, intensity
-        ``I = c U``, cycle-averaged ``I = c E0^2 / (8 pi)`` for **linear** polarization, so
-        ``E0 = sqrt(8 pi E_pulse * density)`` and ``a0 = e E0 / (m_e c omega0)``.
-
-        ``ellipticity`` does **not** enter — ``a0`` is reported as the **linear-equivalent
-        peak amplitude**, a stated convention (RES054), so that a number quoted as "a0 = 2"
-        means the same field strength regardless of how the pulse is polarized. The
-        elliptical peak amplitude, if it is ever wanted, is this divided by ``sqrt(2 C)``
-        (:meth:`cycle_average_factor`).
-
-        Physics does not go through here — see :meth:`intensity_profile`.
-        """
-        e0 = np.sqrt(8.0 * np.pi * self.m("pulse_energy") * np.asarray(density, dtype=float))
-        return E_ESU * e0 / (ME_CGS * C_CGS * self.omega0())
-
-    # -- the LaserField contract -------------------------------------------
-    def _local_coordinates(self, x, y, z, t):
-        """Lab ``(x, y, z, t)`` → ``(xi1, xi2, u, u_spot, ct)`` in the pulse's own frame."""
-        k_hat, f1, f2 = self.focusing_axes()
-        # Everything is measured from the pulse's own centre, which the misalignment
-        # offsets displace from the bunch's. One subtraction here is the whole
-        # implementation: every consumer of the field inherits it.
-        rx = np.asarray(x, dtype=float) - self.m("x_off")
-        ry = np.asarray(y, dtype=float) - self.m("y_off")
-        rz = np.asarray(z, dtype=float)
-        u = rx * k_hat[0] + ry * k_hat[1] + rz * k_hat[2]
-        xi1 = rx * f1[0] + ry * f1[1] + rz * f1[2]
-        xi2 = rx * f2[0] + ry * f2[1] + rz * f2[2]
-        ct = C_CGS * (np.asarray(t, dtype=float) - self.m("t_off"))
-        # Flying focus: the spot-size evaluation point slides with time, while the
-        # longitudinal envelope below stays beta_ff-independent (xigma's construction).
-        return xi1, xi2, u, u + self.beta_ff * ct, ct
-
-    def photon_density(self, x, y, z, t):
-        """Photon-density envelope, normalized to integrate to 1 over space at fixed ``t``.
-
-        Integrating over ``t`` as well would double-count: the pulse translates through
-        space, so its photon number is conserved, not accumulated.
-        """
-        xi1, xi2, u, u_spot, ct = self._local_coordinates(x, y, z, t)
-        s1, s2 = self.spot_sizes(u_spot)
-        s_ct = self.sigma_ct()
-        norm = 1.0 / ((2.0 * np.pi) ** 1.5 * s1 * s2 * s_ct)
-        arg = -(xi1**2) / (2.0 * s1**2) - xi2**2 / (2.0 * s2**2) - (u - ct) ** 2 / (2.0 * s_ct**2)
-        return norm * np.exp(arg)
-
-    def a0_profile(self, x, y, z, t):
-        """Period-averaged normalized vector-potential envelope (the `LaserField` method)."""
-        return self._a0_from_density(self.photon_density(x, y, z, t))
-
-    def field(self, x, y, z, t):
-        """Period-resolved normalized vector potential, lab-frame components.
-
-        Returns an array of shape ``(3, *broadcast_shape)`` so callers can unpack
-        ``ax, ay, az = laser.field(...)``. The natural companion to :meth:`a0_profile`:
-        its envelope *is* ``a0_profile``, and consumers derive **E** and **B** from it.
-
-        The carrier phase is the full paraxial one — plane-wave term, per-axis Gouy phase,
-        **Elliptical polarization** along `p1` (`psi_pol`), with `ellipticity` entering
-        the angle-resolved kernel as the factor ``(cos^2 psi + eps^2 sin^2 psi)/(1 + eps^2)``
-        in the head-on limit, and the full DER006 expression with crossing angle.
-        """
-        xi1, xi2, u, u_spot, ct = self._local_coordinates(x, y, z, t)
-        s1, s2 = self.spot_sizes(u_spot)
-        k0 = 2.0 * np.pi / self.m("wavelength")
+    # -- phase calculation --------------------------------------------------
+    def _paraxial_phase(self, xi1, xi2, u, u_spot, ct, xp):
+        """Full paraxial phase φ = k₀(u-ct) - Gouy + curvature."""
+        k0 = 2.0 * xp.pi / self.m("wavelength")
 
         du1 = u_spot - self.m("z_fx")
         du2 = u_spot - self.m("z_fy")
         zr1, zr2 = self.rayleigh_x(), self.rayleigh_y()
-        gouy = 0.5 * (np.arctan2(du1, zr1) + np.arctan2(du2, zr2))
-        # Radius of curvature R(u) = u * (1 + (zR/u)^2); written as the reciprocal so
-        # 1/R -> 0 smoothly at the waist instead of dividing by zero.
+        gouy = 0.5 * (xp.arctan2(du1, zr1) + xp.arctan2(du2, zr2))
+        inv_r1 = du1 / (du1**2 + zr1**2)
+        inv_r2 = du2 / (du2**2 + zr2**2)
+        phase = k0 * (u - ct) - gouy + 0.5 * k0 * (xi1**2 * inv_r1 + xi2**2 * inv_r2)
+        return phase
+
+    def _phase_time(self, xi1, xi2, u, u_spot, ct, xp):
+        """Phase time τ = φ/ω₀."""
+        return self._paraxial_phase(xi1, xi2, u, u_spot, ct, xp) / self.omega0()
+
+    # -- local coordinates --------------------------------------------------
+    def _local_coordinates(self, x, y, z, t):
+        """Lab ``(x, y, z, t)`` → ``(xi1, xi2, u, u_spot, ct)`` in pulse frame."""
+        k_hat, f1, f2 = self.focusing_axes()
+        xp = _get_array_module(x, y, z, t)
+        rx = xp.asarray(x, dtype=float) - self.m("x_off")
+        ry = xp.asarray(y, dtype=float) - self.m("y_off")
+        rz = xp.asarray(z, dtype=float)
+        u = rx * k_hat[0] + ry * k_hat[1] + rz * k_hat[2]
+        xi1 = rx * f1[0] + ry * f1[1] + rz * f1[2]
+        xi2 = rx * f2[0] + ry * f2[1] + rz * f2[2]
+        ct = C_CGS * (xp.asarray(t, dtype=float) - self.m("t_off"))
+        u_spot = u + self.beta_ff * ct
+        return xi1, xi2, u, u_spot, ct
+
+    # -- photon density (separable) -----------------------------------------
+    def photon_density(self, x, y, z, t):
+        """Photon density = transverse(xi1,xi2,u) × temporal(phase_time)."""
+        xi1, xi2, u, u_spot, ct = self._local_coordinates(x, y, z, t)
+        xp = _get_array_module(xi1, xi2, u, u_spot, ct)
+
+        # Transverse Gaussian
+        s1, s2 = self.spot_sizes(u_spot)
+        transverse = (1.0 / (2.0 * xp.pi * s1 * s2)) * xp.exp(
+            -0.5 * ((xi1 / s1) ** 2 + (xi2 / s2) ** 2)
+        )
+
+        # Temporal envelope in phase time (convert from 1/s to 1/cm)
+        phase_time = self._phase_time(xi1, xi2, u, u_spot, ct, xp)
+        temporal = self.temporal_envelope.envelope(phase_time, xp) * C_CGS
+
+        return transverse * temporal
+
+    # -- LaserField contract ------------------------------------------------
+    def intensity_profile(self, x, y, z, t):
+        """Cycle-averaged normalized intensity ``<a^2>``."""
+        density = self.photon_density(x, y, z, t)
+        xp = _get_array_module(density)
+        return (E_ESU / (ME_CGS * C_CGS * self.omega0())) ** 2 * 4.0 * xp.pi * self.m("pulse_energy") * density
+
+    def a0_profile(self, x, y, z, t):
+        """Period-averaged normalized vector-potential envelope."""
+        return self._a0_from_density(self.photon_density(x, y, z, t))
+
+    def _a0_from_density(self, density):
+        xp = _get_array_module(density)
+        e0 = xp.sqrt(8.0 * xp.pi * self.m("pulse_energy") * xp.asarray(density, dtype=float))
+        return E_ESU * e0 / (ME_CGS * C_CGS * self.omega0())
+
+    def field(self, x, y, z, t):
+        """Period-resolved normalized vector potential, lab-frame components."""
+        xi1, xi2, u, u_spot, ct = self._local_coordinates(x, y, z, t)
+        xp = _get_array_module(xi1, xi2, u, u_spot, ct)
+        s1, s2 = self.spot_sizes(u_spot)
+        k0 = 2.0 * xp.pi / self.m("wavelength")
+
+        du1 = u_spot - self.m("z_fx")
+        du2 = u_spot - self.m("z_fy")
+        zr1, zr2 = self.rayleigh_x(), self.rayleigh_y()
+        gouy = 0.5 * (xp.arctan2(du1, zr1) + xp.arctan2(du2, zr2))
         inv_r1 = du1 / (du1**2 + zr1**2)
         inv_r2 = du2 / (du2**2 + zr2**2)
         phase = k0 * (u - ct) - gouy + 0.5 * k0 * (xi1**2 * inv_r1 + xi2**2 * inv_r2)
 
-        amplitude = self._a0_from_density(self.photon_density(x, y, z, t)) * np.cos(phase)
+        amplitude = self._a0_from_density(self.photon_density(x, y, z, t)) * xp.cos(phase)
         _, p1, _ = self.polarization_axes()
-        return np.stack([amplitude * p1[0], amplitude * p1[1], amplitude * p1[2]])
+        return xp.stack([amplitude * p1[0], amplitude * p1[1], amplitude * p1[2]])
 
     def active_region(self, threshold: float = 1e-3) -> ActiveRegion:
-        """Bounding region where ``a0_profile >= threshold * a0_peak`` (§3.2).
-
-        Derived analytically and **conservatively**. Longitudinally, ``a0`` falls as
-        ``exp(-(u - ct)^2 / (4 sigma_ct^2))`` (the square root of the intensity Gaussian),
-        so the cut is at ``|u - ct| = 2 sigma_ct sqrt(ln(1/threshold))``. Transversely the
-        same square-root Gaussian gives ``xi <= reach * s(u)`` with
-        ``reach = 2 sqrt(ln(1/threshold))``; the ``1/sqrt(s1 s2)`` amplitude decay away
-        from focus is deliberately ignored, which can only make the real region smaller
-        than this bound.
-
-        ``s`` **grows with distance from focus**, so the transverse bound is a cone rather
-        than a fixed radius. Linearizing the hyperbola,
-        ``s_i(v) = sigma_i sqrt(1 + ((v - z_fi)/z_Ri)^2) <= sigma_i (1 + (|v| + |z_fi|)/z_Ri)``,
-        gives an intercept and a slope, each maximized over the two focusing axes
-        independently — which over-estimates when the two axes disagree, in the safe
-        direction. Bounding ``s`` by its value near focus instead (as this did until the
-        Phase-2 harness caught it) silently discards particles that a diverged pulse still
-        reaches, whenever the bunch is longer than the Rayleigh range.
-
-        **The spot is evaluated at the flying-focus coordinate**, not at ``u``:
-        ``v = u + beta_ff * ct`` (see :meth:`_local_coordinates`). Inside the longitudinal
-        window ``ct`` is within ``half_length`` of ``u``, so
-        ``|v| <= |1 + beta_ff| |u| + |beta_ff| half_length`` — the slide steepens the cone
-        by ``|1 + beta_ff|`` and widens its intercept by the drift accumulated across the
-        pulse length. The steepening cancels against the ``(1 + beta_ff)`` stretch already
-        in :meth:`rayleigh_x`, which is why omitting it makes the cone too *narrow* rather
-        than merely inexact — the one direction a conservative bound may not err in.
-        """
+        """Bounding region where envelope >= threshold * peak."""
         if not 0.0 < threshold < 1.0:
             raise ValueError(f"active_region threshold must be in (0, 1), got {threshold}")
+
+        # Use peak envelope value for bounding
+        xp = np  # active_region runs on host
         reach = 2.0 * math.sqrt(math.log(1.0 / threshold))
-        half_length = reach * self.sigma_ct()
+        half_length = reach * C_CGS * self.temporal_envelope.phase_time_width()
+
         slide = abs(1.0 + self.beta_ff)
         drift = abs(self.beta_ff) * half_length
         axes = zip(
@@ -612,10 +643,6 @@ class GaussianParaxialLaser:
             intercept = max(intercept, sigma * (1.0 + (drift + focus_offset) / z_r))
             slope = max(slope, sigma * slide / z_r)
         k_hat, _, _ = self.focusing_axes()
-        # A transverse misalignment moves the region bodily; a timing offset slides the
-        # pulse along its own axis, which `overlap_time_window` sees as the region's
-        # centre being reached later. Both must be carried or the prefilter silently
-        # discards particles that do interact — the one direction §3.2 forbids.
         origin = np.array([self.m("x_off"), self.m("y_off"), 0.0]) - k_hat * (C_CGS * self.m("t_off"))
         return ActiveRegion(
             axis=k_hat,
@@ -627,42 +654,97 @@ class GaussianParaxialLaser:
             a0_peak=self.a0_peak(),
         )
 
+    def a0_peak(self) -> float:
+        """Peak period-averaged a0 anywhere in the pulse."""
+        return float(self._a0_from_density(self._peak_density()))
+
+    def intensity_peak(self) -> float:
+        """Peak cycle-averaged ``<a^2>`` anywhere in the pulse."""
+        return (E_ESU / (ME_CGS * C_CGS * self.omega0())) ** 2 * 4.0 * np.pi * self.m("pulse_energy") * self._peak_density()
+
+    def _peak_density(self) -> float:
+        """Peak normalized photon density."""
+        lo, hi = sorted((self.m("z_fx"), self.m("z_fy")))
+        u = np.linspace(lo, hi, 257) if hi > lo else np.array([lo])
+        s1, s2 = self.spot_sizes(u)
+        transverse_max = float(np.max(1.0 / (2.0 * math.pi * s1 * s2)))
+        temporal_max = self.temporal_envelope.peak_value(np) / C_CGS
+        return transverse_max * temporal_max
+
+    def cycle_average_factor(self) -> float:
+        return 0.5 * (1.0 + self.ellipticity**2)
+
+
+# ---------------------------------------------------------------------------
+# GaussianParaxialLaser (now a thin wrapper)
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class GaussianParaxialLaser(SeparableParaxialLaser):
+    """Elliptical, astigmatic paraxial Gaussian pulse with phase-aware envelope.
+
+    This is the phase-aware version of the original GaussianParaxialLaser.
+    The temporal envelope is a Gaussian in phase time τ = φ/ω₀.
+    """
+
+    duration: Quantity | None = None  # RMS duration in phase time
+
+    # Override UNITS to include duration
+    UNITS = {
+        "pulse_energy": "erg",
+        "wavelength": "cm",
+        "sigma_x": "cm",
+        "sigma_y": "cm",
+        "duration": "s",
+        "z_fx": "cm",
+        "z_fy": "cm",
+        "x_off": "cm",
+        "y_off": "cm",
+        "t_off": "s",
+        "theta_xz": "rad",
+        "theta_yz": "rad",
+        "psi_focus": "rad",
+        "psi_pol": "rad",
+    }
+
+    LIGHT_TIME_FIELDS = frozenset({"duration", "t_off"})
+
+    def __post_init__(self) -> None:
+        # Create temporal envelope from duration
+        if self.duration is None:
+            raise ValueError("GaussianParaxialLaser: duration must be provided")
+        envelope = GaussianTemporalEnvelope(duration=self.duration)
+        object.__setattr__(self, "temporal_envelope", envelope)
+        # Call parent __post_init__ (which validates)
+        super().__post_init__()
+
+    def m(self, name: str) -> float:
+        if name == "duration":
+            return self.temporal_envelope.m("duration")
+        return super().m(name)
+
+    def sigma_ct(self) -> float:
+        """RMS pulse duration expressed as a length, cm."""
+        return C_CGS * self.m("duration")
 
 # ---------------------------------------------------------------------------
 # The paraxial Gaussian pulse train implementation
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
-class PulseTrainParaxialLaser:
-    """Train of N_p paraxial Gaussian sub-pulses with inter-pulse period T_rep.
+class PulseTrainParaxialLaser(SeparableParaxialLaser):
+    """Train of N_p paraxial Gaussian sub-pulses with phase-aware envelope.
 
     CGS-Gaussian throughout (P1, RES013, RES054). Conserves total laser energy E_tot across
     configurations, so each sub-pulse carries energy E_tot / N_p.
 
-    The temporal envelope is parameterized by the duty cycle D = subpulse_duration / repetition_period.
-    When N_p = 1, reproduces GaussianParaxialLaser identically (with duration = subpulse_duration).
+    The temporal envelope is a train of Gaussians in phase time τ = φ/ω₀.
+    When N_p = 1, reproduces GaussianParaxialLaser identically.
     """
 
-    pulse_energy: Quantity  # Total energy summed over all sub-pulses
-    wavelength: Quantity  # Central carrier wavelength
-    sigma_x: Quantity  # length, RMS intensity width along focusing axis 1
-    sigma_y: Quantity  # length, RMS intensity width along focusing axis 2
-    subpulse_duration: Quantity  # time, RMS intensity duration of one sub-pulse
-    repetition_period: Quantity  # time between adjacent sub-pulses (T_rep)
+    subpulse_duration: Quantity | None = None  # RMS duration of one sub-pulse in phase time
+    repetition_period: Quantity | None = None  # Time between sub-pulses
     n_subpulses: int = 10  # Number of sub-pulses (N_p >= 1)
-    z_fx: Quantity = Quantity(0.0, "cm")  # focal offset of axis 1 along k_hat
-    z_fy: Quantity = Quantity(0.0, "cm")  # focal offset of axis 2 along k_hat
-    x_off: Quantity = Quantity(0.0, "cm")
-    y_off: Quantity = Quantity(0.0, "cm")
-    t_off: Quantity = Quantity(0.0, "s")  # train temporal center reaches origin at t = t_off
-    theta_xz: Quantity = Quantity(0.0, "rad")
-    theta_yz: Quantity = Quantity(0.0, "rad")
-    psi_focus: Quantity = Quantity(0.0, "rad")
-    psi_pol: Quantity = Quantity(0.0, "rad")
-    ellipticity: float = 0.0
-    beta_ff: float = 0.0
 
-    width_convention = WidthConvention.SIGMA_INTENSITY_RMS
-
+    # Override UNITS to include pulse train parameters
     UNITS = {
         "pulse_energy": "erg",
         "wavelength": "cm",
@@ -684,88 +766,30 @@ class PulseTrainParaxialLaser:
     LIGHT_TIME_FIELDS = frozenset({"subpulse_duration", "repetition_period", "t_off"})
 
     def __post_init__(self) -> None:
-        for name, unit in self.UNITS.items():
-            object.__setattr__(
-                self,
-                name,
-                as_canonical_quantity(
-                    getattr(self, name), unit, name, light_time=name in self.LIGHT_TIME_FIELDS
-                ),
-            )
-        if (
-            isinstance(self.n_subpulses, bool)
-            or not isinstance(self.n_subpulses, numbers.Integral)
-            or self.n_subpulses < 1
-        ):
-            raise ValueError(
-                f"PulseTrainParaxialLaser: n_subpulses must be an integer >= 1, got {self.n_subpulses!r}"
-            )
-        object.__setattr__(self, "n_subpulses", int(self.n_subpulses))
-
-        for name in ("ellipticity", "beta_ff"):
-            value = getattr(self, name)
-            if isinstance(value, bool) or not isinstance(value, numbers.Real) or not math.isfinite(float(value)):
-                raise ValueError(f"PulseTrainParaxialLaser: {name} must be a finite scalar, got {value!r}")
-        for name in self.UNITS:
-            if not math.isfinite(self.m(name)):
-                raise ValueError(f"PulseTrainParaxialLaser: {name} must be finite, got {getattr(self, name)!r}")
-        for name in ("pulse_energy", "wavelength", "sigma_x", "sigma_y", "subpulse_duration", "repetition_period"):
-            if self.m(name) <= 0.0:
-                raise ValueError(f"PulseTrainParaxialLaser: {name} must be > 0, got {self.m(name)!r}")
-        if self.beta_ff <= -1.0:
-            raise ValueError("PulseTrainParaxialLaser: beta_ff must be > -1 (Rayleigh range scales as 1 + beta_ff)")
-        if not 0.0 <= self.ellipticity <= 1.0:
-            raise ValueError("PulseTrainParaxialLaser: ellipticity must be in [0, 1]")
+        # Create temporal envelope from pulse train parameters
+        if self.subpulse_duration is None or self.repetition_period is None:
+            raise ValueError("PulseTrainParaxialLaser: subpulse_duration and repetition_period must be provided")
+        envelope = PulseTrainTemporalEnvelope(
+            subpulse_duration=self.subpulse_duration,
+            repetition_period=self.repetition_period,
+            n_subpulses=self.n_subpulses,
+        )
+        object.__setattr__(self, "temporal_envelope", envelope)
+        # Call parent __post_init__ (which validates)
+        super().__post_init__()
 
     def m(self, name: str) -> float:
-        """Magnitude of a dimensioned field in its canonical CGS unit."""
-        return float(getattr(self, name).magnitude)
-
-    # -- geometry -----------------------------------------------------------
-    def focusing_axes(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Lab-frame ``(k_hat, f1, f2)``: propagation direction and focusing axes."""
-        return lab_frame_axes(self.m("theta_xz"), self.m("theta_yz"), self.m("psi_focus"))
-
-    def polarization_axes(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Lab-frame ``(k_hat, p1, p2)``: propagation direction and polarization axes."""
-        return lab_frame_axes(self.m("theta_xz"), self.m("theta_yz"), self.m("psi_pol"))
-
-    # -- descriptive scalars ------------------------------------------------
-    def omega0(self) -> float:
-        """Central angular frequency, rad/s."""
-        return 2.0 * math.pi * C_CGS / self.m("wavelength")
-
-    def photon_energy(self) -> float:
-        """Central photon energy, erg."""
-        return HBAR_CGS * self.omega0()
-
-    def n_photons(self) -> float:
-        """Total photons in the train: pulse energy / central photon energy."""
-        return self.m("pulse_energy") / self.photon_energy()
-
-    def rayleigh_x(self) -> float:
-        """Rayleigh range of focusing axis 1, cm."""
-        return 4.0 * math.pi * self.m("sigma_x") ** 2 / self.m("wavelength") * (1.0 + self.beta_ff)
-
-    def rayleigh_y(self) -> float:
-        """Rayleigh range of focusing axis 2, cm."""
-        return 4.0 * math.pi * self.m("sigma_y") ** 2 / self.m("wavelength") * (1.0 + self.beta_ff)
-
-    def sigma_ct(self) -> float:
-        """RMS sub-pulse duration expressed as a length, cm."""
-        return C_CGS * self.m("subpulse_duration")
+        if name in ("subpulse_duration", "repetition_period"):
+            return self.temporal_envelope.m(name)
+        return super().m(name)
 
     def duty_cycle(self) -> float:
         """Duty cycle D = subpulse_duration / repetition_period."""
         return self.m("subpulse_duration") / self.m("repetition_period")
 
     def subpulse_delays(self) -> np.ndarray:
-        """Temporal offsets t_k of individual sub-pulses relative to the train center (seconds).
-
-        t_k = (k - (N_p + 1)/2) * T_rep for k in {1, ..., N_p}.
-        """
-        k = np.arange(1, self.n_subpulses + 1, dtype=float)
-        return (k - 0.5 * (self.n_subpulses + 1)) * self.m("repetition_period")
+        """Temporal offsets t_k of individual sub-pulses relative to the train center (seconds)."""
+        return self.temporal_envelope.subpulse_delays()
 
     def subpulse(self, index: int) -> GaussianParaxialLaser:
         """The index-th sub-pulse (0 <= index < n_subpulses) as a GaussianParaxialLaser."""
@@ -796,40 +820,9 @@ class PulseTrainParaxialLaser:
         """Constituent sub-pulses as individual GaussianParaxialLaser instances."""
         return [self.subpulse(i) for i in range(self.n_subpulses)]
 
-    def spot_sizes(self, u_spot):
-        """RMS intensity spot sizes ``(s1, s2)`` at longitudinal position ``u_spot``."""
-        s1 = self.m("sigma_x") * np.sqrt(1.0 + ((u_spot - self.m("z_fx")) / self.rayleigh_x()) ** 2)
-        s2 = self.m("sigma_y") * np.sqrt(1.0 + ((u_spot - self.m("z_fy")) / self.rayleigh_y()) ** 2)
-        return s1, s2
-
-    def a0_peak(self) -> float:
-        """Peak period-averaged a0 anywhere in the pulse."""
-        return float(self._a0_from_density(self._peak_density()))
-
-    def intensity_peak(self) -> float:
-        """Peak cycle-averaged ``<a^2>`` anywhere in the pulse."""
-        return (E_ESU / (ME_CGS * C_CGS * self.omega0())) ** 2 * 4.0 * np.pi * self.m(
-            "pulse_energy"
-        ) * self._peak_density()
-
-    def _peak_density(self) -> float:
-        """Peak normalized photon density."""
-        lo, hi = sorted((self.m("z_fx"), self.m("z_fy")))
-        u = np.linspace(lo, hi, 257) if hi > lo else np.array([lo])
-        s1, s2 = self.spot_sizes(u)
-        transverse_max = float(np.max(1.0 / (2.0 * math.pi * s1 * s2)))
-
-        s_ct = self.sigma_ct()
-        delays_c = C_CGS * self.subpulse_delays()
-        max_c = float(np.max(np.abs(delays_c)))
-        grid_zeta = np.linspace(0.0, max_c, 512)
-        eval_zeta = np.unique(np.concatenate([[0.0], np.abs(delays_c), grid_zeta]))
-        diff = eval_zeta[:, None] - delays_c[None, :]
-        long_profile = np.sum(np.exp(-0.5 * (diff / s_ct) ** 2), axis=1) / (
-            math.sqrt(2.0 * math.pi) * s_ct * self.n_subpulses
-        )
-        long_max = float(np.max(long_profile))
-        return transverse_max * long_max
+    def sigma_ct(self) -> float:
+        """RMS sub-pulse duration expressed as a length, cm."""
+        return C_CGS * self.m("subpulse_duration")
 
     def cycle_average_factor(self) -> float:
         """``C`` in ``<a^2> = C a0^2``."""
@@ -837,41 +830,45 @@ class PulseTrainParaxialLaser:
 
     def intensity_profile(self, x, y, z, t):
         """Cycle-averaged normalized intensity ``<a^2>`` at ``(x, y, z, t)``."""
-        density = np.asarray(self.photon_density(x, y, z, t), dtype=float)
-        return (E_ESU / (ME_CGS * C_CGS * self.omega0())) ** 2 * 4.0 * np.pi * self.m("pulse_energy") * density
+        density = self.photon_density(x, y, z, t)
+        xp = _get_array_module(density)
+        return (E_ESU / (ME_CGS * C_CGS * self.omega0())) ** 2 * 4.0 * xp.pi * self.m("pulse_energy") * density
 
     def _a0_from_density(self, density):
         """Peak normalized amplitude ``a0`` from a normalized photon-density envelope."""
-        e0 = np.sqrt(8.0 * np.pi * self.m("pulse_energy") * np.asarray(density, dtype=float))
+        xp = _get_array_module(density)
+        e0 = xp.sqrt(8.0 * xp.pi * self.m("pulse_energy") * xp.asarray(density, dtype=float))
         return E_ESU * e0 / (ME_CGS * C_CGS * self.omega0())
 
     def _local_coordinates(self, x, y, z, t):
         """Lab ``(x, y, z, t)`` → ``(xi1, xi2, u, u_spot, ct)`` in the pulse's own frame."""
         k_hat, f1, f2 = self.focusing_axes()
-        rx = np.asarray(x, dtype=float) - self.m("x_off")
-        ry = np.asarray(y, dtype=float) - self.m("y_off")
-        rz = np.asarray(z, dtype=float)
+        xp = _get_array_module(x, y, z, t)
+        rx = xp.asarray(x, dtype=float) - self.m("x_off")
+        ry = xp.asarray(y, dtype=float) - self.m("y_off")
+        rz = xp.asarray(z, dtype=float)
         u = rx * k_hat[0] + ry * k_hat[1] + rz * k_hat[2]
         xi1 = rx * f1[0] + ry * f1[1] + rz * f1[2]
         xi2 = rx * f2[0] + ry * f2[1] + rz * f2[2]
-        ct = C_CGS * (np.asarray(t, dtype=float) - self.m("t_off"))
+        ct = C_CGS * (xp.asarray(t, dtype=float) - self.m("t_off"))
         return xi1, xi2, u, u + self.beta_ff * ct, ct
 
     def photon_density(self, x, y, z, t):
-        """Photon-density envelope, normalized to integrate to 1 over space at fixed ``t``."""
+        """Photon density = transverse(xi1,xi2,u) × temporal(phase_time)."""
         xi1, xi2, u, u_spot, ct = self._local_coordinates(x, y, z, t)
+        xp = _get_array_module(xi1, xi2, u, u_spot, ct)
+
+        # Transverse Gaussian
         s1, s2 = self.spot_sizes(u_spot)
-        s_ct = self.sigma_ct()
-        zeta = u - ct
-        delays_c = C_CGS * self.subpulse_delays()
-        diff = np.expand_dims(zeta, -1) - delays_c
-        longitudinal = np.sum(np.exp(-0.5 * (diff / s_ct) ** 2), axis=-1) / (
-            math.sqrt(2.0 * math.pi) * s_ct * self.n_subpulses
-        )
-        transverse = (1.0 / (2.0 * math.pi * s1 * s2)) * np.exp(
+        transverse = (1.0 / (2.0 * xp.pi * s1 * s2)) * xp.exp(
             -0.5 * ((xi1 / s1) ** 2 + (xi2 / s2) ** 2)
         )
-        return transverse * longitudinal
+
+        # Temporal envelope in phase time (convert from 1/s to 1/cm)
+        phase_time = self._phase_time(xi1, xi2, u, u_spot, ct, xp)
+        temporal = self.temporal_envelope.envelope(phase_time, xp) * C_CGS
+
+        return transverse * temporal
 
     def a0_profile(self, x, y, z, t):
         """Period-averaged normalized vector-potential envelope."""
@@ -880,20 +877,21 @@ class PulseTrainParaxialLaser:
     def field(self, x, y, z, t):
         """Period-resolved normalized vector potential, lab-frame components."""
         xi1, xi2, u, u_spot, ct = self._local_coordinates(x, y, z, t)
+        xp = _get_array_module(xi1, xi2, u, u_spot, ct)
         s1, s2 = self.spot_sizes(u_spot)
-        k0 = 2.0 * math.pi / self.m("wavelength")
+        k0 = 2.0 * xp.pi / self.m("wavelength")
 
         du1 = u_spot - self.m("z_fx")
         du2 = u_spot - self.m("z_fy")
         zr1, zr2 = self.rayleigh_x(), self.rayleigh_y()
-        gouy = 0.5 * (np.arctan2(du1, zr1) + np.arctan2(du2, zr2))
+        gouy = 0.5 * (xp.arctan2(du1, zr1) + xp.arctan2(du2, zr2))
         inv_r1 = du1 / (du1**2 + zr1**2)
         inv_r2 = du2 / (du2**2 + zr2**2)
         phase = k0 * (u - ct) - gouy + 0.5 * k0 * (xi1**2 * inv_r1 + xi2**2 * inv_r2)
 
-        amplitude = self._a0_from_density(self.photon_density(x, y, z, t)) * np.cos(phase)
+        amplitude = self._a0_from_density(self.photon_density(x, y, z, t)) * xp.cos(phase)
         _, p1, _ = self.polarization_axes()
-        return np.stack([amplitude * p1[0], amplitude * p1[1], amplitude * p1[2]])
+        return xp.stack([amplitude * p1[0], amplitude * p1[1], amplitude * p1[2]])
 
     def active_region(self, threshold: float = 1e-3) -> ActiveRegion:
         """Bounding region where ``a0_profile >= threshold * a0_peak``."""

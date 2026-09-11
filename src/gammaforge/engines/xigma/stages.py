@@ -35,11 +35,37 @@ from dataclasses import dataclass
 
 import numpy as np
 
+try:
+    import cupy as cp
+    _HAS_CUPY = True
+except ImportError:
+    cp = None
+    _HAS_CUPY = False
+
 from ...io.bunch import Bunch, illumination_window, overlap_time_window
 from ...io.laser import LaserField, fit_gaussian_paraxial
 from ...io.units import C_CGS, E_ESU, HBAR_CGS, ME_CGS, SIGMA_T_CGS
 from . import chunking
 from .chunking import run_in_chunks
+
+
+def _get_array_module(*arrays):
+    """Get the array module (numpy or cupy) from input arrays."""
+    # Try cupy's get_array_module first (works for both numpy and cupy arrays)
+    if _HAS_CUPY:
+        try:
+            return cp.get_array_module(*arrays)
+        except Exception:
+            pass
+    # Fallback: check if any array is a cupy array
+    for arr in arrays:
+        if arr is not None:
+            if _HAS_CUPY and isinstance(arr, cp.ndarray):
+                return cp
+            # Check for numpy array
+            if isinstance(arr, np.ndarray):
+                return np
+    return np
 
 __all__ = [
     "TrajectorySamples",
@@ -246,7 +272,7 @@ def polarization_factor(
     psi_pol: float,
     theta_xz: float = 0.0,
     theta_yz: float = 0.0,
-) -> float | np.ndarray:
+):
     """``Tr(U^T Xi U)`` for one electron and lab-frame observation direction.
 
     The field-free electron velocity is ``beta * (theta_x, theta_y, 1)`` normalized
@@ -254,7 +280,7 @@ def polarization_factor(
     pulse crossing angle; it is never rotated separately for each electron.
     """
     return polarization_factor_vectorized(
-        np.asarray(gamma), np.asarray(theta_x), np.asarray(theta_y),
+        gamma, theta_x, theta_y,
         theta_x_obs, theta_y_obs, ellipticity, psi_pol, theta_xz, theta_yz,
     )
 
@@ -315,15 +341,15 @@ def physical_transverse_axes(
 
 
 def compute_stokes_components(
-    gamma: np.ndarray | float,
-    theta_ex: np.ndarray | float,
-    theta_ey: np.ndarray | float,
+    gamma,
+    theta_ex,
+    theta_ey,
     theta_x: float,
     theta_y: float,
-    e0: np.ndarray,
-    e1: np.ndarray,
+    e0,
+    e1,
     ellipticity: float = 0.0,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+):
     """Compute Stokes parameters (I, Q, U, V) in the smooth laboratory observer basis (m_x, m_y).
 
     Evaluates the scattered-photon Stokes parameters in the smooth laboratory observer
@@ -337,47 +363,48 @@ def compute_stokes_components(
 
     Parameters
     ----------
-    gamma : np.ndarray or float
+    gamma : array-like or float
         Electron Lorentz factor(s).
-    theta_ex : np.ndarray or float
+    theta_ex : array-like or float
         Electron transverse divergence x-component(s).
-    theta_ey : np.ndarray or float
+    theta_ey : array-like or float
         Electron transverse divergence y-component(s).
     theta_x : float
         Laboratory observation angle x-component.
     theta_y : float
         Laboratory observation angle y-component.
-    e0 : np.ndarray
+    e0 : array-like
         Rotated laser polarization unit vector along major axis (shape (3,)).
-    e1 : np.ndarray
+    e1 : array-like
         Rotated laser polarization unit vector along minor axis (shape (3,)).
     ellipticity : float
         Laser ellipticity in [-1, 1] (0 = linear, +/-1 = circular).
 
     Returns
     -------
-    tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+    tuple of arrays
         Stokes parameters (I, Q, U, V) in the smooth laboratory observer basis.
     """
+    xp = _get_array_module(gamma, theta_ex, theta_ey)
     no = math.sqrt(1.0 + theta_x**2 + theta_y**2)
-    n = np.array([theta_x, theta_y, 1.0], dtype=float) / no
+    n = xp.array([theta_x, theta_y, 1.0], dtype=float) / no
 
     denom_m = 1.0 + n[2]
-    mx = np.array([1.0 - n[0]**2 / denom_m, -n[0] * n[1] / denom_m, -n[0]], dtype=float)
-    my = np.array([-n[0] * n[1] / denom_m, 1.0 - n[1]**2 / denom_m, -n[1]], dtype=float)
+    mx = xp.array([1.0 - n[0]**2 / denom_m, -n[0] * n[1] / denom_m, -n[0]], dtype=float)
+    my = xp.array([-n[0] * n[1] / denom_m, 1.0 - n[1]**2 / denom_m, -n[1]], dtype=float)
 
-    gamma, theta_ex, theta_ey = np.broadcast_arrays(
-        np.asarray(gamma, dtype=float),
-        np.asarray(theta_ex, dtype=float),
-        np.asarray(theta_ey, dtype=float),
+    gamma, theta_ex, theta_ey = xp.broadcast_arrays(
+        xp.asarray(gamma, dtype=float),
+        xp.asarray(theta_ex, dtype=float),
+        xp.asarray(theta_ey, dtype=float),
     )
     valid_gamma = gamma >= 1.0
-    gamma_safe = np.where(valid_gamma, gamma, 1.0)
+    gamma_safe = xp.where(valid_gamma, gamma, 1.0)
     gamma_sq = gamma_safe * gamma_safe
-    beta = np.sqrt(1.0 - 1.0 / gamma_sq)
+    beta = xp.sqrt(1.0 - 1.0 / gamma_sq)
     delta = 1.0 / (gamma_sq * (1.0 + beta))
 
-    ve = np.sqrt(1.0 + theta_ex**2 + theta_ey**2)
+    ve = xp.sqrt(1.0 + theta_ex**2 + theta_ey**2)
 
     delta_z = (
         (theta_ex - theta_x) * (theta_ex + theta_x)
@@ -403,23 +430,23 @@ def compute_stokes_components(
     p0x = e0[0] - u_dot_e0 * ux
     p0y = e0[1] - u_dot_e0 * uy
     p0z = e0[2] - u_dot_e0 * uz
-    n0 = np.sqrt(p0x**2 + p0y**2 + p0z**2)
+    n0 = xp.sqrt(p0x**2 + p0y**2 + p0z**2)
     valid0 = n0 > 1e-12
-    n0_safe = np.where(valid0, n0, 1.0)
-    e0px = np.where(valid0, p0x / n0_safe, 0.0)
-    e0py = np.where(valid0, p0y / n0_safe, 0.0)
-    e0pz = np.where(valid0, p0z / n0_safe, 0.0)
+    n0_safe = xp.where(valid0, n0, 1.0)
+    e0px = xp.where(valid0, p0x / n0_safe, 0.0)
+    e0py = xp.where(valid0, p0y / n0_safe, 0.0)
+    e0pz = xp.where(valid0, p0z / n0_safe, 0.0)
 
     e1px = uy * e0pz - uz * e0py
     e1py = uz * e0px - ux * e0pz
     e1pz = ux * e0py - uy * e0px
-    n1 = np.sqrt(e1px**2 + e1py**2 + e1pz**2)
+    n1 = xp.sqrt(e1px**2 + e1py**2 + e1pz**2)
     valid1 = n1 > 1e-12
-    n1_safe = np.where(valid1, n1, 1.0)
-    e1px = np.where(valid1, e1px / n1_safe, 0.0)
-    e1py = np.where(valid1, e1py / n1_safe, 0.0)
-    e1pz = np.where(valid1, e1pz / n1_safe, 0.0)
-    sign1 = np.where(e1px * e1[0] + e1py * e1[1] + e1pz * e1[2] < 0.0, -1.0, 1.0)
+    n1_safe = xp.where(valid1, n1, 1.0)
+    e1px = xp.where(valid1, e1px / n1_safe, 0.0)
+    e1py = xp.where(valid1, e1py / n1_safe, 0.0)
+    e1pz = xp.where(valid1, e1pz / n1_safe, 0.0)
+    sign1 = xp.where(e1px * e1[0] + e1py * e1[1] + e1pz * e1[2] < 0.0, -1.0, 1.0)
     e1px *= sign1
     e1py *= sign1
     e1pz *= sign1
@@ -448,11 +475,11 @@ def compute_stokes_components(
     U = 2.0 * (xi00 * U0x * U0y + xi11 * U1x * U1y)
     V = (-2.0 * ellipticity / (1.0 + eps2)) * (U0x * U1y - U1x * U0y)
 
-    if np.any(~valid_gamma):
-        I = np.where(valid_gamma, I, 0.0)
-        Q = np.where(valid_gamma, Q, 0.0)
-        U = np.where(valid_gamma, U, 0.0)
-        V = np.where(valid_gamma, V, 0.0)
+    if xp.any(~valid_gamma):
+        I = xp.where(valid_gamma, I, 0.0)
+        Q = xp.where(valid_gamma, Q, 0.0)
+        U = xp.where(valid_gamma, U, 0.0)
+        V = xp.where(valid_gamma, V, 0.0)
 
     return I, Q, U, V
 
@@ -506,6 +533,8 @@ def bunch_stokes_parameters(
     if samples.n_particles == 0:
         return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
+    xp = _get_array_module(samples.gamma, samples.theta_x, samples.theta_y, samples.luminosity)
+
     if e0 is None or e1 is None:
         e0, e1 = rotated_laser_axes(psi_pol=psi_pol, theta_xz=theta_xz, theta_yz=theta_yz)
 
@@ -521,10 +550,10 @@ def bunch_stokes_parameters(
     )
 
     weights = samples.luminosity
-    Itot = float(np.sum(weights * I))
-    Qtot = float(np.sum(weights * Q))
-    Utot = float(np.sum(weights * U))
-    Vtot = float(np.sum(weights * V))
+    Itot = float(xp.sum(weights * I))
+    Qtot = float(xp.sum(weights * Q))
+    Utot = float(xp.sum(weights * U))
+    Vtot = float(xp.sum(weights * V))
 
     if Itot > 0.0:
         p_num = math.sqrt(max(0.0, Qtot * Qtot + Utot * Utot + Vtot * Vtot))
@@ -538,36 +567,37 @@ def bunch_stokes_parameters(
 
 
 def polarization_factor_vectorized(
-    gamma: np.ndarray,
-    theta_x: np.ndarray,
-    theta_y: np.ndarray,
+    gamma,
+    theta_x,
+    theta_y,
     theta_x_obs: float,
     theta_y_obs: float,
     ellipticity: float,
     psi_pol: float,
     theta_xz: float = 0.0,
     theta_yz: float = 0.0,
-) -> np.ndarray:
+):
     """Vectorized :func:`polarization_factor` for per-electron lab velocities.
 
     Evaluates the physical transverse dipole projection local to each electron's
     velocity vector (DER012).
     """
+    xp = _get_array_module(gamma, theta_x, theta_y)
     e0, e1 = rotated_laser_axes(psi_pol=psi_pol, theta_xz=theta_xz, theta_yz=theta_yz)
     no = math.sqrt(1.0 + theta_x_obs**2 + theta_y_obs**2)
-    n = np.array([theta_x_obs, theta_y_obs, 1.0]) / no
+    n = xp.array([theta_x_obs, theta_y_obs, 1.0]) / no
 
-    gamma, theta_x, theta_y = np.broadcast_arrays(
-        np.asarray(gamma, dtype=float), np.asarray(theta_x, dtype=float),
-        np.asarray(theta_y, dtype=float),
+    gamma, theta_x, theta_y = xp.broadcast_arrays(
+        xp.asarray(gamma, dtype=float), xp.asarray(theta_x, dtype=float),
+        xp.asarray(theta_y, dtype=float),
     )
     valid_gamma = gamma >= 1.0
-    gamma_safe = np.where(valid_gamma, gamma, 1.0)
+    gamma_safe = xp.where(valid_gamma, gamma, 1.0)
     gamma_sq = gamma_safe * gamma_safe
-    beta = np.sqrt(1.0 - 1.0 / gamma_sq)
+    beta = xp.sqrt(1.0 - 1.0 / gamma_sq)
     delta = 1.0 / (gamma_sq * (1.0 + beta))
 
-    ve = np.sqrt(1.0 + theta_x**2 + theta_y**2)
+    ve = xp.sqrt(1.0 + theta_x**2 + theta_y**2)
 
     # Delta = n - u, with the nearly equal longitudinal component evaluated from
     # the slope norms rather than as ``1/no - 1/ve`` (RES069, RES070).
@@ -594,23 +624,23 @@ def polarization_factor_vectorized(
     p0x = e0[0] - u_dot_e0 * ux
     p0y = e0[1] - u_dot_e0 * uy
     p0z = e0[2] - u_dot_e0 * uz
-    n0 = np.sqrt(p0x**2 + p0y**2 + p0z**2)
+    n0 = xp.sqrt(p0x**2 + p0y**2 + p0z**2)
     valid0 = n0 > 1e-12
-    n0_safe = np.where(valid0, n0, 1.0)
-    e0px = np.where(valid0, p0x / n0_safe, 0.0)
-    e0py = np.where(valid0, p0y / n0_safe, 0.0)
-    e0pz = np.where(valid0, p0z / n0_safe, 0.0)
+    n0_safe = xp.where(valid0, n0, 1.0)
+    e0px = xp.where(valid0, p0x / n0_safe, 0.0)
+    e0py = xp.where(valid0, p0y / n0_safe, 0.0)
+    e0pz = xp.where(valid0, p0z / n0_safe, 0.0)
 
     e1px = uy * e0pz - uz * e0py
     e1py = uz * e0px - ux * e0pz
     e1pz = ux * e0py - uy * e0px
-    n1 = np.sqrt(e1px**2 + e1py**2 + e1pz**2)
+    n1 = xp.sqrt(e1px**2 + e1py**2 + e1pz**2)
     valid1 = n1 > 1e-12
-    n1_safe = np.where(valid1, n1, 1.0)
-    e1px = np.where(valid1, e1px / n1_safe, 0.0)
-    e1py = np.where(valid1, e1py / n1_safe, 0.0)
-    e1pz = np.where(valid1, e1pz / n1_safe, 0.0)
-    sign1 = np.where(e1px * e1[0] + e1py * e1[1] + e1pz * e1[2] < 0.0, -1.0, 1.0)
+    n1_safe = xp.where(valid1, n1, 1.0)
+    e1px = xp.where(valid1, e1px / n1_safe, 0.0)
+    e1py = xp.where(valid1, e1py / n1_safe, 0.0)
+    e1pz = xp.where(valid1, e1pz / n1_safe, 0.0)
+    sign1 = xp.where(e1px * e1[0] + e1py * e1[1] + e1pz * e1[2] < 0.0, -1.0, 1.0)
     e1px *= sign1
     e1py *= sign1
     e1pz *= sign1
@@ -796,11 +826,14 @@ def integrate_trajectories(
         )
     _check_backend(backend)
 
+    # Determine array module from bunch arrays (supports both numpy and cupy)
+    xp = _get_array_module(bunch.x, bunch.y, bunch.z, bunch.thx, bunch.thy, bunch.gamma, bunch.weight)
+
     if window == "illumination":
         t0, t1 = illumination_window(bunch, laser, threshold)
     else:
         t0, t1 = overlap_time_window(bunch, laser, threshold)
-    span = np.maximum(0.0, t1 - t0)
+    span = xp.maximum(0.0, t1 - t0)
     # A particle that never enters the pulse gets an empty window, which
     # `overlap_time_window` reports as t0 = +inf, t1 = -inf. Its span is zero and it
     # contributes nothing — but `inf + 0 * 0` is still `inf`, and a trajectory evaluated
@@ -808,10 +841,10 @@ def integrate_trajectories(
     # empty windows are anchored at a finite time, and the zero span does the rest.
     # (With the prefilter on such particles are already gone; with it off they are not,
     # which is how the §7 prefilter-invariance property found this.)
-    start = np.where(span > 0.0, t0, 0.0)
+    start = xp.where(span > 0.0, t0, 0.0)
     # Midpoint rule: no sample sits on the window edge, where the integrand is smallest and
     # the window definition is least meaningful.
-    offsets = (np.arange(n_steps) + 0.5) / n_steps
+    offsets = (xp.arange(n_steps) + 0.5) / n_steps
 
     if hasattr(laser, "intensity_peak"):
         intensity_peak = laser.intensity_peak()
@@ -823,7 +856,7 @@ def integrate_trajectories(
     # a prefiltered run and a full run identical (§3.2).
     weight = n_electrons * bunch.weight
 
-    norm = np.sqrt(1.0 + bunch.thx**2 + bunch.thy**2)
+    norm = xp.sqrt(1.0 + bunch.thx**2 + bunch.thy**2)
     velocity = (C_CGS * bunch.thx / norm, C_CGS * bunch.thy / norm, C_CGS / norm)
     beta = 1.0  # ultra-relativistic: v = c exactly
     if hasattr(laser, "focusing_axes"):
@@ -841,32 +874,30 @@ def integrate_trajectories(
         # `<a^2>`, not `a0`: everything below is a functional of the cycle-averaged
         # intensity, polarization-agnostic at fixed pulse energy (RES054). Do not form `a0`
         # and square it here — that's where RES053's missing factor of two hid.
-        intensity = np.asarray(
-            laser.intensity_profile(
-                bunch.x[sl, None] + velocity[0][sl, None] * times,
-                bunch.y[sl, None] + velocity[1][sl, None] * times,
-                bunch.z[sl, None] + velocity[2][sl, None] * times,
-                times,
-            )
+        intensity = laser.intensity_profile(
+            bunch.x[sl, None] + velocity[0][sl, None] * times,
+            bunch.y[sl, None] + velocity[1][sl, None] * times,
+            bunch.z[sl, None] + velocity[2][sl, None] * times,
+            times,
         )
         # The photon density an electron flies through, and the rate it scatters at.
         # In CGS this is simply flux x cross-section x time; the predecessor's k0**2 was
         # the Jacobian of its coordinate normalization and has no counterpart here (RES015).
         dt = span[sl] / n_steps
         rate = rel_vel * density_scale * C_CGS * SIGMA_T_CGS
-        luminosity = rate * weight[sl] * dt * np.sum(intensity, axis=1)
+        luminosity = rate * weight[sl] * dt * xp.sum(intensity, axis=1)
 
         # `ratio` is the local intensity as a fraction of the pulse's peak. a0_shape is its
         # second moment over the trajectory, normalized by its first: the intensity an
         # electron *effectively* experiences, weighted by where it actually radiated. Being
         # a ratio of intensities, it is polarization-agnostic like everything else here.
         ratio = intensity / intensity_peak
-        moment_1 = np.sum(ratio, axis=1)
+        moment_1 = xp.sum(ratio, axis=1)
         # A particle with no window saw nothing, whatever the envelope reads at the
         # anchor time above; its effective intensity is zero, not the value at t = 0.
         usable = (moment_1 > 0.0) & (dt > 0.0)
-        a0_shape = np.where(
-            usable, np.sum(ratio**2, axis=1) / np.maximum(moment_1, 1e-300), 0.0
+        a0_shape = xp.where(
+            usable, xp.sum(ratio**2, axis=1) / xp.maximum(moment_1, 1e-300), 0.0
         )
         return luminosity, a0_shape
 
@@ -885,8 +916,12 @@ def integrate_trajectories(
     # for a mistimed pulse or a bunch far wider than the spot. `np.concatenate([])` raises,
     # which would make the prefilter turn a zero yield into an exception — the opposite of
     # the pure optimization §3.2 promises.
-    luminosity = np.concatenate([part[0] for part in parts]) if parts else np.zeros(0)
-    a0_shape = np.concatenate([part[1] for part in parts]) if parts else np.zeros(0)
+    if parts:
+        luminosity = xp.concatenate([part[0] for part in parts])
+        a0_shape = xp.concatenate([part[1] for part in parts])
+    else:
+        luminosity = xp.zeros(0, dtype=xp.float64)
+        a0_shape = xp.zeros(0, dtype=xp.float64)
 
     return TrajectorySamples(
         gamma=bunch.gamma,
@@ -914,7 +949,7 @@ DEFAULT_AHAT_MAX = 0.5
 DEFAULT_AHAT_DECADES = 1.0
 
 
-def _uniform_edges(values: np.ndarray, n_bins: int, margin: float, floor_zero: bool = False) -> np.ndarray:
+def _uniform_edges(values, n_bins: int, margin: float, floor_zero: bool = False):
     """``n_bins + 1`` uniform edges spanning ``values``, padded by ``margin`` of the span.
 
     A degenerate span (every sample identical — a monoenergetic, zero-divergence beam is
@@ -922,24 +957,26 @@ def _uniform_edges(values: np.ndarray, n_bins: int, margin: float, floor_zero: b
     that every sample lands exactly on the edge of; padded by ``margin`` of the value's
     own scale instead so the grid always has a real width.
     """
-    lo, hi = float(np.min(values)), float(np.max(values))
+    xp = _get_array_module(values)
+    lo, hi = float(xp.min(values)), float(xp.max(values))
     span = hi - lo
     pad = margin * span if span > 0.0 else margin * max(abs(lo), 1.0)
     lo, hi = lo - pad, hi + pad
     if floor_zero:
         lo = max(lo, 0.0)
-    return np.linspace(lo, hi, n_bins + 1)
+    return xp.linspace(lo, hi, n_bins + 1)
 
 
-def _validate_edges_and_shape(edges: tuple[np.ndarray, ...], H: np.ndarray, name: str) -> None:
+def _validate_edges_and_shape(edges, H, name: str) -> None:
     """Shared structural check for :class:`ShapeTable` and :class:`Table`: ``H``'s shape
     matches the edge counts, and every axis's edges are strictly increasing. Says nothing
     about *uniform* spacing — `Table`'s ``ahat_edges`` deliberately is not (§4.2)."""
+    xp = _get_array_module(*edges, H)
     expected = tuple(e.size - 1 for e in edges)
     if H.shape != expected:
         raise ValueError(f"{name}: H.shape {H.shape} does not match edge counts {expected}")
     for e in edges:
-        if np.any(np.diff(e) <= 0.0):
+        if xp.any(xp.diff(e) <= 0.0):
             raise ValueError(f"{name}: edges must be strictly increasing")
 
 
@@ -977,6 +1014,7 @@ class ShapeTable:
     @property
     def bin_volume(self) -> float:
         """Cell volume, constant because every axis here is a uniform grid."""
+        xp = _get_array_module(self.gamma_edges, self.theta_x_edges, self.theta_y_edges, self.a0_shape_edges, self.H)
         return float(
             (self.gamma_edges[-1] - self.gamma_edges[0])
             * (self.theta_x_edges[-1] - self.theta_x_edges[0])
@@ -1012,49 +1050,57 @@ class Table:
         )
 
     @property
-    def gamma_centers(self) -> np.ndarray:
+    def gamma_centers(self):
+        xp = _get_array_module(self.gamma_edges)
         return 0.5 * (self.gamma_edges[:-1] + self.gamma_edges[1:])
 
     @property
-    def theta_x_centers(self) -> np.ndarray:
+    def theta_x_centers(self):
+        xp = _get_array_module(self.theta_x_edges)
         return 0.5 * (self.theta_x_edges[:-1] + self.theta_x_edges[1:])
 
     @property
-    def theta_y_centers(self) -> np.ndarray:
+    def theta_y_centers(self):
+        xp = _get_array_module(self.theta_y_edges)
         return 0.5 * (self.theta_y_edges[:-1] + self.theta_y_edges[1:])
 
     @property
-    def ahat_centers(self) -> np.ndarray:
+    def ahat_centers(self):
+        xp = _get_array_module(self.ahat_edges)
         return 0.5 * (self.ahat_edges[:-1] + self.ahat_edges[1:])
 
     @property
-    def ahat_widths(self) -> np.ndarray:
+    def ahat_widths(self):
         """Per-bin ``ahat`` width, shape ``(n_ahat,)`` — non-uniform, unlike every other
         axis here, so this is an array rather than a scalar."""
-        return np.diff(self.ahat_edges)
+        xp = _get_array_module(self.ahat_edges)
+        return xp.diff(self.ahat_edges)
 
     @property
     def gamma_theta_cell_area(self) -> float:
         """The still-uniform ``theta_x * theta_y`` cell area (gamma is interpolated, not
         integrated over, in :func:`spectrum_from_table` — see :func:`_interp_gamma`)."""
+        xp = _get_array_module(self.theta_x_edges, self.theta_y_edges, self.H)
         return float(
             (self.theta_x_edges[-1] - self.theta_x_edges[0]) / self.H.shape[1]
             * (self.theta_y_edges[-1] - self.theta_y_edges[0]) / self.H.shape[2]
         )
 
 
-def _cell_fractions(values: np.ndarray, edges: np.ndarray, n_bins: int) -> np.ndarray:
+def _cell_fractions(values, edges, n_bins: int):
     """Continuous cell coordinate of ``values`` in ``edges``, in units of one bin width."""
+    xp = _get_array_module(values, edges)
     return (values - edges[0]) / (edges[-1] - edges[0]) * n_bins
 
 
-def _deposit_nearest(coords: tuple[np.ndarray, ...], weight: np.ndarray, n_bins: tuple[int, ...]) -> np.ndarray:
-    idx = [np.clip(np.floor(c).astype(np.int64), 0, n - 1) for c, n in zip(coords, n_bins)]
-    flat = np.ravel_multi_index(idx, n_bins)
-    return np.bincount(flat, weights=weight, minlength=int(np.prod(n_bins))).reshape(n_bins)
+def _deposit_nearest(coords, weight, n_bins):
+    xp = _get_array_module(*coords, weight)
+    idx = [xp.clip(xp.floor(c).astype(xp.int64), 0, n - 1) for c, n in zip(coords, n_bins)]
+    flat = xp.ravel_multi_index(idx, n_bins)
+    return xp.bincount(flat, weights=weight, minlength=int(xp.prod(n_bins))).reshape(n_bins)
 
 
-def _deposit_cic(coords: tuple[np.ndarray, ...], weight: np.ndarray, n_bins: tuple[int, ...]) -> np.ndarray:
+def _deposit_cic(coords, weight, n_bins):
     """Cloud-in-cell: each sample splits its weight over its 16 neighbouring cells.
 
     Cell-centred convention (predecessor's, §4.2): a sample's continuous coordinate is
@@ -1063,23 +1109,24 @@ def _deposit_cic(coords: tuple[np.ndarray, ...], weight: np.ndarray, n_bins: tup
     is what keeps a CIC deposit's total exactly equal to a nearest deposit's for the same
     samples (both conserve weight; only where it lands differs).
     """
+    xp = _get_array_module(*coords, weight)
     n_axes = len(coords)
     shifted = [c - 0.5 for c in coords]
-    low = [np.floor(s).astype(np.int64) for s in shifted]
+    low = [xp.floor(s).astype(xp.int64) for s in shifted]
     frac = [s - lo for s, lo in zip(shifted, low)]
 
-    flat_size = int(np.prod(n_bins))
-    H_flat = np.zeros(flat_size, dtype=np.float64)
+    flat_size = int(xp.prod(n_bins))
+    H_flat = xp.zeros(flat_size, dtype=xp.float64)
     for corner in itertools.product((0, 1), repeat=n_axes):
         idx = []
         w = weight
         for axis, bit in enumerate(corner):
-            i = np.clip(low[axis] + bit, 0, n_bins[axis] - 1)
+            i = xp.clip(low[axis] + bit, 0, n_bins[axis] - 1)
             f = frac[axis] if bit else (1.0 - frac[axis])
             idx.append(i)
             w = w * f
-        flat = np.ravel_multi_index(idx, n_bins)
-        H_flat += np.bincount(flat, weights=w, minlength=flat_size)
+        flat = xp.ravel_multi_index(idx, n_bins)
+        H_flat += xp.bincount(flat, weights=w, minlength=flat_size)
     return H_flat.reshape(n_bins)
 
 
@@ -1105,6 +1152,8 @@ def deposit_shape_table(
     if scheme not in ("nearest", "cic"):
         raise ValueError(f"deposit_shape_table: scheme must be 'nearest' or 'cic', got {scheme!r}")
 
+    xp = _get_array_module(samples.gamma, samples.theta_x, samples.theta_y, samples.a0_shape, samples.luminosity)
+
     gamma_edges = _uniform_edges(samples.gamma, n_bins[0], margin)
     theta_x_edges = _uniform_edges(samples.theta_x, n_bins[1], margin)
     theta_y_edges = _uniform_edges(samples.theta_y, n_bins[2], margin)
@@ -1120,7 +1169,7 @@ def deposit_shape_table(
     deposit = _deposit_nearest if scheme == "nearest" else _deposit_cic
     H_raw = deposit(coords, samples.luminosity, n_bins)
 
-    bin_volume = float(np.prod([e[-1] - e[0] for e in edges]) / np.prod(n_bins))
+    bin_volume = float(xp.prod([e[-1] - e[0] for e in edges]) / xp.prod(n_bins))
     return ShapeTable(
         gamma_edges=gamma_edges,
         theta_x_edges=theta_x_edges,
@@ -1133,7 +1182,7 @@ def deposit_shape_table(
     )
 
 
-def _ahat_target_edges(ahat_min: float, ahat_max: float, n_bins: int, decades: float) -> np.ndarray:
+def _ahat_target_edges(ahat_min: float, ahat_max: float, n_bins: int, decades: float):
     """``n_bins + 1`` non-uniform ``ahat`` edges, log-spaced in distance from the top:
     finest near ``ahat_max`` (where the redshift correction is significant), coarsest near
     ``ahat_min`` (folded floor bin — §4.2, RES032)::
@@ -1154,7 +1203,8 @@ def _ahat_target_edges(ahat_min: float, ahat_max: float, n_bins: int, decades: f
         raise ValueError(f"_ahat_target_edges: ahat_max ({ahat_max}) must exceed ahat_min ({ahat_min})")
     if decades <= 0.0:
         raise ValueError(f"_ahat_target_edges: decades must be positive, got {decades}")
-    i = np.arange(n_bins + 1)
+    xp = np  # This function creates new arrays, use numpy as base
+    i = xp.arange(n_bins + 1)
     v = (ahat_max - ahat_min) * 10.0 ** (-decades * i / n_bins)
     edges = ahat_max - v
     edges[-1] = ahat_max
@@ -1189,6 +1239,12 @@ def retarget_ahat(
         raise ValueError(f"retarget_ahat: ahat_max ({ahat_max}) must exceed ahat_min ({ahat_min})")
     intensity_peak = float(intensity_peak)
 
+    # Get array module from shape_table arrays
+    xp = _get_array_module(
+        shape_table.gamma_edges, shape_table.theta_x_edges, shape_table.theta_y_edges,
+        shape_table.a0_shape_edges, shape_table.H
+    )
+
     # Exact, and the third and last caller of :func:`ahat_from_shape`: a0_shape is
     # strength-independent by construction, so the axis transform is a pure scale.
     source_edges = ahat_from_shape(shape_table.a0_shape_edges, intensity_peak)
@@ -1199,18 +1255,18 @@ def retarget_ahat(
     # (a pulse strong enough to push the rescaled source past the configured ceiling) folds
     # into the top bin rather than being silently dropped.
     edges_ext = target_edges.copy()
-    edges_ext[0] = -np.inf
-    edges_ext[-1] = np.inf
+    edges_ext[0] = -xp.inf
+    edges_ext[-1] = xp.inf
 
     src_lo, src_hi = source_edges[:-1], source_edges[1:]
     src_width = src_hi - src_lo
     tgt_lo, tgt_hi = edges_ext[:-1], edges_ext[1:]
 
-    lo = np.maximum(src_lo[:, None], tgt_lo[None, :])
-    hi = np.minimum(src_hi[:, None], tgt_hi[None, :])
-    overlap = np.clip(hi - lo, 0.0, None)
+    lo = xp.maximum(src_lo[:, None], tgt_lo[None, :])
+    hi = xp.minimum(src_hi[:, None], tgt_hi[None, :])
+    overlap = xp.clip(hi - lo, 0.0, None)
     # W[i, j]: fraction of source bin i's mass assigned to target bin j.
-    W = overlap / np.clip(src_width, 1e-300, None)[:, None]
+    W = overlap / xp.clip(src_width, 1e-300, None)[:, None]
 
     # The source (a0_shape) axis stays uniform in this design — deposit_shape_table only
     # ever builds it via _uniform_edges — so a single scalar width is exact here, unlike
@@ -1220,8 +1276,8 @@ def retarget_ahat(
     luminosity_rescale = intensity_peak / shape_table.source_intensity_peak
 
     mass_source = shape_table.H * da_source * luminosity_rescale  # density -> mass, at this strength
-    mass_target = np.tensordot(mass_source, W, axes=([3], [0]))
-    target_width = np.diff(target_edges)
+    mass_target = xp.tensordot(mass_source, W, axes=([3], [0]))
+    target_width = xp.diff(target_edges)
     H_target = mass_target / target_width
 
     # Truncate trailing ahat bins the rescaled source never reaches: their mass is exactly
@@ -1230,7 +1286,7 @@ def retarget_ahat(
     # only how many always-zero terms it evaluates. One-sided: the floor bin (index 0)
     # always catches whatever folded below ahat_min, so only the top can be empty.
     marginal = H_target.sum(axis=(0, 1, 2))
-    populated = np.nonzero(marginal > 0.0)[0]
+    populated = xp.nonzero(marginal > 0.0)[0]
     last = int(populated[-1]) if populated.size else 0
     H_target = H_target[..., : last + 1]
     target_edges = target_edges[: last + 2]
@@ -1256,7 +1312,7 @@ def retarget_ahat(
 KERNEL_NORMALIZATION_CONSTANT = 1.5 / (2.0 * math.pi)
 
 
-def _interp_gamma(table: Table, g: np.ndarray) -> np.ndarray:
+def _interp_gamma(table: Table, g):
     """``table.H`` linearly interpolated along gamma at a per-cell query point ``g``.
 
     ``g`` carries one query value per ``(theta_x, theta_y, ahat)`` cell — the resonance
@@ -1266,18 +1322,19 @@ def _interp_gamma(table: Table, g: np.ndarray) -> np.ndarray:
     not populate a resonance there, which is physical, not a boundary artefact to
     extrapolate past.
     """
+    xp = _get_array_module(table.gamma_edges, table.theta_x_edges, table.theta_y_edges, table.ahat_edges, table.H, g)
     gc = table.gamma_centers
     in_range = (g >= gc[0]) & (g <= gc[-1])
-    idx = np.clip(np.searchsorted(gc, g) - 1, 0, len(gc) - 2)
+    idx = xp.clip(xp.searchsorted(gc, g) - 1, 0, len(gc) - 2)
     idx_hi = idx + 1
-    frac = np.where(in_range, (g - gc[idx]) / (gc[idx_hi] - gc[idx]), 0.0)
+    frac = xp.where(in_range, (g - gc[idx]) / (gc[idx_hi] - gc[idx]), 0.0)
 
-    tx_idx, ty_idx, a_idx = np.meshgrid(
-        np.arange(table.H.shape[1]), np.arange(table.H.shape[2]), np.arange(table.H.shape[3]), indexing="ij"
+    tx_idx, ty_idx, a_idx = xp.meshgrid(
+        xp.arange(table.H.shape[1]), xp.arange(table.H.shape[2]), xp.arange(table.H.shape[3]), indexing="ij"
     )
     lo = table.H[idx, tx_idx, ty_idx, a_idx]
     hi = table.H[idx_hi, tx_idx, ty_idx, a_idx]
-    return np.where(in_range, lo * (1.0 - frac) + hi * frac, 0.0)
+    return xp.where(in_range, lo * (1.0 - frac) + hi * frac, 0.0)
 
 
 def spectrum_from_table(
@@ -1290,7 +1347,7 @@ def spectrum_from_table(
     ellipticity: float = 0.0,
     theta_xz: float = 0.0,
     theta_yz: float = 0.0,
-) -> np.ndarray:
+):
     """Stage 2: ``d2N / (ds dOmega)`` at one observation direction, over an array of ``s``.
 
     A direct grid quadrature over Stage 1's table, not the predecessor's GPU importance
@@ -1306,7 +1363,8 @@ def spectrum_from_table(
     The polarization factor now includes ellipticity and crossing angle effects per DER006,
     replacing the head-on linear factor ``cos^2 psi``.
     """
-    s_arr = np.atleast_1d(np.asarray(s, dtype=float))
+    xp = _get_array_module(table.gamma_edges, table.theta_x_edges, table.theta_y_edges, table.ahat_edges, table.H)
+    s_arr = xp.atleast_1d(xp.asarray(s, dtype=float))
     tx_c = table.theta_x_centers[:, None, None]
     ty_c = table.theta_y_centers[None, :, None]
     a_c = table.ahat_centers[None, None, :]
@@ -1331,7 +1389,7 @@ def spectrum_from_table(
     n0_z = -cos_xz * cos_yz
 
     # Electron velocity (ultra-relativistic, beta ≈ 1): v = (tx, ty, 1) / sqrt(1 + tx^2 + ty^2)
-    norm = np.sqrt(1.0 + tx_c**2 + ty_c**2)
+    norm = xp.sqrt(1.0 + tx_c**2 + ty_c**2)
     vx = tx_c / norm
     vy = ty_c / norm
     vz = 1.0 / norm
@@ -1341,7 +1399,7 @@ def spectrum_from_table(
     D_nominal = 1.0 - n0_z  # = 1 + cos_xz * cos_yz
     D_rel = D_cell / D_nominal
 
-    out = np.zeros(s_arr.shape[0])
+    out = xp.zeros(s_arr.shape[0])
     for k, s_val in enumerate(s_arr):
         # s <= 0 is not a resonance to invert (the formula's own 1/s and 1/s**2 factors
         # are singular there) — zero photon energy is zero photons, and `out` is already
@@ -1354,23 +1412,23 @@ def spectrum_from_table(
         # cell would query `H` at, so an invalid cell contributes exactly zero rather than
         # a stray extrapolated lookup.
         valid = inv_base > 0.0
-        g_sq = (1.0 + a_c) / np.where(valid, inv_base, 1.0)
-        g = np.where(valid, np.sqrt(g_sq), 0.0)
+        g_sq = (1.0 + a_c) / xp.where(valid, inv_base, 1.0)
+        g = xp.where(valid, xp.sqrt(g_sq), 0.0)
         gth_sq_inv = 1.0 / (1.0 + r_sq * g_sq) ** 2
 
         # New polarization factor from DER006 (replaces a_fac = 1 - 4*cos^2(psi)*r^2*g^2*gth_sq_inv)
         pol_factor = polarization_factor_vectorized(
             g, tx_c, ty_c, theta_x, theta_y, ellipticity, psi_pol, theta_xz, theta_yz
         )
-        prefac = np.where(valid, pol_factor * g**5 * gth_sq_inv / (1.0 + a_c), 0.0)
+        prefac = xp.where(valid, pol_factor * g**5 * gth_sq_inv / (1.0 + a_c), 0.0)
         H_val = _interp_gamma(table, g)
         out[k] = (
             KERNEL_NORMALIZATION_CONSTANT
-            * float(np.sum(H_val * prefac * ahat_widths))
+            * float(xp.sum(H_val * prefac * ahat_widths))
             * theta_cell_area
             / s_val**2
         )
-    return out if np.ndim(s) else out[0]
+    return out if xp.ndim(s) == 0 else out[0] if s_arr.shape[0] == 1 else out
 
 
 def angular_spectrum_from_table(
@@ -1551,19 +1609,15 @@ def spectrum_in_angular_range(
 
 
 def _check_backend(backend: str) -> None:
-    """Stage 0 runs on numpy today; the other two backends land with the kernels (3a).
+    """Validate the backend for Stage 0/1.
 
-    Not an oversight, and deliberately an error rather than a silent fallback. P15 puts
-    the laser in charge of its own sampling, so a GPU Stage 0 needs
-    `LaserField.a0_profile` to be array-module-agnostic — a change to the *protocol's*
-    contract that every future implementation inherits, not something Stage 0 can arrange
-    on its own by wrapping the call. Accepting ``backend='cupy'`` here and running on the
-    host anyway would make the §7 backend-agreement leg pass while comparing numpy with
-    numpy, which is worse than not having it.
+    Stage 0 and 1 now support both numpy and cupy backends. The laser's
+    intensity_profile method is array-module-agnostic (P15/§3.3), accepting
+    numpy or cupy arrays and returning arrays of the same module.
     """
-    if backend != "numpy":
-        raise NotImplementedError(
-            f"integrate_trajectories(backend={backend!r}): Stage 0 is numpy-only until "
-            f"Phase 3a. A GPU path needs LaserField.a0_profile to accept device arrays "
-            f"(P15/§3.3), which is a protocol change, not a wrapper here."
+    if backend not in ("numpy", "cupy"):
+        raise ValueError(
+            f"integrate_trajectories(backend={backend!r}): backend must be 'numpy' or 'cupy'"
         )
+    if backend == "cupy" and not _HAS_CUPY:
+        raise RuntimeError("cupy backend requested but CuPy is not installed")
