@@ -29,13 +29,14 @@ def emission_lines(samples: TrajectorySamples, theta_x: float, theta_y: float, *
     """Return per-particle resonant energies (erg) and shared-flux weights.
 
     ``photon_energy`` is the incident laser photon energy in CGS erg. ``nominal``
-    uses the production nominal-axis Doppler factor; ``particle`` uses each
-    electron's explicit velocity projection. Both intentionally share Stage-0
+    uses the historical nominal-axis factor; ``particle`` uses exact finite speed;
+    ``direction`` uses each electron's direction at beta=1, matching xigma (RES082).
+    All three intentionally share Stage-0
     luminosity weights so this remains a bounded emission-reference check.
     """
     _ld_guard()
-    if doppler not in ("nominal", "particle"):
-        raise ValueError("doppler must be 'nominal' or 'particle'")
+    if doppler not in ("nominal", "particle", "direction"):
+        raise ValueError("doppler must be 'nominal', 'particle', or 'direction'")
     vals = [photon_energy, theta_x, theta_y, psi_pol, ellipticity, theta_xz, theta_yz]
     if not all(np.isfinite(v) for v in vals) or photon_energy <= 0 or not -1 <= ellipticity <= 1:
         raise ValueError("photon_energy/directions must be finite and positive; ellipticity must be in [-1,1]")
@@ -49,6 +50,7 @@ def emission_lines(samples: TrajectorySamples, theta_x: float, theta_y: float, *
     n = np.array([theta_x, theta_y, 1.], dtype=np.longdouble); n /= np.linalg.norm(n)
     e0_raw, e1_raw, n0 = _axes(*map(np.longdouble, (psi_pol, theta_xz, theta_yz)))
     v = np.stack((tx, ty, np.ones_like(tx)), axis=1); v /= np.linalg.norm(v, axis=1)[:, None]
+    direction_factor = 1 - np.sum(v * n0, axis=1)
     # Independently construct the physical transverse dipole basis per electron.
     p0 = e0_raw[None, :] - np.sum(v * e0_raw[None, :], axis=1)[:, None] * v
     p0_norm = np.sqrt(np.sum(p0 * p0, axis=1))
@@ -72,6 +74,8 @@ def emission_lines(samples: TrajectorySamples, theta_x: float, theta_y: float, *
     c = (1 + np.cos(np.longdouble(theta_xz))*np.cos(np.longdouble(theta_yz))) / 2
     if doppler == "nominal":
         energies = 4*np.longdouble(photon_energy)*c*gamma**2/den
+    elif doppler == "direction":
+        energies = 2*np.longdouble(photon_energy)*direction_factor*gamma**2/den
     else:
         energies = 2*np.longdouble(photon_energy)*(1-np.sum(v*n0, axis=1))*gamma**2/den
     weights = (3/(2*np.pi))*lum*pol*gamma**2/(1+gamma**2*r2)**2

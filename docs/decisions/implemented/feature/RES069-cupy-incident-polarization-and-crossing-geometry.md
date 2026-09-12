@@ -75,3 +75,10 @@ two-plane laser-crossing geometry can use CuPy. The backend remains experimental
 fixed-ring convergence and independent arbitrary-angle emission checks remain open.
 GUI, kascade, NumPy emission formulas, energy conventions and the ahat default are
 unchanged. Timing and numerical evidence belong in `docs/ALPHA_GPU_VALIDATION.md`.
+
+## Amendments
+
+> **2026-09-12 — Direction-dependent Doppler extension.** RES082 extends the nominal
+> flux/energy convention with per-electron beta=1 encounter weighting, resonance and
+> Jacobian, including conservative CUDA support. This does not replace the polarization
+> or geometry construction recorded here.

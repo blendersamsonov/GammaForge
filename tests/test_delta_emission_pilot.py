@@ -44,6 +44,7 @@ def test_pilot_converts_energy_once_and_reuses_samples(pilot, monkeypatch, sourc
 
     def lines(actual, *args, **kwargs):
         assert actual is samples
+        assert kwargs['doppler'] == 'direction'
         return np.array([expected_scale, 2 * expected_scale]), np.ones(2)
 
     monkeypatch.setattr(pilot, 'emission_lines', lines)

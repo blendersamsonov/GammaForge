@@ -157,6 +157,23 @@ print(f"  On-axis Stokes: I={stokes.I:.2e}, Q={stokes.Q:.2e}, U={stokes.U:.2e}, 
 print(f"  Polarization degree P = {stokes.P:.4f}, Angle chi = {stokes.chi:.4f} rad")
 
 # %% [markdown]
+# ### One Doppler convention throughout xigma
+# Xigma uses each electron's normalized direction at speed beta=1 in encounter flux and
+# resonance. The resonance inversion's Jacobian carries the same relative factor D.
+# Exact finite-speed Doppler is retained as a separate diagnostic, not mixed into this
+# approximation. The table-free linear spectrum also shifts each particle's energy and
+# density by D; it still omits the nonlinear redshift (DER013, RES082).
+
+# %%
+from gammaforge.engines.xigma.stages import direction_doppler_factor, doppler_factor_per_particle
+D = direction_doppler_factor(samples.theta_x, samples.theta_y,
+                             interaction.laser.m("theta_xz"), interaction.laser.m("theta_yz"))
+D_finite = doppler_factor_per_particle(samples.gamma, samples.theta_x, samples.theta_y,
+                                      interaction.laser.m("theta_xz"), interaction.laser.m("theta_yz"))
+print(f"Direction-Doppler range: {D.min():.9f} .. {D.max():.9f}")
+print(f"Largest finite-speed diagnostic difference: {np.max(np.abs(D_finite/D - 1)):.3e}")
+
+# %% [markdown]
 # ### Visualizing Stage 0 Diagnostics
 # Let's inspect the illumination $a_0$ shape and luminosity distribution across macroparticles.
 

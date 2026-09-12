@@ -2,8 +2,9 @@
 
 This alpha supports Gaussian-beam calculations with the analytical and xigma engines
 through their Python APIs. GUI and kascade are outside release support. The library
-defaults to NumPy. The CuPy angular sampler supports incident polarization and crossing
-angles; it remains experimental pending broader convergence and emission validation. See
+selects CuPy by default; use `backend="numpy"` for a CPU-only calculation. The CuPy
+angular sampler supports incident polarization and crossing angles. Independent
+arbitrary-angle scientific acceptance remains open. See
 [the GPU validation record](ALPHA_GPU_VALIDATION.md).
 
 ## Install and check
@@ -121,15 +122,16 @@ angle-resolved Stage-2 emission accuracy or a universal sub-0.1% error bound.
 | Xigma total yield | Stage-0 trajectory overlap; refine particle count, seeds, time steps and threshold |
 | Analytical spectrum | Includes its luminosity-weighted nonlinear redshift; crossed-spectrum shape still uses head-on kinematics and reports a warning |
 | Xigma `SPECTRUM` | Table-free linear spectrum; omits the nonlinear redshift and reports a warning |
-| Xigma angular/collimated output | NumPy table quadrature by default; retains tabulated nonlinear physics, but independent arbitrary-angle emission validation remains open |
-| CuPy | Explicit experimental `backend="cupy"` or `"auto"`; uniform incident linear/elliptical/circular polarization and two-plane crossing geometry, with recorded backend/settings and a warning |
+| Xigma temporal/spatial output | Lab emission-time and source-plane x/y overlap histograms; explicit requested grids, clipping fractions, no detector-arrival propagation |
+| Xigma angular/collimated output | CuPy sampler by default, explicit NumPy quadrature available; retains tabulated nonlinear physics, but independent arbitrary-angle emission validation remains open |
+| CuPy | Selected by default; `backend="auto"` permits CPU fallback; uniform incident linear/elliptical/circular polarization and two-plane crossing geometry, with recorded backend/settings and a warning |
 
 Request collimated output with
 `OutputRequest(OutputKind.COLLIMATED_SPECTRUM, (n_energy, n_theta_x, n_theta_y))`.
 The result density has axes `(ENERGY, THETA_X, THETA_Y)` and integrates using
 `slice.integrate()`. Start with modest grids: CPU angular quadrature is expensive.
-Installing `.[gpu]` only adds CUDA 12 CuPy dependencies; it does not change the default
-or establish convergence for a new calculation. Numba remains unimplemented.
+Installing `.[gpu]` adds CUDA 12 CuPy dependencies; it does not establish convergence
+for a new calculation. Numba remains unimplemented.
 CuPy intensity accepts signed ellipticity in [-1, 1], consistently with the Stokes
 API: reversing handedness does not change intensity. This is not GPU Q/U/V support;
 the separate Stokes query remains CPU-based.
@@ -141,8 +143,13 @@ actual-CUDA numerical gate and exits nonzero for missing hardware, failed checks
 or an unconverged reference. See the [convergence protocol](ALPHA_GPU_VALIDATION.md#resolution-controls-and-release-gate-res072).
 The NumPy polarization factor uses stable vector evaluation (RES070),
 matching the collinear limit at high gamma without longitudinal cancellation;
-see the [numerical record](ALPHA_GPU_VALIDATION.md). Stage-0 total-yield overlap
-calculations are unaffected.
+see the [numerical record](ALPHA_GPU_VALIDATION.md).
+
+Xigma uses each electron’s direction at beta=1 consistently in encounter flux,
+resonance and its Jacobian (RES082). The table-free spectrum also uses that energy
+shift while retaining its linear-shape approximation. See the
+[direction-Doppler validation record](validation/direction-doppler-2026-09-12.md)
+for checked configurations and the remaining derivation-review boundary.
 
 The historical `ahat_decades=1.0` default remains unchanged; the tracked roughly 1%
 centroid-grid bias is still an author decision. The validation tier uses an explicit

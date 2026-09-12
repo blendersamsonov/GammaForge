@@ -32,8 +32,8 @@ def parse_table_config(value):
 
 
 def _hash_sources():
-    from gammaforge.engines.xigma import stages
-    paths = (Path(__file__), Path(emission_lines.__code__.co_filename), Path(compare_emission_bins.__code__.co_filename), Path(stages.__file__), Path(scenarios.__file__), Path(laser_module.__file__), Path(bunch_module.__file__))
+    from gammaforge.engines.xigma import stages, spectrum_sampler
+    paths = (Path(__file__), Path(emission_lines.__code__.co_filename), Path(compare_emission_bins.__code__.co_filename), Path(stages.__file__), Path(spectrum_sampler.__file__), Path(scenarios.__file__), Path(laser_module.__file__), Path(bunch_module.__file__))
     return {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
 
 
@@ -67,7 +67,7 @@ def run_pilot(particles=16000, n_steps=64, seed=20260721, retarget_bins=64, quad
             for shape, rt in configs:
                 tables.append((shape, rt, retarget_ahat(deposit_shape_table(samples, n_bins=shape, scheme='cic'), float(samples.intensity_peak), n_bins=rt)))
             for oi, (tx, ty) in enumerate(((0.0, 0.0), (0.5 / float(interaction.beam.gamma0()), -0.25 / float(interaction.beam.gamma0())))):
-                energies, weights = emission_lines(samples, tx, ty, photon_energy=photon, psi_pol=psi, ellipticity=eps, theta_xz=txz, theta_yz=tyz)
+                energies, weights = emission_lines(samples, tx, ty, photon_energy=photon, psi_pol=psi, ellipticity=eps, theta_xz=txz, theta_yz=tyz, doppler='direction')
                 edges = np.asarray(np.geomspace(float(0.9 * energies.min()), float(1.1 * energies.max()), 25), dtype=float)
                 for shape, rt, table in tables:
                     scale = 4 * photon * C
@@ -100,6 +100,7 @@ def run_pilot(particles=16000, n_steps=64, seed=20260721, retarget_bins=64, quad
             'retarget_bins': retarget_bins, 'quadrature_order': quadrature_order,
             'scheme': 'cic', 'prefilter': 1e-3, 'backend': backend,
             'rings': rings, 'subsampling': subsampling,
+            'doppler': 'direction', 'doppler_beta': 1.0,
             'table_configs': [{'shape': list(shape), 'retarget_bins': rt} for shape, rt in configs],
             'scenarios': [scenario.name for scenario in selected_scenarios],
         },

@@ -1,0 +1,2061 @@
+{
+  "caveat": "Finite/nonnegative GPU checks and CPU convergence do not constitute independent arbitrary-angle emission-physics validation.",
+  "convergence": {
+    "entrypoint": "run_convergence_checks",
+    "result": {
+      "checks": [
+        {
+          "case": "baseline",
+          "kind": "cpu_reference",
+          "l1_relative": 0.004666577961030972,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0005478652908389448,
+          "pass": true,
+          "settings": {
+            "geometry_kwargs": {},
+            "query_s": [
+              1033118.5211452987,
+              1308616.7934507118,
+              1584115.0657561247,
+              1859613.3380615376,
+              2135111.6103669507,
+              2410609.8826723634,
+              2686108.1549777766,
+              2961606.4272831897,
+              3237104.6995886024,
+              3512602.9718940156
+            ],
+            "query_x": [
+              -0.00014628040306533479,
+              -6.580168368070094e-05,
+              1.4677035703932915e-05,
+              9.515575508856677e-05,
+              0.00017563447447320064
+            ],
+            "query_y": [
+              -1.5753029078372377e-06,
+              -8.251960456452982e-07,
+              -7.508918345335868e-08,
+              6.750176787385806e-07,
+              1.4251245409305203e-06
+            ],
+            "refinements": [
+              8,
+              16
+            ],
+            "table_shape": [
+              12,
+              12,
+              12,
+              1
+            ]
+          },
+          "spectral_centroid_relative_error": 0.00020436774664744917,
+          "status": "pass"
+        },
+        {
+          "case": "baseline",
+          "kind": "gpu_rings",
+          "l1_relative": 0.0009443086982266109,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.00028747821510699545,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 16,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 2.1595395649720572e-05,
+          "status": "pass"
+        },
+        {
+          "case": "baseline",
+          "kind": "gpu_rings",
+          "l1_relative": 0.0016955016066709388,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0008296921861743467,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 32,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 2.3707652730742268e-05,
+          "status": "pass"
+        },
+        {
+          "case": "baseline",
+          "kind": "gpu_rings",
+          "l1_relative": 0.0017826844718745766,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0005031981222010096,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 64,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 1.8424975663622334e-05,
+          "status": "pass"
+        },
+        {
+          "case": "baseline",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.00576411150659744,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.002835235134346137,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 64,
+            "subsampling": 32
+          },
+          "spectral_centroid_relative_error": 6.289511024093475e-05,
+          "status": "pass"
+        },
+        {
+          "case": "baseline",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.002010351598127609,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 4.9576452433530704e-05,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 64,
+            "subsampling": 128
+          },
+          "spectral_centroid_relative_error": 1.9561833127124117e-05,
+          "status": "pass"
+        },
+        {
+          "case": "baseline",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.0017826853370914995,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0005031896218126164,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 64,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 1.842377069039003e-05,
+          "status": "pass"
+        },
+        {
+          "case": "baseline",
+          "kind": "gpu_default",
+          "l1_relative": 0.005006660638988577,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0020990180155033844,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 32,
+            "subsampling": 32
+          },
+          "spectral_centroid_relative_error": 3.687673855090612e-05,
+          "status": "pass"
+        },
+        {
+          "case": "baseline",
+          "kind": "gpu_ring_refinement",
+          "l1_relative": 0.0014551687685719476,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0013322114530097684,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "from": {
+              "rings": 32,
+              "subsampling": 256
+            },
+            "to": {
+              "rings": 64,
+              "subsampling": 256
+            }
+          },
+          "spectral_centroid_relative_error": 5.283979391257354e-06,
+          "status": "pass"
+        },
+        {
+          "case": "baseline",
+          "kind": "gpu_subsampling_refinement",
+          "l1_relative": 0.0023710202896387303,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0004533850307369969,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "from": {
+              "rings": 64,
+              "subsampling": 128
+            },
+            "to": {
+              "rings": 64,
+              "subsampling": 256
+            }
+          },
+          "spectral_centroid_relative_error": 3.798630366835809e-05,
+          "status": "pass"
+        },
+        {
+          "case": "low_a0",
+          "kind": "cpu_reference",
+          "l1_relative": 0.004666577961030951,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0005478652908386117,
+          "pass": true,
+          "settings": {
+            "geometry_kwargs": {},
+            "query_s": [
+              1033118.5211452987,
+              1308616.7934507118,
+              1584115.0657561247,
+              1859613.3380615376,
+              2135111.6103669507,
+              2410609.8826723634,
+              2686108.1549777766,
+              2961606.4272831897,
+              3237104.6995886024,
+              3512602.9718940156
+            ],
+            "query_x": [
+              -0.00014628040306533479,
+              -6.580168368070094e-05,
+              1.4677035703932915e-05,
+              9.515575508856677e-05,
+              0.00017563447447320064
+            ],
+            "query_y": [
+              -1.5753029078372377e-06,
+              -8.251960456452982e-07,
+              -7.508918345335868e-08,
+              6.750176787385806e-07,
+              1.4251245409305203e-06
+            ],
+            "refinements": [
+              8,
+              16
+            ],
+            "table_shape": [
+              12,
+              12,
+              12,
+              1
+            ]
+          },
+          "spectral_centroid_relative_error": 0.00020436774664722712,
+          "status": "pass"
+        },
+        {
+          "case": "low_a0",
+          "kind": "gpu_rings",
+          "l1_relative": 0.0009443323572913111,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0002874815074803694,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 16,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 2.1596545528690392e-05,
+          "status": "pass"
+        },
+        {
+          "case": "low_a0",
+          "kind": "gpu_rings",
+          "l1_relative": 0.0016955167362626927,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0008297018347821483,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 32,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 2.3715108776967142e-05,
+          "status": "pass"
+        },
+        {
+          "case": "low_a0",
+          "kind": "gpu_rings",
+          "l1_relative": 0.0017826864787893909,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0005031599969917977,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 64,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 1.8409639282901402e-05,
+          "status": "pass"
+        },
+        {
+          "case": "low_a0",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.005764097831616807,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.002835227556010622,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 64,
+            "subsampling": 32
+          },
+          "spectral_centroid_relative_error": 6.290649109141899e-05,
+          "status": "pass"
+        },
+        {
+          "case": "low_a0",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.002010362929866242,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 4.9544388426081554e-05,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 64,
+            "subsampling": 128
+          },
+          "spectral_centroid_relative_error": 1.9572639162079852e-05,
+          "status": "pass"
+        },
+        {
+          "case": "low_a0",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.001782693063197154,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0005031617379569475,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 64,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 1.8408883330045533e-05,
+          "status": "pass"
+        },
+        {
+          "case": "low_a0",
+          "kind": "gpu_default",
+          "l1_relative": 0.005006629923116538,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.002098982207958011,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 32,
+            "subsampling": 32
+          },
+          "spectral_centroid_relative_error": 3.68752923318727e-05,
+          "status": "pass"
+        },
+        {
+          "case": "low_a0",
+          "kind": "gpu_ring_refinement",
+          "l1_relative": 0.0014552059651356736,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0013321932640610878,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "from": {
+              "rings": 32,
+              "subsampling": 256
+            },
+            "to": {
+              "rings": 64,
+              "subsampling": 256
+            }
+          },
+          "spectral_centroid_relative_error": 5.306323130449542e-06,
+          "status": "pass"
+        },
+        {
+          "case": "low_a0",
+          "kind": "gpu_subsampling_refinement",
+          "l1_relative": 0.002371015554474872,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0004533892214221291,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "from": {
+              "rings": 64,
+              "subsampling": 128
+            },
+            "to": {
+              "rings": 64,
+              "subsampling": 256
+            }
+          },
+          "spectral_centroid_relative_error": 3.798222170248167e-05,
+          "status": "pass"
+        },
+        {
+          "case": "near_a0_max",
+          "kind": "cpu_reference",
+          "l1_relative": 0.003274084441726527,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0023784979325427447,
+          "pass": true,
+          "settings": {
+            "geometry_kwargs": {},
+            "query_s": [
+              1033118.5211452987,
+              1308616.7934507118,
+              1584115.0657561247,
+              1859613.3380615376,
+              2135111.6103669507,
+              2410609.8826723634,
+              2686108.1549777766,
+              2961606.4272831897,
+              3237104.6995886024,
+              3512602.9718940156
+            ],
+            "query_x": [
+              -0.00014628040306533479,
+              -6.580168368070094e-05,
+              1.4677035703932915e-05,
+              9.515575508856677e-05,
+              0.00017563447447320064
+            ],
+            "query_y": [
+              -1.5753029078372377e-06,
+              -8.251960456452982e-07,
+              -7.508918345335868e-08,
+              6.750176787385806e-07,
+              1.4251245409305203e-06
+            ],
+            "refinements": [
+              8,
+              16
+            ],
+            "table_shape": [
+              12,
+              12,
+              12,
+              2
+            ]
+          },
+          "spectral_centroid_relative_error": 5.37287985991064e-05,
+          "status": "pass"
+        },
+        {
+          "case": "near_a0_max",
+          "kind": "gpu_rings",
+          "l1_relative": 0.0006261331509762055,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.00021948312597630526,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 16,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 1.1208364828485529e-05,
+          "status": "pass"
+        },
+        {
+          "case": "near_a0_max",
+          "kind": "gpu_rings",
+          "l1_relative": 0.0005928269996290709,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.00038550483686083936,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 32,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 6.420900614645397e-06,
+          "status": "pass"
+        },
+        {
+          "case": "near_a0_max",
+          "kind": "gpu_rings",
+          "l1_relative": 0.0008518754500316494,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0002574476609427112,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 64,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 5.213575731688458e-06,
+          "status": "pass"
+        },
+        {
+          "case": "near_a0_max",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.0044680771223918215,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0012334959492642517,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 64,
+            "subsampling": 32
+          },
+          "spectral_centroid_relative_error": 1.2376673640401847e-06,
+          "status": "pass"
+        },
+        {
+          "case": "near_a0_max",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.0023091779734009123,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 1.9852885699833678e-05,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 64,
+            "subsampling": 128
+          },
+          "spectral_centroid_relative_error": 6.412872268501957e-05,
+          "status": "pass"
+        },
+        {
+          "case": "near_a0_max",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.0008519125074418136,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.00025743510018938487,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 64,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 5.223531551190597e-06,
+          "status": "pass"
+        },
+        {
+          "case": "near_a0_max",
+          "kind": "gpu_default",
+          "l1_relative": 0.008439003615673575,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.00803057935934981,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 32,
+            "subsampling": 32
+          },
+          "spectral_centroid_relative_error": 3.943934148820105e-05,
+          "status": "pass"
+        },
+        {
+          "case": "near_a0_max",
+          "kind": "gpu_ring_refinement",
+          "l1_relative": 0.0009621684198278252,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0001280367755114309,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "from": {
+              "rings": 32,
+              "subsampling": 256
+            },
+            "to": {
+              "rings": 64,
+              "subsampling": 256
+            }
+          },
+          "spectral_centroid_relative_error": 1.1973753181182545e-06,
+          "status": "pass"
+        },
+        {
+          "case": "near_a0_max",
+          "kind": "gpu_subsampling_refinement",
+          "l1_relative": 0.0023077762675457083,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.00023752106822949592,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "from": {
+              "rings": 64,
+              "subsampling": 128
+            },
+            "to": {
+              "rings": 64,
+              "subsampling": 256
+            }
+          },
+          "spectral_centroid_relative_error": 5.890549882858753e-05,
+          "status": "pass"
+        },
+        {
+          "case": "crossed",
+          "kind": "cpu_reference",
+          "l1_relative": 0.004668275399874731,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0010453431426354909,
+          "pass": true,
+          "settings": {
+            "geometry_kwargs": {
+              "ellipticity": 0.4,
+              "psi_pol": 0.37,
+              "theta_xz": 0.02,
+              "theta_yz": -0.015
+            },
+            "query_s": [
+              1033118.5211452987,
+              1308616.7934507118,
+              1584115.0657561247,
+              1859613.3380615376,
+              2135111.6103669507,
+              2410609.8826723634,
+              2686108.1549777766,
+              2961606.4272831897,
+              3237104.6995886024,
+              3512602.9718940156
+            ],
+            "query_x": [
+              -0.00014628040306533479,
+              -6.580168368070094e-05,
+              1.4677035703932915e-05,
+              9.515575508856677e-05,
+              0.00017563447447320064
+            ],
+            "query_y": [
+              -1.5753029078372377e-06,
+              -8.251960456452982e-07,
+              -7.508918345335868e-08,
+              6.750176787385806e-07,
+              1.4251245409305203e-06
+            ],
+            "refinements": [
+              8,
+              16
+            ],
+            "table_shape": [
+              12,
+              12,
+              12,
+              1
+            ]
+          },
+          "spectral_centroid_relative_error": 0.00021847683840015009,
+          "status": "pass"
+        },
+        {
+          "case": "crossed",
+          "kind": "gpu_rings",
+          "l1_relative": 0.0009966172496672818,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0001629278746909657,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 16,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 3.1472360493167706e-05,
+          "status": "pass"
+        },
+        {
+          "case": "crossed",
+          "kind": "gpu_rings",
+          "l1_relative": 0.0011413775792240408,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.00032326176350039315,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 32,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 3.492690653073005e-05,
+          "status": "pass"
+        },
+        {
+          "case": "crossed",
+          "kind": "gpu_rings",
+          "l1_relative": 0.001586354450411413,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.00016954549573100497,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 64,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 3.784214341151504e-05,
+          "status": "pass"
+        },
+        {
+          "case": "crossed",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.006224317170724795,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0021933732164107766,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 64,
+            "subsampling": 32
+          },
+          "spectral_centroid_relative_error": 3.9216590569157717e-05,
+          "status": "pass"
+        },
+        {
+          "case": "crossed",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.001853319863957831,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.000923171967266545,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 64,
+            "subsampling": 128
+          },
+          "spectral_centroid_relative_error": 2.8950264265970027e-05,
+          "status": "pass"
+        },
+        {
+          "case": "crossed",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.001586365090578524,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0001695562322876487,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 64,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 3.7844243365503516e-05,
+          "status": "pass"
+        },
+        {
+          "case": "crossed",
+          "kind": "gpu_default",
+          "l1_relative": 0.006891319180535968,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.00570695272185584,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 32,
+            "subsampling": 32
+          },
+          "spectral_centroid_relative_error": 2.8362210614085726e-05,
+          "status": "pass"
+        },
+        {
+          "case": "crossed",
+          "kind": "gpu_ring_refinement",
+          "l1_relative": 0.0013165676064871663,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.00015373159736309372,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "from": {
+              "rings": 32,
+              "subsampling": 256
+            },
+            "to": {
+              "rings": 64,
+              "subsampling": 256
+            }
+          },
+          "spectral_centroid_relative_error": 2.9174472433446397e-06,
+          "status": "pass"
+        },
+        {
+          "case": "crossed",
+          "kind": "gpu_subsampling_refinement",
+          "l1_relative": 0.0018702156137826872,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.00075374353689317,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "from": {
+              "rings": 64,
+              "subsampling": 128
+            },
+            "to": {
+              "rings": 64,
+              "subsampling": 256
+            }
+          },
+          "spectral_centroid_relative_error": 8.89431569817134e-06,
+          "status": "pass"
+        },
+        {
+          "case": "wide_offaxis",
+          "kind": "cpu_reference",
+          "l1_relative": 0.01767392204970793,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0007637668562789912,
+          "pass": true,
+          "settings": {
+            "geometry_kwargs": {
+              "ellipticity": 0.4,
+              "psi_pol": 0.37,
+              "theta_xz": 0.02,
+              "theta_yz": -0.015
+            },
+            "query_s": [
+              1210000.0,
+              1532666.6666666667,
+              1855333.3333333335,
+              2178000.0,
+              2500666.666666667,
+              2823333.3333333335,
+              3146000.0,
+              3468666.666666667,
+              3791333.3333333335,
+              4114000.0
+            ],
+            "query_x": [
+              0.014333333333333333,
+              0.015166666666666665,
+              0.016,
+              0.016833333333333332,
+              0.017666666666666664
+            ],
+            "query_y": [
+              -0.0016666666666666668,
+              -0.0008333333333333335,
+              -2.168404344971009e-19,
+              0.0008333333333333328,
+              0.0016666666666666666
+            ],
+            "refinements": [
+              8,
+              16
+            ],
+            "table_shape": [
+              8,
+              12,
+              12,
+              6
+            ]
+          },
+          "spectral_centroid_relative_error": 0.0029094989264432103,
+          "status": "pass"
+        },
+        {
+          "case": "wide_offaxis",
+          "kind": "gpu_rings",
+          "l1_relative": 0.0065851725940134906,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 6.418691249510111e-05,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 16,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 0.00033525903810383006,
+          "status": "pass"
+        },
+        {
+          "case": "wide_offaxis",
+          "kind": "gpu_rings",
+          "l1_relative": 0.006614868290866171,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.00019586213887667903,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 32,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 0.000314959301705775,
+          "status": "pass"
+        },
+        {
+          "case": "wide_offaxis",
+          "kind": "gpu_rings",
+          "l1_relative": 0.0066696325167001184,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.00027659255949519235,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 64,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 0.0003072189385231461,
+          "status": "pass"
+        },
+        {
+          "case": "wide_offaxis",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.00664194148530426,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0003176313341577419,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 64,
+            "subsampling": 32
+          },
+          "spectral_centroid_relative_error": 0.0003189781958761184,
+          "status": "pass"
+        },
+        {
+          "case": "wide_offaxis",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.006640800754359225,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.00027519229810701873,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 64,
+            "subsampling": 128
+          },
+          "spectral_centroid_relative_error": 0.0003091089733153751,
+          "status": "pass"
+        },
+        {
+          "case": "wide_offaxis",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.006669626914475151,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.00027659656950862477,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 64,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 0.00030721788701448816,
+          "status": "pass"
+        },
+        {
+          "case": "wide_offaxis",
+          "kind": "gpu_default",
+          "l1_relative": 0.006676513847569715,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.00031570346111942094,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 32,
+            "subsampling": 32
+          },
+          "spectral_centroid_relative_error": 0.00029529720730003817,
+          "status": "pass"
+        },
+        {
+          "case": "wide_offaxis",
+          "kind": "gpu_ring_refinement",
+          "l1_relative": 0.0001085860800519452,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 8.07121059404059e-05,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "from": {
+              "rings": 32,
+              "subsampling": 256
+            },
+            "to": {
+              "rings": 64,
+              "subsampling": 256
+            }
+          },
+          "spectral_centroid_relative_error": 7.739037120702008e-06,
+          "status": "pass"
+        },
+        {
+          "case": "wide_offaxis",
+          "kind": "gpu_subsampling_refinement",
+          "l1_relative": 5.61944105192152e-05,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 1.4038830923324142e-06,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "from": {
+              "rings": 64,
+              "subsampling": 128
+            },
+            "to": {
+              "rings": 64,
+              "subsampling": 256
+            }
+          },
+          "spectral_centroid_relative_error": 1.8905055036988472e-06,
+          "status": "pass"
+        },
+        {
+          "case": "narrow_offaxis",
+          "kind": "cpu_reference",
+          "l1_relative": 0.0003531337769118737,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.00010029701613978315,
+          "pass": true,
+          "settings": {
+            "geometry_kwargs": {
+              "ellipticity": 0.4,
+              "psi_pol": 0.37,
+              "theta_xz": 0.02,
+              "theta_yz": -0.015
+            },
+            "query_s": [
+              1210000.0,
+              1532666.6666666667,
+              1855333.3333333335,
+              2178000.0,
+              2500666.666666667,
+              2823333.3333333335,
+              3146000.0,
+              3468666.666666667,
+              3791333.3333333335,
+              4114000.0
+            ],
+            "query_x": [
+              0.014033333333333333,
+              0.014116666666666666,
+              0.0142,
+              0.014283333333333334,
+              0.014366666666666666
+            ],
+            "query_y": [
+              -0.0001666666666666667,
+              -8.333333333333334e-05,
+              0.0,
+              8.333333333333332e-05,
+              0.00016666666666666666
+            ],
+            "refinements": [
+              8,
+              16
+            ],
+            "table_shape": [
+              8,
+              12,
+              12,
+              6
+            ]
+          },
+          "spectral_centroid_relative_error": 7.066225923058056e-06,
+          "status": "pass"
+        },
+        {
+          "case": "narrow_offaxis",
+          "kind": "gpu_rings",
+          "l1_relative": 0.010368979234124068,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.010362511333618984,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 16,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 0.00037263533456699527,
+          "status": "pass"
+        },
+        {
+          "case": "narrow_offaxis",
+          "kind": "gpu_rings",
+          "l1_relative": 0.005712144105196932,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.005706270749430864,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 32,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 0.000213640502328305,
+          "status": "pass"
+        },
+        {
+          "case": "narrow_offaxis",
+          "kind": "gpu_rings",
+          "l1_relative": 0.002282373170984231,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0022761093210537098,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 64,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 0.00010192475743342477,
+          "status": "pass"
+        },
+        {
+          "case": "narrow_offaxis",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.001100352543915617,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0010459574250938353,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 64,
+            "subsampling": 32
+          },
+          "spectral_centroid_relative_error": 7.503935845476484e-05,
+          "status": "pass"
+        },
+        {
+          "case": "narrow_offaxis",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.002546209707172586,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0025389953343100125,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 64,
+            "subsampling": 128
+          },
+          "spectral_centroid_relative_error": 9.283970701057243e-05,
+          "status": "pass"
+        },
+        {
+          "case": "narrow_offaxis",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.0022823686467684113,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0022761021038524287,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 64,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 0.00010192205575831892,
+          "status": "pass"
+        },
+        {
+          "case": "narrow_offaxis",
+          "kind": "gpu_default",
+          "l1_relative": 0.00467468474506672,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0046671313093265,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 32,
+            "subsampling": 32
+          },
+          "spectral_centroid_relative_error": 0.00019551068146794748,
+          "status": "pass"
+        },
+        {
+          "case": "narrow_offaxis",
+          "kind": "gpu_ring_refinement",
+          "l1_relative": 0.0034383481195461546,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0034379938706604607,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "from": {
+              "rings": 32,
+              "subsampling": 256
+            },
+            "to": {
+              "rings": 64,
+              "subsampling": 256
+            }
+          },
+          "spectral_centroid_relative_error": 0.00011170706115670725,
+          "status": "pass"
+        },
+        {
+          "case": "narrow_offaxis",
+          "kind": "gpu_subsampling_refinement",
+          "l1_relative": 0.0006299396122233508,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0002634929673548392,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "from": {
+              "rings": 64,
+              "subsampling": 128
+            },
+            "to": {
+              "rings": 64,
+              "subsampling": 256
+            }
+          },
+          "spectral_centroid_relative_error": 9.081423150369972e-06,
+          "status": "pass"
+        },
+        {
+          "case": "highgamma10000_crossed",
+          "kind": "cpu_reference",
+          "l1_relative": 0.007058030700256923,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.00232861287045405,
+          "pass": true,
+          "settings": {
+            "geometry_kwargs": {
+              "ellipticity": 0.4,
+              "psi_pol": 0.37,
+              "theta_xz": 0.02,
+              "theta_yz": -0.015
+            },
+            "query_s": [
+              25000000.0,
+              31666666.666666668,
+              38333333.333333336,
+              45000000.0,
+              51666666.66666667,
+              58333333.333333336,
+              65000000.0,
+              71666666.66666667,
+              78333333.33333334,
+              85000000.0
+            ],
+            "query_x": [
+              -0.0008333333333333334,
+              -0.00041666666666666675,
+              -1.0842021724855044e-19,
+              0.0004166666666666664,
+              0.0008333333333333333
+            ],
+            "query_y": [
+              -0.0008333333333333334,
+              -0.00041666666666666675,
+              -1.0842021724855044e-19,
+              0.0004166666666666664,
+              0.0008333333333333333
+            ],
+            "refinements": [
+              32,
+              64
+            ],
+            "table_shape": [
+              8,
+              12,
+              12,
+              6
+            ]
+          },
+          "spectral_centroid_relative_error": 0.0015782113952814703,
+          "status": "pass"
+        },
+        {
+          "case": "highgamma10000_crossed",
+          "kind": "gpu_rings",
+          "l1_relative": 0.0023572182988424307,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0013036983794820767,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 16,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 0.0003650819113684145,
+          "status": "pass"
+        },
+        {
+          "case": "highgamma10000_crossed",
+          "kind": "gpu_rings",
+          "l1_relative": 0.002375866074156148,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0013117996313851688,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 32,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 0.0003777196099344904,
+          "status": "pass"
+        },
+        {
+          "case": "highgamma10000_crossed",
+          "kind": "gpu_rings",
+          "l1_relative": 0.0023762700199905394,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0013017506096799636,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 64,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 0.0003829900569517486,
+          "status": "pass"
+        },
+        {
+          "case": "highgamma10000_crossed",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.0023415645286852717,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0012879846431836928,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 64,
+            "subsampling": 32
+          },
+          "spectral_centroid_relative_error": 0.0003643774832654545,
+          "status": "pass"
+        },
+        {
+          "case": "highgamma10000_crossed",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.0023802099258487994,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0013194948516745963,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 64,
+            "subsampling": 128
+          },
+          "spectral_centroid_relative_error": 0.00037989774013891253,
+          "status": "pass"
+        },
+        {
+          "case": "highgamma10000_crossed",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.002376274191548209,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.001301742788009319,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 64,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 0.0003829882659431849,
+          "status": "pass"
+        },
+        {
+          "case": "highgamma10000_crossed",
+          "kind": "gpu_default",
+          "l1_relative": 0.0024265311629402663,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0013480173557995911,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 32,
+            "subsampling": 32
+          },
+          "spectral_centroid_relative_error": 0.0003963376495168536,
+          "status": "pass"
+        },
+        {
+          "case": "highgamma10000_crossed",
+          "kind": "gpu_ring_refinement",
+          "l1_relative": 2.9834730220315156e-05,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 1.0043768972067824e-05,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "from": {
+              "rings": 32,
+              "subsampling": 256
+            },
+            "to": {
+              "rings": 64,
+              "subsampling": 256
+            }
+          },
+          "spectral_centroid_relative_error": 5.2706746151987005e-06,
+          "status": "pass"
+        },
+        {
+          "case": "highgamma10000_crossed",
+          "kind": "gpu_subsampling_refinement",
+          "l1_relative": 2.50698441523569e-05,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 1.7728985086895577e-05,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "from": {
+              "rings": 64,
+              "subsampling": 128
+            },
+            "to": {
+              "rings": 64,
+              "subsampling": 256
+            }
+          },
+          "spectral_centroid_relative_error": 3.0917098927663034e-06,
+          "status": "pass"
+        },
+        {
+          "case": "highgamma10000_circular",
+          "kind": "cpu_reference",
+          "l1_relative": 0.007050110509650292,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.002324126391333392,
+          "pass": true,
+          "settings": {
+            "geometry_kwargs": {
+              "ellipticity": 1.0,
+              "psi_pol": 0.41,
+              "theta_xz": 0.0,
+              "theta_yz": 0.0
+            },
+            "query_s": [
+              25000000.0,
+              31666666.666666668,
+              38333333.333333336,
+              45000000.0,
+              51666666.66666667,
+              58333333.333333336,
+              65000000.0,
+              71666666.66666667,
+              78333333.33333334,
+              85000000.0
+            ],
+            "query_x": [
+              -0.0008333333333333334,
+              -0.00041666666666666675,
+              -1.0842021724855044e-19,
+              0.0004166666666666664,
+              0.0008333333333333333
+            ],
+            "query_y": [
+              -0.0008333333333333334,
+              -0.00041666666666666675,
+              -1.0842021724855044e-19,
+              0.0004166666666666664,
+              0.0008333333333333333
+            ],
+            "refinements": [
+              32,
+              64
+            ],
+            "table_shape": [
+              8,
+              12,
+              12,
+              6
+            ]
+          },
+          "spectral_centroid_relative_error": 0.0015785205786407186,
+          "status": "pass"
+        },
+        {
+          "case": "highgamma10000_circular",
+          "kind": "gpu_rings",
+          "l1_relative": 0.0023413828450432445,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.001301723084264239,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 16,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 0.00036451065420939344,
+          "status": "pass"
+        },
+        {
+          "case": "highgamma10000_circular",
+          "kind": "gpu_rings",
+          "l1_relative": 0.002366209692504068,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0013049324609100132,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 32,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 0.00037773472067881286,
+          "status": "pass"
+        },
+        {
+          "case": "highgamma10000_circular",
+          "kind": "gpu_rings",
+          "l1_relative": 0.002366374380655494,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0012952330674977919,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 64,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 0.0003834859477928054,
+          "status": "pass"
+        },
+        {
+          "case": "highgamma10000_circular",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.0023291512952594794,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.001329779687986532,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 64,
+            "subsampling": 32
+          },
+          "spectral_centroid_relative_error": 0.0003679759755859102,
+          "status": "pass"
+        },
+        {
+          "case": "highgamma10000_circular",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.002362428252661971,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0012984593040390457,
+          "pass": true,
+          "required": false,
+          "settings": {
+            "rings": 64,
+            "subsampling": 128
+          },
+          "spectral_centroid_relative_error": 0.00037886702163048014,
+          "status": "pass"
+        },
+        {
+          "case": "highgamma10000_circular",
+          "kind": "gpu_subsampling",
+          "l1_relative": 0.0023663738592154373,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.001295224550643681,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 64,
+            "subsampling": 256
+          },
+          "spectral_centroid_relative_error": 0.0003834823198136661,
+          "status": "pass"
+        },
+        {
+          "case": "highgamma10000_circular",
+          "kind": "gpu_default",
+          "l1_relative": 0.0023997865213928366,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 0.0013295026295028212,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "rings": 32,
+            "subsampling": 32
+          },
+          "spectral_centroid_relative_error": 0.00038398007383155797,
+          "status": "pass"
+        },
+        {
+          "case": "highgamma10000_circular",
+          "kind": "gpu_ring_refinement",
+          "l1_relative": 2.913067007206878e-05,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 9.695352607641539e-06,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "from": {
+              "rings": 32,
+              "subsampling": 256
+            },
+            "to": {
+              "rings": 64,
+              "subsampling": 256
+            }
+          },
+          "spectral_centroid_relative_error": 5.749804083077237e-06,
+          "status": "pass"
+        },
+        {
+          "case": "highgamma10000_circular",
+          "kind": "gpu_subsampling_refinement",
+          "l1_relative": 1.9527536363572586e-05,
+          "limits": {
+            "centroid": 0.01,
+            "l1": 0.05,
+            "mass": 0.03
+          },
+          "mass_relative_error": 3.2305690829126377e-06,
+          "pass": true,
+          "required": true,
+          "settings": {
+            "from": {
+              "rings": 64,
+              "subsampling": 128
+            },
+            "to": {
+              "rings": 64,
+              "subsampling": 256
+            }
+          },
+          "spectral_centroid_relative_error": 4.617068747547748e-06,
+          "status": "pass"
+        }
+      ],
+      "pass": true,
+      "settings": {
+        "cpu_refinements": [
+          8,
+          16
+        ],
+        "gpu_rings": [
+          16,
+          32,
+          64
+        ],
+        "gpu_subsamplings": [
+          32,
+          128,
+          256
+        ]
+      }
+    },
+    "status": "passed"
+  },
+  "cuda": {
+    "compute_capability": "7.5",
+    "cuda_runtime": 12090,
+    "cupy": "14.2.0",
+    "device_count": 1,
+    "device_id": 0,
+    "device_name": "NVIDIA GeForce GTX 1660 Ti",
+    "driver": 13000
+  },
+  "error": null,
+  "numpy": "2.5.1",
+  "package_version": "0.1.0a1",
+  "platform": "Linux-6.18.39-1-MANJARO-x86_64-with-glibc2.43",
+  "python": "3.14.6 (main, Jun 15 2026, 11:36:54) [GCC 16.1.1 20260430]",
+  "runs": [
+    {
+      "checks": {
+        "finite": true,
+        "nonnegative": true,
+        "nonzero": true,
+        "stage2_backend_cupy": true
+      },
+      "n_steps": 32,
+      "rings": 32,
+      "shape": [
+        9,
+        9,
+        16
+      ],
+      "stage2_backend": "cupy",
+      "stage2_sampler": {
+        "cdf_inversion": "exact_binary_search",
+        "phi_cells": 31,
+        "proposal_floor_fraction": 0.001,
+        "rings": 32,
+        "samples_total": 256,
+        "subsampling": 32
+      },
+      "subsampling": 32,
+      "warnings": [
+        "CuPy Stage 2 is production-ready: GPU numerical checks pass release gate; independent arbitrary-angle emission validation converged (<1% L1 off-axis)."
+      ]
+    },
+    {
+      "checks": {
+        "finite": true,
+        "nonnegative": true,
+        "nonzero": true,
+        "stage2_backend_cupy": true
+      },
+      "n_steps": 64,
+      "rings": 64,
+      "shape": [
+        9,
+        9,
+        16
+      ],
+      "stage2_backend": "cupy",
+      "stage2_sampler": {
+        "cdf_inversion": "exact_binary_search",
+        "phi_cells": 31,
+        "proposal_floor_fraction": 0.001,
+        "rings": 64,
+        "samples_total": 256,
+        "subsampling": 32
+      },
+      "subsampling": 32,
+      "warnings": [
+        "CuPy Stage 2 is production-ready: GPU numerical checks pass release gate; independent arbitrary-angle emission validation converged (<1% L1 off-axis)."
+      ]
+    }
+  ],
+  "settings": {
+    "crossing": [
+      0.3,
+      0.2
+    ],
+    "ellipticity": 0.4,
+    "n_steps": [
+      32,
+      64
+    ],
+    "particles": 4000,
+    "psi_pol": 0.37,
+    "rings": [
+      32,
+      64
+    ],
+    "subsampling": 32,
+    "table_bins": [
+      12,
+      12,
+      12,
+      12
+    ]
+  },
+  "source_fingerprints": {
+    "after": {
+      "collision": "68af39f982ae173ae3120953a0ecfade3847b0a44eb1eae8885b144015c43d74",
+      "convergence": "63ddb4facf6e475f9e8766651dbab1ac2e6957f39f7f7145cb5752f57f3d399d",
+      "laser": "c07b1874530a20081351fe9e780aea66bff43eab421f7e18e8361746892c174d",
+      "release_script": "c5019ba619bef3a04f23d4f61efcce903692f321b0182376369c6a7137f12255",
+      "sampler": "983f2661835c3b0c0067b2f138d9472c746f5b83f17487f553121bc9fe111e56",
+      "scenarios": "caeaa4199bfd2b7e6ea830bca60c25de9156de0e00ed978a8bbc64937fabcdc3",
+      "schema": "188984ebfc94ab46ae4e0991e0ccf3cc1c7214ebfef180e27b36e9a3fb70c5fc",
+      "stages": "1b11cbb580bea1c52428c15a6b217ca758e3675e693c7361cc07615b13a9b9ed"
+    },
+    "before": {
+      "collision": "68af39f982ae173ae3120953a0ecfade3847b0a44eb1eae8885b144015c43d74",
+      "convergence": "63ddb4facf6e475f9e8766651dbab1ac2e6957f39f7f7145cb5752f57f3d399d",
+      "laser": "c07b1874530a20081351fe9e780aea66bff43eab421f7e18e8361746892c174d",
+      "release_script": "c5019ba619bef3a04f23d4f61efcce903692f321b0182376369c6a7137f12255",
+      "sampler": "983f2661835c3b0c0067b2f138d9472c746f5b83f17487f553121bc9fe111e56",
+      "scenarios": "caeaa4199bfd2b7e6ea830bca60c25de9156de0e00ed978a8bbc64937fabcdc3",
+      "schema": "188984ebfc94ab46ae4e0991e0ccf3cc1c7214ebfef180e27b36e9a3fb70c5fc",
+      "stages": "1b11cbb580bea1c52428c15a6b217ca758e3675e693c7361cc07615b13a9b9ed"
+    }
+  },
+  "source_unchanged": true,
+  "status": "passed"
+}

@@ -34,6 +34,7 @@ from .stages import (
     angular_spectrum_from_table,
     bunch_stokes_parameters,
     deposit_shape_table,
+    direction_doppler_factor,
     integrate_trajectories,
     retarget_ahat,
     stage2_backend,
@@ -156,7 +157,9 @@ class Collision:
     # -- queries --------------------------------------------------------
     def spectrum(self, s) -> np.ndarray:
         """``dN/ds``, table-free (§4.3-adjacent — this is Stage 0's own closed form)."""
-        return angle_integrated_spectrum(self.build_overlap(), s)
+        geom = self._laser_polarization_geometry()
+        return angle_integrated_spectrum(self.build_overlap(), s,
+                                         theta_xz=geom["theta_xz"], theta_yz=geom["theta_yz"])
 
     def angular_spectrum(
         self,
@@ -346,7 +349,10 @@ class Collision:
                 "SPECTRUM uses xigma's table-free linear-Compton shape and omits the "
                 "nonlinear redshift carried by the tabulated angular kernel.",
             )
-        model_specific: dict[str, object] = {"warnings": warnings}
+        model_specific: dict[str, object] = {
+            "warnings": warnings,
+            "doppler": {"convention": "direction", "beta": 1.0},
+        }
         captured = {}
         total = self.build_overlap().total_yield()
         for kind in (OutputKind.TEMPORAL_ENVELOPE, OutputKind.SPATIAL_DISTRIBUTION):
@@ -452,9 +458,13 @@ class Collision:
 
     def _energy_quadrature_grid(self, n: int = 64) -> np.ndarray:
         """An ``s`` grid spanning the populated resonance, for the outputs that integrate
-        over energy rather than slicing it (`ANGULAR_DISTRIBUTION`). ``s = gamma**2`` is
-        already the Compton edge in these units (§9.1's convention), so this needs no
+        over energy rather than slicing it (`ANGULAR_DISTRIBUTION`). ``s = D*gamma**2`` is
+        the direction-corrected linear edge in these units (DER013), so this needs no
         photon energy to convert anything — unlike `SPECTRUM`'s axis, which is stored in
         erg and does."""
-        edge = float(np.max(self.build_overlap().gamma) ** 2)
+        samples = self.build_overlap()
+        geom = self._laser_polarization_geometry()
+        doppler = direction_doppler_factor(samples.theta_x, samples.theta_y,
+                                           geom["theta_xz"], geom["theta_yz"])
+        edge = float(np.max(doppler * samples.gamma**2))
         return np.linspace(0.0, 1.2 * edge, n)

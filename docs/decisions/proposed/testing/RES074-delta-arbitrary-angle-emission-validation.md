@@ -72,3 +72,13 @@ luminosities cannot test that flux approximation. Sparse histograms, table smoot
 retargeting bias and truncated apertures can mimic physics errors. Large laser
 crossing angle does not authorize large electron/observer angles outside the
 small-angle reduction. Domain and tolerance claims require measured evidence.
+
+## Direction-Doppler amendment (2026-09-12)
+
+RES082 implements the adopted beta=1 per-electron direction extension in Stage 0 and
+both Stage-2 backends. DER013 records the extended reduction, with author algebra
+review still open. The matched-bin pilot now explicitly compares this convention;
+the nominal-axis and finite-speed modes remain diagnostic alternatives. The original
+proposal above records the boundary before that decision. Renewed numerical evidence
+is in `docs/validation/direction-doppler-2026-09-12.md`; it does not close this proposal's
+full scientific acceptance requirements.

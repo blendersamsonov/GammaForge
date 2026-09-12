@@ -18,7 +18,7 @@ unfinished or waiting on someone*.
 | 1. Core (`gammaforge.io`) | 🟢 done; `PulseTrainParaxialLaser` temporal modulation and pulse trains landed (RES071) |
 | 2. Validation harness | 🟢 done |
 | 2.5. Stage 0 + minimal delta | 🟢 done |
-| 3a. xigma engineering | 🟡 NumPy Stage 0/1/2, `Collision`, `XigmaEngine`; temporal/spatial source histograms (RES081). CuPy remains the selected default and supports polarization, crossing geometry, and ring/sample refinement. Recorded CUDA/convergence gates predate the latest NumPy Doppler change; backend/physics consistency must be restored before renewed release acceptance. |
+| 3a. xigma engineering | 🟢 NumPy Stage 0/1/2, `Collision`, `XigmaEngine`; temporal/spatial source histograms (RES081). CuPy remains the selected default. Direction Doppler is consistent through flux, resonance/Jacobian and support (RES082); renewed real-CUDA release gate passes (eight cases); scientific acceptance remains in Phase 3b. |
 | 3b. Physics closure | 🟡 §9.1 closed (RES033). Local transverse-dipole crossing correction merged (DER012, RES078), retaining per-particle lab velocities and Stokes API compatibility; independent arbitrary-angle acceptance/convergence remains open. |
 | 4. analytical engine | 🟢 landed and merged to `main`; general overlap-integral yield, width breakdown, quadrature spectrum, flying focus, crossing angle for the yield. Open: collimated-spectrum construction |
 | 5. kascade port + delta full role | 🟡 minimal `KascadeEngine`, Thomson sanity anchor, and opt-in GUI integration landed (RES059); four-method validation wiring remains open |
@@ -41,15 +41,11 @@ Ordered by who is blocked. Each names the file that carries the detail.
 
 ### Waiting on the author (physics)
 
-- **Per-particle Doppler consistency.** The manuscript's Eq. `wR` carries the general
-  field-free velocity factor, while its three-dimensional table reduction specializes
-  to head-on kinematics. NumPy Stage 2 currently applies a per-cell direction correction
-  to the resonance but omits its Jacobian factor; CuPy retains nominal-axis resonance.
-  Stage 0 retains nominal-axis encounter flux. Decide whether the extension uses
-  ultra-relativistic speed or exact finite-gamma speed, and whether to update Stage-0
-  flux together with Stage 2. Then align the independent delta comparison and rerun
-  matched-bin/CUDA validation. Earlier promotion evidence does not validate this mixed
-  implementation.
+- **Review DER013's direction-Doppler derivation.** The adopted beta=1 extension now
+  applies each electron's direction consistently to Stage-0 encounter flux and both
+  backends' resonance/Jacobian (RES082). Independent mass/centroid and CUDA support
+  regressions pass. Author algebra review remains distinct from accepting the speed
+  approximation and from numerical agreement; DER013 remains `derived`.
 
 - **`ahat_decades`.** RES032's grid defaults were tuned against `ahat` values that RES053 later
   halved, so the bank now sits in the grid's coarse floor. Measured centroid bias ~1%,
@@ -64,21 +60,14 @@ Ordered by who is blocked. Each names the file that carries the detail.
 
 ### Available to pick up (no external dependency)
 
-- **Independently validate arbitrary-angle emission — CONVERGENCE DONE (2026-09-10).** DER012/RES078 updates production
-  and the independently constructed delta reference to local transverse-dipole emission.
-  Actual-kernel angular conservation and real-CUDA polarization/target bounds pass.
-  **Convergence achieved:** angular/gamma/retarget refinement packets + particle/seed/Stage-0
-  studies all converged. Best config (gamma=32, theta=64, retarget=512): crossed off-axis
-  0.65%, head-on off-axis 0.65%, on-axis ~1.1%. Yield <0.05%, all q32/q64 converged.
-  **Scientific acceptance pending:** resolve the Doppler consistency thread above;
-  the later NumPy resonance change is not covered by these earlier convergence packets.
-  Direct resonance-binning preparation recorded in RES074 and
-  `docs/handoffs/delta-arbitrary-angle-validation-2026-09-09.md`: independent delta
-  polarization evaluation, matched energy-bin measures, and separate convergence
-  gates. The independent line reference and first Doppler diagnostic are implemented
-  (RES076); measured shifts are small for the tested Gaussian bank. A matched-bin
-  NumPy pilot is implemented (RES077/RES078): corrected refined baseline crossed
-  on-axis count error -0.20%. **CuPy promotion complete — default backend.**
+- **Complete independent arbitrary-angle scientific acceptance.** DER012/RES078's
+  transverse-dipole model and RES082's direction Doppler now have matched-bin evidence
+  for the baseline, low-a0 and near-a0-max bank cases, head-on and small crossed
+  geometry, on/off axis. The 2026-09-12 packet passes provisional spectral/count
+  budgets with converged energy-bin quadrature; it remains a pilot, not full acceptance.
+  Review DER013, extend the independent coverage and finish RES074's convergence and
+  acceptance requirements before closing Phase 3b. See
+  `docs/validation/direction-doppler-2026-09-12.md` for scope and reproducible evidence.
 
 - **Spatial autoranging under displacement.** The current Kascade reproduction captured its
   sampled photon weights inside the symmetric auto range for laser offsets through 120 µm;

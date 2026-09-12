@@ -32,6 +32,7 @@ except Exception:
 
 from .stages import (
     KERNEL_NORMALIZATION_CONSTANT,
+    _incident_axis,
     physical_transverse_axes,
     rotated_laser_axes,
 )
@@ -213,6 +214,12 @@ def _define_kernel(capacity=32):
         xi11,
         rings_limit,
         subsampling,
+        n0x,
+        n0y,
+        n0z,
+        nominal_inverse,
+        doppler_lo,
+        doppler_hi,
     ):
         thread_idx = jit.threadIdx.x
         out_idx = jit.blockIdx.x
@@ -233,8 +240,8 @@ def _define_kernel(capacity=32):
         if s <= CP_ZERO:
             skip = True
         else:
-            rmin_g = cp.sqrt(cp.maximum(CP_ZERO, CP_ONE / s - (CP_ONE + ahat_max) / gamma_lo**2))
-            rmax_g = cp.sqrt(cp.maximum(CP_ZERO, CP_ONE / s - (CP_ONE + ahat_min) / gamma_hi**2))
+            rmin_g = cp.sqrt(cp.maximum(CP_ZERO, doppler_lo / s - (CP_ONE + ahat_max) / gamma_lo**2))
+            rmax_g = cp.sqrt(cp.maximum(CP_ZERO, doppler_hi / s - (CP_ONE + ahat_min) / gamma_hi**2))
 
             rmin_r = cp.sqrt(max(cp.abs(box_x0) - dx, CP_ZERO) ** 2 + max(cp.abs(box_y0) - dy, CP_ZERO) ** 2)
 
@@ -468,7 +475,8 @@ def _define_kernel(capacity=32):
                             xw = Xf - CP_FLOAT(xi2)
                             yw = Yf - CP_FLOAT(yj2)
 
-                            inv_base = CP_ONE / s - theta_sq
+                            doppler = (CP_ONE - (n0x * x + n0y * y + n0z) / cp.sqrt(CP_ONE + x*x + y*y)) * nominal_inverse
+                            inv_base = doppler / s - theta_sq
                             h_sum = CP_ZERO
                             if inv_base > CP_ZERO:
                                 for ai2 in jit.range(CP_INT(n_a0)):
@@ -486,7 +494,7 @@ def _define_kernel(capacity=32):
                                             xi00, xi11,
                                         )
                                         # Energy scaling precedes H multiplication to avoid overflow (RES069).
-                                        prefac = (g**5 / (s * s)) * pol_factor * gth_sq_inv / (CP_ONE + a0_val)
+                                        prefac = doppler * (g**5 / (s * s)) * pol_factor * gth_sq_inv / (CP_ONE + a0_val)
 
                                         Gf = (g - gamma_min) / gamma_width - CP_FLOAT(0.5)
                                         gi2 = CP_INT(cp.floor(Gf))
@@ -572,6 +580,24 @@ def _polarization_parameters(
     return (e0x, e0y, e0z, e1x, e1y, e1z, xi00, xi11)
 
 
+def _doppler_bounds(x_edges, y_edges, n0):
+    """Conservative direction-factor bounds on the electron-angle rectangle (DER013)."""
+    xlo, xhi = float(x_edges[0]), float(x_edges[-1])
+    ylo, yhi = float(y_edges[0]), float(y_edges[-1])
+    nominal = 1.0 - n0[2]
+    if nominal <= 0:
+        raise ValueError("nominal Doppler factor must be positive; co-propagation is outside xigma's regime")
+    qlo = n0[2] + min(n0[0]*xlo, n0[0]*xhi) + min(n0[1]*ylo, n0[1]*yhi)
+    qhi = n0[2] + max(n0[0]*xlo, n0[0]*xhi) + max(n0[1]*ylo, n0[1]*yhi)
+    hlow = math.sqrt(1 + np.clip(0., xlo, xhi)**2 + np.clip(0., ylo, yhi)**2)
+    hhigh = math.sqrt(1 + max(xlo*xlo, xhi*xhi) + max(ylo*ylo, yhi*yhi))
+    dots = (qlo/hlow, qlo/hhigh, qhi/hlow, qhi/hhigh)
+    low = (1 - min(1., max(dots))) / nominal
+    high = (1 - max(-1., min(dots))) / nominal
+    padding = 8 * np.finfo(CP_FLOAT).eps * max(1., high)
+    return max(0., low - padding), high + padding
+
+
 def calculate_angular_spectrum_gpu(
     table: Table,
     theta_x,
@@ -598,6 +624,8 @@ def calculate_angular_spectrum_gpu(
     polarization_parameters = _polarization_parameters(
         psi_pol, ellipticity, theta_xz, theta_yz
     )
+    n0 = _incident_axis(theta_xz, theta_yz)
+    doppler_lo, doppler_hi = _doppler_bounds(table.theta_x_edges, table.theta_y_edges, n0)
     for edges in (table.gamma_edges, table.theta_x_edges, table.theta_y_edges):
         widths = np.diff(edges)
         if len(widths) < 2 or not np.allclose(widths, widths[0], rtol=1e-10, atol=0.0):
@@ -686,6 +714,10 @@ def calculate_angular_spectrum_gpu(
         *(CP_FLOAT(value) for value in polarization_parameters),
         CP_UINT(rings),
         CP_UINT(subsampling),
+        *(CP_FLOAT(value) for value in n0),
+        CP_FLOAT(1.0 / (1.0 - n0[2])),
+        CP_FLOAT(doppler_lo),
+        CP_FLOAT(doppler_hi),
     )
     cp.cuda.Stream.null.synchronize()
 

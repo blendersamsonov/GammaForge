@@ -101,6 +101,7 @@ __all__ = [
     "polarization_factor_vectorized",
     "relative_velocity",
     "doppler_factor_per_particle",
+    "direction_doppler_factor",
 ]
 
 #: Relative-velocity factor for the near-backscattering geometry: electron and photon
@@ -135,6 +136,30 @@ def relative_velocity(
     return 1.0 + beta * math.cos(theta_xz) * math.cos(theta_yz)
 
 
+def _incident_axis(theta_xz: float, theta_yz: float) -> np.ndarray:
+    """Laser propagation vector in the pinned two-plane crossing convention."""
+    return np.array([-math.sin(theta_xz) * math.cos(theta_yz), math.sin(theta_yz),
+                     -math.cos(theta_xz) * math.cos(theta_yz)])
+
+
+def direction_doppler_factor(theta_x, theta_y, theta_xz=0.0, theta_yz=0.0, *, k_hat=None):
+    """Relative Doppler factor (1 - e dot n0)/(1 - n0_z), with beta=1 (DER013).
+
+    The slopes broadcast normally; kernels unpack CGS inputs before calling this helper.
+    Exact finite-speed Doppler remains available in ``doppler_factor_per_particle``.
+    """
+    n0 = _incident_axis(theta_xz, theta_yz) if k_hat is None else np.asarray(k_hat, dtype=float)
+    if n0.shape != (3,) or not np.all(np.isfinite(n0)) or not np.isclose(np.dot(n0, n0), 1.0):
+        raise ValueError("laser propagation direction must be a finite unit vector")
+    nominal = 1.0 - n0[2]
+    if nominal <= 0:
+        raise ValueError("nominal Doppler factor must be positive; co-propagation is outside xigma's regime")
+    xp = _get_array_module(theta_x, theta_y)
+    tx, ty = xp.asarray(theta_x), xp.asarray(theta_y)
+    encounter = 1.0 - (n0[0] * tx + n0[1] * ty + n0[2]) / xp.sqrt(1.0 + tx**2 + ty**2)
+    return xp.maximum(0.0, encounter) / nominal
+
+
 def doppler_factor_per_particle(
     gamma: np.ndarray,
     theta_x: np.ndarray,
@@ -146,7 +171,8 @@ def doppler_factor_per_particle(
 ) -> np.ndarray:
     """Per-particle Doppler factor relative to the nominal-axis approximation.
 
-    The nominal-axis Doppler factor (used in production xigma) is ``cos^2(alpha/2)``
+    This finite-speed diagnostic differs from production's beta=1 direction factor.
+    The nominal-axis photon-energy factor is ``cos^2(alpha/2)``
     where ``cos(alpha) = cos(theta_xz) * cos(theta_yz)``. This function computes the
     exact per-particle factor ``(1 - v.n0_hat) / (1 + cos(alpha))`` for each electron,
     where ``v`` is the electron's lab-frame velocity vector and ``n0_hat`` is the
@@ -892,15 +918,16 @@ def integrate_trajectories(
 
     norm = xp.sqrt(1.0 + bunch.thx**2 + bunch.thy**2)
     velocity = (C_CGS * bunch.thx / norm, C_CGS * bunch.thy / norm, C_CGS / norm)
-    beta = 1.0  # ultra-relativistic: v = c exactly
     if hasattr(laser, "focusing_axes"):
         k_hat, _, _ = laser.focusing_axes()
-        rel_vel = relative_velocity(beta, k_hat=k_hat)
     elif hasattr(laser, "m") and hasattr(laser, "theta_xz") and hasattr(laser, "theta_yz"):
-        rel_vel = relative_velocity(beta, laser.m("theta_xz"), laser.m("theta_yz"))
+        k_hat = _incident_axis(laser.m("theta_xz"), laser.m("theta_yz"))
     else:
         metrics = fit_gaussian_paraxial(laser)
-        rel_vel = relative_velocity(beta, metrics.m("theta_xz"), metrics.m("theta_yz"))
+        k_hat = _incident_axis(metrics.m("theta_xz"), metrics.m("theta_yz"))
+    # Use the same per-electron encounter factor as the resonance (DER013, RES082).
+    rel_vel = (1.0 - k_hat[2]) * direction_doppler_factor(bunch.thx, bunch.thy, k_hat=k_hat)
+    rate = rel_vel * density_scale * C_CGS * SIGMA_T_CGS
 
     def integrate(first_index: int, last_index: int):
         sl = slice(first_index, last_index)
@@ -918,8 +945,7 @@ def integrate_trajectories(
         # In CGS this is simply flux x cross-section x time; the predecessor's k0**2 was
         # the Jacobian of its coordinate normalization and has no counterpart here (RES015).
         dt = span[sl] / n_steps
-        rate = rel_vel * density_scale * C_CGS * SIGMA_T_CGS
-        luminosity = rate * weight[sl] * dt * xp.sum(intensity, axis=1)
+        luminosity = rate[sl] * weight[sl] * dt * xp.sum(intensity, axis=1)
 
         # `ratio` is the local intensity as a fraction of the pulse's peak. a0_shape is its
         # second moment over the trajectory, normalized by its first: the intensity an
@@ -935,7 +961,7 @@ def integrate_trajectories(
         )
         time_mass = spatial_mass = None
         if t_edges is not None or spatial_edges is not None:
-            contribution = rate * weight[sl, None] * dt[:, None] * intensity
+            contribution = rate[sl, None] * weight[sl, None] * dt[:, None] * intensity
             if t_edges is not None:
                 # Direct bin sums avoid subtracting large cumulative masses in dim tails.
                 index = xp.searchsorted(t_edges, times.ravel(), side="right") - 1
@@ -1439,29 +1465,8 @@ def spectrum_from_table(
     # into the sum below rather than factored out as a scalar the way theta's still is.
     ahat_widths = table.ahat_widths[None, None, :]
 
-    # Per-cell Doppler factor: D_cell = 1 - v·n0, where v is the electron velocity
-    # at the cell center (tx_c, ty_c) and n0 is the laser propagation direction.
-    # The nominal-axis Doppler factor (used to scale photon_energy upstream) is
-    # D_nominal = 1 - n0_z = 1 + cos(theta_xz) * cos(theta_yz).
-    # The relative factor D_rel = D_cell / D_nominal corrects the resonance condition.
-    cos_xz = math.cos(theta_xz)
-    cos_yz = math.cos(theta_yz)
-    sin_xz = math.sin(theta_xz)
-    sin_yz = math.sin(theta_yz)
-    n0_x = -sin_xz * cos_yz
-    n0_y = sin_yz
-    n0_z = -cos_xz * cos_yz
-
-    # Electron velocity (ultra-relativistic, beta ≈ 1): v = (tx, ty, 1) / sqrt(1 + tx^2 + ty^2)
-    norm = xp.sqrt(1.0 + tx_c**2 + ty_c**2)
-    vx = tx_c / norm
-    vy = ty_c / norm
-    vz = 1.0 / norm
-
-    v_dot_n0 = vx * n0_x + vy * n0_y + vz * n0_z
-    D_cell = 1.0 - v_dot_n0
-    D_nominal = 1.0 - n0_z  # = 1 + cos_xz * cos_yz
-    D_rel = D_cell / D_nominal
+    # Direction-dependent resonance and Jacobian at beta=1 (DER013, RES082).
+    D_rel = direction_doppler_factor(tx_c, ty_c, theta_xz, theta_yz)
 
     out = xp.zeros(s_arr.shape[0])
     for k, s_val in enumerate(s_arr):
@@ -1484,7 +1489,7 @@ def spectrum_from_table(
         pol_factor = polarization_factor_vectorized(
             g, tx_c, ty_c, theta_x, theta_y, ellipticity, psi_pol, theta_xz, theta_yz
         )
-        prefac = xp.where(valid, pol_factor * g**5 * gth_sq_inv / (1.0 + a_c), 0.0)
+        prefac = xp.where(valid, D_rel * pol_factor * g**5 * gth_sq_inv / (1.0 + a_c), 0.0)
         H_val = _interp_gamma(table, g)
         out[k] = (
             KERNEL_NORMALIZATION_CONSTANT
@@ -1492,7 +1497,7 @@ def spectrum_from_table(
             * theta_cell_area
             / s_val**2
         )
-    return out if xp.ndim(s) == 0 else out[0] if s_arr.shape[0] == 1 else out
+    return out[0] if xp.ndim(s) == 0 else out
 
 
 def angular_spectrum_from_table(
@@ -1585,13 +1590,15 @@ def stage2_backend(
     return "numpy"
 
 
-def angle_integrated_spectrum(samples: TrajectorySamples, s) -> np.ndarray:
+def angle_integrated_spectrum(
+    samples: TrajectorySamples, s, *, theta_xz: float = 0.0, theta_yz: float = 0.0,
+) -> np.ndarray:
     """``dN/ds``, angle-integrated in closed form — `Collision.spectrum`'s actual output.
 
     The same linear-Compton shape as
     `gammaforge.validation.references.delta.single_electron_spectrum`
-    (``1.5 * (1 - 2y(1-y))`` for ``y = s / gamma**2``), **deliberately reimplemented here
-    rather than imported.** delta exists to check this engine independently (§4.5); if it
+    (``1.5 * (1 - 2y(1-y))`` with each electron's ``y = s / (D * gamma**2)``), reimplemented here
+    rather than imported. delta exists to check this engine independently (§4.5); if it
     imported its own reference formula back from the engine it checks, or this engine
     imported from `validation`, the check would be circular in the first case and invert
     the package's dependency direction in the second. Matches the predecessor's actual
@@ -1599,6 +1606,8 @@ def angle_integrated_spectrum(samples: TrajectorySamples, s) -> np.ndarray:
     ``spectrum_from_particles.angle_integrated_spectrum``), which used this exact table-
     free linear shape rather than Stage 1/2's nonlinear resonance — where ahat matters
     this is a stated approximation, not the full physics (mirrors delta's own caveat).
+    The direction-dependent energy scale and its density Jacobian preserve each
+    electron's luminosity (DER013, RES082).
     """
     s_values = np.atleast_1d(np.asarray(s, dtype=float))
     output_bytes = s_values.size * np.dtype(float).itemsize
@@ -1617,10 +1626,14 @@ def angle_integrated_spectrum(samples: TrajectorySamples, s) -> np.ndarray:
         particle_ceiling = max(1, SPECTRUM_WORKING_SET_BYTES // bytes_per_particle)
 
         def integrate_particle_chunk(start: int, stop: int) -> np.ndarray:
-            gamma_squared = (samples.gamma[start:stop] ** 2)[:, None]
-            y = energy[None, :] / gamma_squared
-            shape = np.where((y < 0.0) | (y > 1.0), 0.0, 1.5 * (1.0 - 2.0 * y * (1.0 - y)))
-            return np.sum(samples.luminosity[start:stop, None] * shape / gamma_squared, axis=0)
+            doppler = direction_doppler_factor(samples.theta_x[start:stop], samples.theta_y[start:stop],
+                                               theta_xz, theta_yz)
+            gamma_squared = (doppler * samples.gamma[start:stop] ** 2)[:, None]
+            safe_edge = np.where(gamma_squared > 0, gamma_squared, 1.0)
+            y = energy[None, :] / safe_edge
+            shape = np.where((gamma_squared <= 0) | (y < 0.0) | (y > 1.0),
+                             0.0, 1.5 * (1.0 - 2.0 * y * (1.0 - y)))
+            return np.sum(samples.luminosity[start:stop, None] * shape / safe_edge, axis=0)
 
         partials = run_in_chunks(
             samples.n_particles,

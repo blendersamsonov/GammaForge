@@ -1,7 +1,9 @@
 # Alpha GPU sampler validation
 
-Status: local transverse-dipole correction merged (DER012 / RES078);
-backend still experimental — 2026-09-09.
+Status: direction-Doppler consistency implemented (RES082), with CuPy selected by
+schema default — 2026-09-12. See the [renewed validation record](validation/direction-doppler-2026-09-12.md).
+Independent arbitrary-angle scientific acceptance remains open. Backend-default and
+physics descriptions in the dated measurements below refer to their original versions.
 
 The sections below dated 2026-09-08 record historical measurements of the former
 unprojected radiation basis, including its cosine-squared collinear limit and

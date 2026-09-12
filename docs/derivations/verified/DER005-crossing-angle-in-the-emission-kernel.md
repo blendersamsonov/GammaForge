@@ -4,6 +4,8 @@ Status: verified
 
 Radiation-basis revision: DER012 replaces the unprojected polarization construction
 in §2.3. Flux and nominal Doppler results retain their stated approximations (RES078).
+DER013/RES082 extend the nominal-axis flux and resonance to per-electron directions at
+beta=1, with the corresponding table Jacobian and GPU support bounds.
 
 ## Setup
 

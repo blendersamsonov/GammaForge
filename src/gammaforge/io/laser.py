@@ -47,6 +47,8 @@ one is still partial; both say so out loud rather than passing unremarked:
   is flipped to False now that all three pieces are implemented.
   The rotation is still applied everywhere the pulse is sampled (geometry), and now the
   emission physics downstream matches.
+  Xigma's per-electron direction extension uses beta=1 in flux, resonance and Jacobian
+  (RES082); the nominal factor remains its shared energy-coordinate conversion.
 
 :func:`validate` no longer warns on these; the markers below remain as the one-line greps
 for "the derivation landed".

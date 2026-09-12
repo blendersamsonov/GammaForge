@@ -1,6 +1,6 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.34 — 2026-09-12
+**Status:** draft v0.35 — 2026-09-12
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 
@@ -948,6 +948,18 @@ annotated at both equations.
 
 ### 9.3 Crossing angle and electron direction
 
+**Per-electron Doppler extension (v0.35):** xigma retains its ultra-relativistic
+ballistic speed, beta = 1, while using each electron's normalized direction in
+the encounter factor F = 1 - e dot n0. Stage 0 uses F in the overlap flux. In
+nominally scaled energy s = E / (2 E_laser F0), with F0 = 1 - n0_z, Stage 2 uses
+D = F/F0 both in the inverse resonance gamma² = (1 + ahat)/(D/s - r²) and in
+its Jacobian. NumPy and CuPy use the same convention, and GPU radial support must
+enclose D over its full angular domain. The table-free linear spectrum rescales
+each electron's energy and density by D. The finite-beta delta diagnostic remains
+available separately; it is not silently substituted for the production approximation.
+This extends the manuscript's head-on table reduction using Eq. wR, without claiming
+an exact finite-gamma or unrestricted-angle theory (DER013, RES082).
+
 The manuscript's polarization projection is defined with the field-free electron
 velocity. The author confirmed on 2026-09-06 that Stage 2 uses that velocity directly
 in the common lab frame:
@@ -1045,6 +1057,10 @@ duplicated (C4).
 ---
 
 ## Changelog
+
+- **v0.35**: Extend xigma's Doppler direction factor consistently through overlap flux,
+  tabulated resonance/Jacobian, GPU support and the table-free linear spectrum, retaining
+  beta = 1. Use an independently evaluated matching convention in delta validation.
 
 - **v0.34**: Specify xigma's Stage-0 temporal/spatial output semantics, fixed requested
   histogram grids, explicit integration measure, clipping accounting, and a physically

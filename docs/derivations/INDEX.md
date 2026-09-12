@@ -18,3 +18,4 @@ same change as any new derivation file or any status move —
 | DER010 | Laser photon density scale and cycle-averaged field energy | verified | verified/DER010-laser-photon-density-scale-and-cycle-averaged-field-energy.md |
 | DER011 | Closed-form angle-integrated linear Thomson spectrum | verified | verified/DER011-closed-form-angle-integrated-linear-thomson-spectrum.md |
 | DER012 | Physical transverse dipole emission and photon conservation under crossing angle | verified | verified/DER012-physical-transverse-dipole-emission-under-crossing-angle.md |
+| DER013 | Direction-dependent Doppler reduction at ultra-relativistic speed | derived | derived/DER013-direction-dependent-doppler-reduction.md |

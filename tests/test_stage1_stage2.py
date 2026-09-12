@@ -81,7 +81,8 @@ def _table(samples, *, shape_bins=(16, 16, 16, 16), scheme="nearest", **retarget
 def _unchunked_angle_integrated_spectrum(samples, s):
     """The direct formula, retained here only as a small regression reference."""
     s_values = np.atleast_1d(np.asarray(s, dtype=float))
-    gamma_squared = (samples.gamma**2)[:, None]
+    direction_factor = (1 + 1 / np.sqrt(1 + samples.theta_x**2 + samples.theta_y**2)) / 2
+    gamma_squared = (direction_factor * samples.gamma**2)[:, None]
     y = s_values[None, :] / gamma_squared
     shape = np.where((y < 0.0) | (y > 1.0), 0.0, 1.5 * (1.0 - 2.0 * y * (1.0 - y)))
     out = np.sum(samples.luminosity[:, None] * shape / gamma_squared, axis=0)
