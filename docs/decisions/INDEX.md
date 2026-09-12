@@ -85,3 +85,4 @@ cross-checks this table against the files on disk.
 | RES077 | Matched energy-bin delta comparison | testing | implemented | implemented/testing/RES077-matched-energy-bin-delta-comparison.md |
 | RES078 | Integrate local transverse dipole reference | bug-fix | implemented | implemented/bug-fix/RES078-integrate-local-transverse-dipole-reference.md |
 | RES079 | Xigma off-axis spectral discrepancy is numerical convergence of table quadrature | testing | implemented | implemented/testing/RES079-xigma-spectral-discrepancy-numerical-convergence.md |
+| RES081 | Xigma temporal and spatial source diagnostics | feature | implemented | implemented/feature/RES081-xigma-source-diagnostics.md |

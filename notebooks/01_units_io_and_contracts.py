@@ -259,6 +259,9 @@ plt.show()
 # 
 # To run any engine in GammaForge, everything is packaged into an immutable `InteractionParameters` object:
 # - **`Target`**: Specifies collimation half-angles (`theta_x_col`, `theta_y_col`) and requested outputs (`OutputRequest`).
+#   Temporal output resolution belongs to the request; its range comes from the actual overlap.
+#   With no overlap, the zero histogram uses a laser-derived display interval. Spatial requests
+#   support advanced manual ranges; explicit histogram widths retain their captured photon mass.
 # - **`SamplingSpec`**: Particle count, random seed, and prefilter threshold fraction.
 # - **`build_interaction()`**: The factory function that samples the bunch, prefilters particles outside the laser pulse, and bundles them.
 

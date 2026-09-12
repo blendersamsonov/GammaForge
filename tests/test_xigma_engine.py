@@ -65,6 +65,8 @@ def test_supported_outputs_matches_what_run_actually_fills():
     requests = (
         OutputRequest(OutputKind.TOTAL_YIELD),
         OutputRequest(OutputKind.SPECTRUM, resolution=(6,)),
+        OutputRequest(OutputKind.TEMPORAL_ENVELOPE, resolution=(11,)),
+        OutputRequest(OutputKind.SPATIAL_DISTRIBUTION, resolution=(7, 3)),
         OutputRequest(OutputKind.ANGULAR_DISTRIBUTION, resolution=(3, 3)),
         OutputRequest(OutputKind.COLLIMATED_SPECTRUM, resolution=(4, 3, 3)),
     )
@@ -86,6 +88,8 @@ def test_empty_bunch_returns_zero_for_every_supported_output(through_prefilter):
     requests = (
         OutputRequest(OutputKind.TOTAL_YIELD),
         OutputRequest(OutputKind.SPECTRUM, resolution=(3,)),
+        OutputRequest(OutputKind.TEMPORAL_ENVELOPE, resolution=(3,)),
+        OutputRequest(OutputKind.SPATIAL_DISTRIBUTION, resolution=(2, 3)),
         OutputRequest(OutputKind.ANGULAR_DISTRIBUTION, resolution=(2, 2)),
         OutputRequest(OutputKind.COLLIMATED_SPECTRUM, resolution=(3, 2, 2)),
     )
@@ -96,13 +100,14 @@ def test_empty_bunch_returns_zero_for_every_supported_output(through_prefilter):
     assert all(np.all(slice_.distr == 0.0) for slice_ in results.photon_slices.values())
 
 
-def test_unsupported_temporal_output_cannot_autorange_an_empty_interaction():
+def test_temporal_output_autoranges_an_empty_interaction():
     requests = (
         OutputRequest(OutputKind.TOTAL_YIELD),
         OutputRequest(OutputKind.TEMPORAL_ENVELOPE, resolution=(3,)),
     )
     results = XigmaEngine().run(_empty_interaction(requests, through_prefilter=True), _engine_params())
-    assert set(results.photon_slices) == {OutputKind.TOTAL_YIELD}
+    assert set(results.photon_slices) == {OutputKind.TOTAL_YIELD, OutputKind.TEMPORAL_ENVELOPE}
+    assert results.photon_slices[OutputKind.TEMPORAL_ENVELOPE].integrate() == 0
 
 
 def test_table_free_spectrum_limitation_is_reported_in_results():

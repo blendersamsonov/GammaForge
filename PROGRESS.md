@@ -18,7 +18,7 @@ unfinished or waiting on someone*.
 | 1. Core (`gammaforge.io`) | 🟢 done; `PulseTrainParaxialLaser` temporal modulation and pulse trains landed (RES071) |
 | 2. Validation harness | 🟢 done |
 | 2.5. Stage 0 + minimal delta | 🟢 done |
-| 3a. xigma engineering | 🟢 NumPy Stage 0/1/2, `Collision`, `XigmaEngine`; stable high-gamma polarization reference (RES070). CuPy supports incident polarization, crossing geometry, and schema-controlled ring/sample refinement; eight-case actual-CUDA numerical gate passes (RES072). **CuPy is production-ready and the default backend (RES074/RES079).** Independent emission validation converged (<1% L1 off-axis). |
+| 3a. xigma engineering | 🟡 NumPy Stage 0/1/2, `Collision`, `XigmaEngine`; temporal/spatial source histograms (RES081). CuPy remains the selected default and supports polarization, crossing geometry, and ring/sample refinement. Recorded CUDA/convergence gates predate the latest NumPy Doppler change; backend/physics consistency must be restored before renewed release acceptance. |
 | 3b. Physics closure | 🟡 §9.1 closed (RES033). Local transverse-dipole crossing correction merged (DER012, RES078), retaining per-particle lab velocities and Stokes API compatibility; independent arbitrary-angle acceptance/convergence remains open. |
 | 4. analytical engine | 🟢 landed and merged to `main`; general overlap-integral yield, width breakdown, quadrature spectrum, flying focus, crossing angle for the yield. Open: collimated-spectrum construction |
 | 5. kascade port + delta full role | 🟡 minimal `KascadeEngine`, Thomson sanity anchor, and opt-in GUI integration landed (RES059); four-method validation wiring remains open |
@@ -41,6 +41,16 @@ Ordered by who is blocked. Each names the file that carries the detail.
 
 ### Waiting on the author (physics)
 
+- **Per-particle Doppler consistency.** The manuscript's Eq. `wR` carries the general
+  field-free velocity factor, while its three-dimensional table reduction specializes
+  to head-on kinematics. NumPy Stage 2 currently applies a per-cell direction correction
+  to the resonance but omits its Jacobian factor; CuPy retains nominal-axis resonance.
+  Stage 0 retains nominal-axis encounter flux. Decide whether the extension uses
+  ultra-relativistic speed or exact finite-gamma speed, and whether to update Stage-0
+  flux together with Stage 2. Then align the independent delta comparison and rerun
+  matched-bin/CUDA validation. Earlier promotion evidence does not validate this mixed
+  implementation.
+
 - **`ahat_decades`.** RES032's grid defaults were tuned against `ahat` values that RES053 later
   halved, so the bank now sits in the grid's coarse floor. Measured centroid bias ~1%,
   pre-existing rather than introduced; `decades = 1.0 -> 0.3` removes most of it. Pinned by
@@ -60,8 +70,8 @@ Ordered by who is blocked. Each names the file that carries the detail.
   **Convergence achieved:** angular/gamma/retarget refinement packets + particle/seed/Stage-0
   studies all converged. Best config (gamma=32, theta=64, retarget=512): crossed off-axis
   0.65%, head-on off-axis 0.65%, on-axis ~1.1%. Yield <0.05%, all q32/q64 converged.
-  **Scientific acceptance pending:** author audit of nominal-axis vs per-particle Doppler
-  factor (general per-particle Doppler factor vs current nominal-axis approximation).
+  **Scientific acceptance pending:** resolve the Doppler consistency thread above;
+  the later NumPy resonance change is not covered by these earlier convergence packets.
   Direct resonance-binning preparation recorded in RES074 and
   `docs/handoffs/delta-arbitrary-angle-validation-2026-09-09.md`: independent delta
   polarization evaluation, matched energy-bin measures, and separate convergence

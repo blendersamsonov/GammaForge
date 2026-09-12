@@ -1,6 +1,6 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.33 — 2026-09-09
+**Status:** draft v0.34 — 2026-09-12
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 
@@ -348,6 +348,13 @@ methods):
     `laser_overlap_time_window`; port it, generalize for crossing angle later)
   - `spatial_distribution` (x,y) — resolution; **autorange** (from beam/laser sizes),
     manual override only as an advanced option
+  - xigma's temporal/spatial outputs are angle- and energy-integrated **emission-source
+    overlap diagnostics**, in laboratory emission time and source position, not detector
+    arrival time or independently radiating trajectory segments. Stage 0 bins its photon
+    contributions on the requested grid, with explicit histogram widths and no rescaling
+    for photons outside the spatial window. All chunks use the same edges. If there is
+    no overlap, the zero temporal histogram uses the laser's longitudinal passage through
+    the laboratory origin as a display interval; it does not assert an emission window.
   - `angular_distribution` (θx,θy) — resolution; **autorange** (~1/γ0 window)
   - `collimated_spectrum` (= "spectrum on target") — a **3D slice in (E, θx, θy)** whose
     **angular ranges are the target's collimation window** (user-defined, not auto;
@@ -1038,6 +1045,10 @@ duplicated (C4).
 ---
 
 ## Changelog
+
+- **v0.34**: Specify xigma's Stage-0 temporal/spatial output semantics, fixed requested
+  histogram grids, explicit integration measure, clipping accounting, and a physically
+  scaled display interval for a zero temporal output when the bunch has no overlap.
 
 - **v0.33**: integrate the author's local transverse-dipole crossing correction
   (DER012), replacing the unprojected radiation basis while retaining lab-frame

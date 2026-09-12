@@ -29,7 +29,7 @@ import numpy as np
 from .bunch import GaussianElectronBeam, overlap_time_window
 from .laser import LaserField, fit_gaussian_paraxial
 from .results import Axis
-from .units import MEC2_CGS, Quantity, as_canonical_quantity
+from .units import C_CGS, MEC2_CGS, Quantity, as_canonical_quantity
 
 __all__ = [
     "OutputKind",
@@ -302,10 +302,11 @@ def _overlap_window(bunch, laser) -> tuple[float, float]:
     t0, t1 = overlap_time_window(bunch, laser)
     overlapping = t0 <= t1
     if not np.any(overlapping):
-        raise ValueError(
-            "auto_ranges: no macroparticle ever enters the laser's active region — "
-            "there is no temporal window to plot. Check the collision geometry."
-        )
+        # A zero histogram displays the pulse's passage at r=0 (RES081).
+        region = laser.active_region(1e-3)
+        centre = -float(np.dot(region.origin, region.axis)) / C_CGS
+        half = RANGE_HEADROOM * region.half_length / C_CGS
+        return centre - half, centre + half
     low = float(np.min(t0[overlapping]))
     high = float(np.max(t1[overlapping]))
     centre = 0.5 * (low + high)

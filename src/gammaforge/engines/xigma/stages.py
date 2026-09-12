@@ -69,6 +69,7 @@ def _get_array_module(*arrays):
 
 __all__ = [
     "TrajectorySamples",
+    "TrajectoryDiagnostics",
     "ahat_from_shape",
     "integrate_trajectories",
     "photon_density_scale",
@@ -711,6 +712,19 @@ def ahat_from_shape(a0_shape, intensity_peak: float):
 
 
 @dataclass(frozen=True)
+class TrajectoryDiagnostics:
+    """Histogrammed emission-source overlap in laboratory time (s) and position (cm).
+
+    Densities retain the photon mass inside the supplied edges (RES081).
+    """
+
+    t_edges: np.ndarray | None = None
+    time_envelope: np.ndarray | None = None
+    spatial_edges: tuple[np.ndarray, np.ndarray] | None = None
+    spatial_envelope: np.ndarray | None = None
+
+
+@dataclass(frozen=True)
 class TrajectorySamples:
     """One sample per macroparticle, ready for Stage 1 deposition. CGS.
 
@@ -745,6 +759,7 @@ class TrajectorySamples:
     luminosity: np.ndarray
     intensity_peak: float
     n_steps: int
+    diagnostics: TrajectoryDiagnostics | None = None
 
     @property
     def n_particles(self) -> int:
@@ -784,6 +799,8 @@ def integrate_trajectories(
     window: str = "active_region",
     backend: str = "numpy",
     chunk: int | None = None,
+    t_edges: np.ndarray | None = None,
+    spatial_edges: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> TrajectorySamples:
     """Stage 0: push every macroparticle through the pulse and sample the overlap.
 
@@ -817,6 +834,10 @@ def integrate_trajectories(
 
     Chunking is over particles, whose trajectories are independent, so the partition
     cannot change the answer.
+
+    Optional ``t_edges`` (seconds) and ``spatial_edges`` (x/y, cm) request overlap
+    histograms on fixed grids shared by every chunk. Bin-average densities are returned
+    in ``diagnostics``; photons outside those grids are not redistributed.
     """
     if n_steps < 1:
         raise ValueError(f"integrate_trajectories: n_steps must be >= 1, got {n_steps}")
@@ -828,6 +849,19 @@ def integrate_trajectories(
 
     # Determine array module from bunch arrays (supports both numpy and cupy)
     xp = _get_array_module(bunch.x, bunch.y, bunch.z, bunch.thx, bunch.thy, bunch.gamma, bunch.weight)
+
+    def checked_edges(edges):
+        values = xp.array(edges, dtype=float, copy=True)
+        if (values.ndim != 1 or values.size < 2 or not bool(xp.all(xp.isfinite(values)))
+                or bool(xp.any(xp.diff(values) <= 0))):
+            raise ValueError("diagnostic edges must be finite, strictly increasing 1D arrays")
+        return values
+
+    t_edges = None if t_edges is None else checked_edges(t_edges)
+    if spatial_edges is not None:
+        if len(spatial_edges) != 2:
+            raise ValueError("spatial_edges must contain x and y edge arrays")
+        spatial_edges = tuple(checked_edges(edges) for edges in spatial_edges)
 
     if window == "illumination":
         t0, t1 = illumination_window(bunch, laser, threshold)
@@ -899,7 +933,22 @@ def integrate_trajectories(
         a0_shape = xp.where(
             usable, xp.sum(ratio**2, axis=1) / xp.maximum(moment_1, 1e-300), 0.0
         )
-        return luminosity, a0_shape
+        time_mass = spatial_mass = None
+        if t_edges is not None or spatial_edges is not None:
+            contribution = rate * weight[sl, None] * dt[:, None] * intensity
+            if t_edges is not None:
+                # Direct bin sums avoid subtracting large cumulative masses in dim tails.
+                index = xp.searchsorted(t_edges, times.ravel(), side="right") - 1
+                index = xp.where(times.ravel() == t_edges[-1], t_edges.size - 2, index)
+                inside = (index >= 0) & (index < t_edges.size - 1)
+                time_mass = xp.bincount(index[inside], weights=contribution.ravel()[inside],
+                                        minlength=t_edges.size - 1)
+            if spatial_edges is not None:
+                x = bunch.x[sl, None] + velocity[0][sl, None] * times
+                y = bunch.y[sl, None] + velocity[1][sl, None] * times
+                spatial_mass = xp.histogram2d(x.ravel(), y.ravel(), bins=spatial_edges,
+                                             weights=contribution.ravel())[0]
+        return luminosity, a0_shape, time_mass, spatial_mass
 
     parts = run_in_chunks(
         bunch.n_particles,
@@ -909,7 +958,8 @@ def integrate_trajectories(
         # path's s-axis, where per-launch overhead amortized by ~8-16. Stage 0 partitions
         # particles, where no such measurement exists, and inventing one would be the
         # cargo-culting the chunking module's own docstring warns the constants against.
-        bytes_per_item=BYTES_PER_PARTICLE_STEP * n_steps,
+        bytes_per_item=(BYTES_PER_PARTICLE_STEP + (32 if spatial_edges is not None else
+                                                 8 if t_edges is not None else 0)) * n_steps,
         backend=backend,
     )
     # An empty bunch is reachable, not hypothetical: the prefilter discards every particle
@@ -923,6 +973,19 @@ def integrate_trajectories(
         luminosity = xp.zeros(0, dtype=xp.float64)
         a0_shape = xp.zeros(0, dtype=xp.float64)
 
+    diagnostics = None
+    if t_edges is not None or spatial_edges is not None:
+        time_envelope = spatial_envelope = None
+        if t_edges is not None:
+            mass = sum((part[2] for part in parts), xp.zeros(t_edges.size - 1))
+            time_envelope = mass / xp.diff(t_edges)
+        if spatial_edges is not None:
+            x_edges, y_edges = spatial_edges
+            mass = sum((part[3] for part in parts),
+                       xp.zeros((x_edges.size - 1, y_edges.size - 1)))
+            spatial_envelope = mass / (xp.diff(x_edges)[:, None] * xp.diff(y_edges)[None, :])
+        diagnostics = TrajectoryDiagnostics(t_edges, time_envelope, spatial_edges, spatial_envelope)
+
     return TrajectorySamples(
         gamma=bunch.gamma,
         theta_x=bunch.thx,
@@ -931,6 +994,7 @@ def integrate_trajectories(
         luminosity=luminosity,
         intensity_peak=intensity_peak,
         n_steps=n_steps,
+        diagnostics=diagnostics,
     )
 
 

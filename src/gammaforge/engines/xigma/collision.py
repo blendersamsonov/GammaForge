@@ -54,15 +54,15 @@ class BunchStokes(NamedTuple):
 
 __all__ = ["Collision", "SUPPORTED_OUTPUTS", "BunchStokes"]
 
-#: `OutputKind`s this Collision can fill today. `TEMPORAL_ENVELOPE`/`SPATIAL_DISTRIBUTION`
-#: need Stage 0 diagnostics `TrajectorySamples` does not carry (per-step position/time,
-#: not just the trajectory-averaged quantities it keeps, §4.2); `MACROPARTICLE_DUMP` has
+#: `OutputKind`s this Collision can fill today. `MACROPARTICLE_DUMP` has
 #: no photon-macroparticle population to dump (xigma is a tabulated-density engine, not an
-#: MC one). All three are omitted, not silently approximated — `run()` fills only what a
+#: MC one). It is omitted — `run()` fills only what a
 #: request asks for and this set covers, same contract as any engine (P10).
 SUPPORTED_OUTPUTS: tuple[OutputKind, ...] = (
     OutputKind.TOTAL_YIELD,
     OutputKind.SPECTRUM,
+    OutputKind.TEMPORAL_ENVELOPE,
+    OutputKind.SPATIAL_DISTRIBUTION,
     OutputKind.ANGULAR_DISTRIBUTION,
     OutputKind.COLLIMATED_SPECTRUM,
 )
@@ -84,18 +84,36 @@ class Collision:
     _shape_table: ShapeTable | None = field(default=None, init=False, repr=False)
     _tables: dict[float, Table] = field(default_factory=dict, init=False, repr=False)
 
-    def build_overlap(self) -> TrajectorySamples:
-        """Stage 0, memoized: every other method funnels through this."""
-        if self._samples is None:
+    def build_overlap(
+        self, *, t_edges: np.ndarray | None = None,
+        spatial_edges: tuple[np.ndarray, np.ndarray] | None = None,
+    ) -> TrajectorySamples:
+        """Memoize Stage 0; requesting a new diagnostic grid requires another integration."""
+        diagnostics = None if self._samples is None else self._samples.diagnostics
+        needs_time = t_edges is not None and (
+            diagnostics is None or not np.array_equal(t_edges, diagnostics.t_edges))
+        needs_space = spatial_edges is not None and (
+            len(spatial_edges) != 2 or diagnostics is None or diagnostics.spatial_edges is None
+            or any(not np.array_equal(a, b) for a, b in zip(spatial_edges, diagnostics.spatial_edges)))
+        if self._samples is None or needs_time or needs_space:
             samples = integrate_trajectories(
                 self.interaction.bunch,
                 self.interaction.laser,
                 self.interaction.N_e,
                 n_steps=self.params.get_int("n_steps"),
                 threshold=self.params.get_float("threshold"),
+                t_edges=t_edges,
+                spatial_edges=spatial_edges,
             )
             for values in (samples.gamma, samples.theta_x, samples.theta_y, samples.a0_shape, samples.luminosity):
                 values.setflags(write=False)
+            if samples.diagnostics is not None:
+                diagnostic = samples.diagnostics
+                arrays = (diagnostic.t_edges, diagnostic.time_envelope, diagnostic.spatial_envelope,
+                          *(diagnostic.spatial_edges or ()))
+                for values in arrays:
+                    if values is not None:
+                        values.setflags(write=False)
             object.__setattr__(self, "_samples", samples)
         return self._samples
 
@@ -283,6 +301,14 @@ class Collision:
             self.interaction.laser,
             self.interaction.bunch,
         )
+        t_edges = spatial_edges = None
+        for request in supported_requests:
+            if request.kind is OutputKind.TEMPORAL_ENVELOPE:
+                t_edges = np.linspace(*ranges[request.kind][Axis.TIME], request.resolution[0] + 1)
+            elif request.kind is OutputKind.SPATIAL_DISTRIBUTION:
+                spatial_edges = tuple(np.linspace(*ranges[request.kind][axis], n + 1)
+                                      for axis, n in zip((Axis.X, Axis.Y), request.resolution))
+        self.build_overlap(t_edges=t_edges, spatial_edges=spatial_edges)
         geom = self._laser_polarization_geometry()
         photon_energy = geom["photon_energy"]
         theta_xz = geom["theta_xz"]
@@ -298,6 +324,11 @@ class Collision:
         slices: dict[OutputKind, PhasespaceSlice] = {}
         if self.build_overlap().n_particles == 0:
             for request in supported_requests:
+                if request.kind in (OutputKind.TEMPORAL_ENVELOPE, OutputKind.SPATIAL_DISTRIBUTION):
+                    slices[request.kind] = self._fill(
+                        request, ranges[request.kind], photon_energy, psi_pol, ellipticity,
+                        theta_xz, theta_yz)
+                    continue
                 values = slice_axis_values(request, ranges[request.kind])
                 slices[request.kind] = PhasespaceSlice(
                     axes=values,
@@ -316,6 +347,22 @@ class Collision:
                 "nonlinear redshift carried by the tabulated angular kernel.",
             )
         model_specific: dict[str, object] = {"warnings": warnings}
+        captured = {}
+        total = self.build_overlap().total_yield()
+        for kind in (OutputKind.TEMPORAL_ENVELOPE, OutputKind.SPATIAL_DISTRIBUTION):
+            if kind in slices:
+                count = slices[kind].integrate()
+                fraction = count / total if total > 0 else 0.0
+                captured[kind.value] = {"captured_fraction": fraction,
+                                        "outside_fraction": max(0.0, 1.0 - fraction) if total > 0 else 0.0}
+        if captured:
+            model_specific["stage0_diagnostics"] = captured
+            if total == 0 and OutputKind.TEMPORAL_ENVELOPE in slices:
+                warnings += ("No photons were emitted; the temporal axis is a display interval.",)
+            if any(item["outside_fraction"] > 1e-12 for item in captured.values()):
+                warnings += ("Stage-0 diagnostic windows exclude some photons; captured and outside "
+                             "fractions are recorded in stage0_diagnostics.",)
+            model_specific["warnings"] = warnings
         if self.build_overlap().n_particles and (
             OutputKind.ANGULAR_DISTRIBUTION in slices
             or OutputKind.COLLIMATED_SPECTRUM in slices
@@ -364,6 +411,18 @@ class Collision:
             s = values[Axis.ENERGY] / (4.0 * photon_energy)
             dN_ds = self.spectrum(s)
             return PhasespaceSlice(axes=values, distr=dN_ds / (4.0 * photon_energy))
+
+        if kind in (OutputKind.TEMPORAL_ENVELOPE, OutputKind.SPATIAL_DISTRIBUTION):
+            diagnostics = self.build_overlap().diagnostics
+            if kind is OutputKind.TEMPORAL_ENVELOPE:
+                edges = {Axis.TIME: diagnostics.t_edges}
+                density = diagnostics.time_envelope
+            else:
+                edges = dict(zip((Axis.X, Axis.Y), diagnostics.spatial_edges))
+                density = diagnostics.spatial_envelope
+            return PhasespaceSlice(
+                axes={axis: 0.5 * (edge[:-1] + edge[1:]) for axis, edge in edges.items()},
+                widths={axis: np.diff(edge) for axis, edge in edges.items()}, distr=density)
 
         if kind is OutputKind.ANGULAR_DISTRIBUTION:
             values = slice_axis_values(request, ranges)

@@ -179,6 +179,37 @@ plt.tight_layout()
 plt.show()
 
 # %% [markdown]
+# ### Temporal and spatial emission-source diagnostics
+# Stage 0 bins its angle/energy-integrated overlap contributions in laboratory emission
+# time and source position. These are not arrival-time profiles at a detector. Resolution
+# belongs to `OutputRequest`; histogram widths make even a one-bin output integrable.
+# A new diagnostic grid needs a new Stage-0 integration. Repeating it reuses the samples.
+# A finite spatial window may omit photons: its density is never rescaled to hide that loss.
+
+# %%
+from gammaforge.io.results import Axis
+
+source_requests = (
+    OutputRequest(OutputKind.TOTAL_YIELD),
+    OutputRequest(OutputKind.TEMPORAL_ENVELOPE, (64,)),
+    OutputRequest(OutputKind.SPATIAL_DISTRIBUTION, (32, 24)),
+)
+source_results = collision.run(source_requests)
+time_profile = source_results.photon_slices[OutputKind.TEMPORAL_ENVELOPE]
+source_profile = source_results.photon_slices[OutputKind.SPATIAL_DISTRIBUTION]
+source_yield = source_results.photon_slices[OutputKind.TOTAL_YIELD].integrate()
+assert np.isclose(time_profile.integrate(), source_yield, rtol=1e-12)
+print("Captured/outside photon fractions:", source_results.model_specific["stage0_diagnostics"])
+fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+axes[0].plot(time_profile.axes[Axis.TIME] * 1e15, time_profile.distr * 1e-15)
+axes[0].set(xlabel="Emission time [fs]", ylabel="Photons / fs")
+axes[1].pcolormesh(source_profile.axes[Axis.X] * 1e4, source_profile.axes[Axis.Y] * 1e4,
+                   source_profile.distr.T * 1e-8, shading="nearest")
+axes[1].set(xlabel="Source x [µm]", ylabel="Source y [µm]", title="Photons / µm²")
+plt.tight_layout()
+plt.show()
+
+# %% [markdown]
 # ## 4. Live Comparison: XigmaEngine vs AnalyticalEngine
 # 
 # Now let's run both engines on the exact same interaction and compare their execution times,
