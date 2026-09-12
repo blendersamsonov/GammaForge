@@ -643,7 +643,16 @@ def calculate_angular_spectrum_gpu(
     dx = float((table.theta_x_edges[-1] - table.theta_x_edges[0]) / 2)
     dy = float((table.theta_y_edges[-1] - table.theta_y_edges[0]) / 2)
 
-    H_gpu = cp.asarray(table.H, dtype=CP_FLOAT)
+    # Scale table.H to avoid float32 overflow (max ~3.4e38). The density values can
+    # exceed this due to small bin volumes. We scale by the max value and
+    # compensate in the output. Compute scale in float64 to avoid overflow.
+    H_max = float(table.H.max())
+    if H_max > 0:
+        scale = float(1.0) / H_max
+    else:
+        scale = 1.0
+
+    H_gpu = cp.asarray(table.H * scale, dtype=CP_FLOAT)
     H_marginal_gpu = (H_gpu * ahat_widths[None, None, None, :]).sum(axis=(0, 3))
     # A coarse zero must not exclude nonzero interpolated target density between cells.
     H_marginal_gpu += CP_FLOAT(PROPOSAL_FLOOR_FRACTION) * H_marginal_gpu.max()
@@ -680,7 +689,7 @@ def calculate_angular_spectrum_gpu(
     )
     cp.cuda.Stream.null.synchronize()
 
-    out = (KERNEL_NORMALIZATION_CONSTANT * spec).reshape((tx.size, ty.size, s_arr.size)).get()
+    out = (KERNEL_NORMALIZATION_CONSTANT * spec / scale).reshape((tx.size, ty.size, s_arr.size)).get()
     if not np.all(np.isfinite(out)):
         raise RuntimeError(
             "calculate_angular_spectrum_gpu produced non-finite samples; use backend='numpy' "

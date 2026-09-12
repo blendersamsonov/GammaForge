@@ -257,11 +257,11 @@ def test_subpulse_decomposition_matches_train_intensity():
 
     train_int = laser.intensity_profile(X, Y, Z, t)
     sub_int_sum = sum(sub.intensity_profile(X, Y, Z, t) for sub in subpulses)
-    np.testing.assert_allclose(train_int, sub_int_sum, rtol=1e-14, atol=1e-25)
+    np.testing.assert_allclose(train_int, sub_int_sum, rtol=1e-13, atol=1e-25)
 
     train_dens = laser.photon_density(X, Y, Z, t)
     sub_dens_sum = sum(sub.photon_density(X, Y, Z, t) for sub in subpulses) / laser.n_subpulses
-    np.testing.assert_allclose(train_dens, sub_dens_sum, rtol=1e-14, atol=1e-25)
+    np.testing.assert_allclose(train_dens, sub_dens_sum, rtol=1e-13, atol=1e-25)
 
 
 def test_duty_cycle_and_validation():

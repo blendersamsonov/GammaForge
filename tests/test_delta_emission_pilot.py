@@ -48,13 +48,17 @@ def test_pilot_converts_energy_once_and_reuses_samples(pilot, monkeypatch, sourc
 
     monkeypatch.setattr(pilot, 'emission_lines', lines)
 
-    def spectrum(table, tx, ty, s, **geometry):
-        assert geometry == dict(theta_xz=.3, theta_yz=-.2, ellipticity=.4, psi_pol=.37)
+    def spectrum(table, theta_x_grid, theta_y_grid, s, **kwargs):
+        # angular_spectrum_from_table is called with grids of shape (1,) for tx, ty
+        tx = float(theta_x_grid[0])
+        ty = float(theta_y_grid[0])
+        assert kwargs == dict(psi_pol=.37, ellipticity=.4, theta_xz=.3, theta_yz=-.2, backend='numpy', rings=32, subsampling=32)
         np.testing.assert_allclose(s, [1., 2.], rtol=1e-14)
         seen.append((tx, ty))
-        return np.array([3., 5.])
+        # Return shape (len(theta_x_grid), len(theta_y_grid), len(s)) = (1, 1, 2)
+        return np.array([[[3., 5.]]])
 
-    monkeypatch.setattr(pilot, 'spectrum_from_table', spectrum)
+    monkeypatch.setattr(pilot, 'angular_spectrum_from_table', spectrum)
 
     def compare(density, edges, energies, weights, **kwargs):
         np.testing.assert_allclose(density(expected_scale * np.array([1., 2.])),

@@ -570,7 +570,10 @@ class SeparableParaxialLaser:
 
     # -- photon density (separable) -----------------------------------------
     def photon_density(self, x, y, z, t):
-        """Photon density = transverse(xi1,xi2,u) × temporal(phase_time)."""
+        """Photon density = transverse(xi1,xi2,u) × temporal(phase_time).
+
+        Normalized to integrate to 1 over all space at fixed time.
+        """
         xi1, xi2, u, u_spot, ct = self._local_coordinates(x, y, z, t)
         xp = _get_array_module(xi1, xi2, u, u_spot, ct)
 
@@ -580,9 +583,11 @@ class SeparableParaxialLaser:
             -0.5 * ((xi1 / s1) ** 2 + (xi2 / s2) ** 2)
         )
 
-        # Temporal envelope in phase time (convert from 1/s to 1/cm)
+        # Temporal envelope in phase time (normalized to 1 over phase_time).
+        # The Jacobian du/d(phase_time) = C_CGS, so we divide by C_CGS to
+        # normalize the integral over u to 1.
         phase_time = self._phase_time(xi1, xi2, u, u_spot, ct, xp)
-        temporal = self.temporal_envelope.envelope(phase_time, xp) * C_CGS
+        temporal = self.temporal_envelope.envelope(phase_time, xp) / C_CGS
 
         return transverse * temporal
 
@@ -854,7 +859,10 @@ class PulseTrainParaxialLaser(SeparableParaxialLaser):
         return xi1, xi2, u, u + self.beta_ff * ct, ct
 
     def photon_density(self, x, y, z, t):
-        """Photon density = transverse(xi1,xi2,u) × temporal(phase_time)."""
+        """Photon density = transverse(xi1,xi2,u) × temporal(phase_time).
+
+        Normalized to integrate to 1 over all space at fixed time.
+        """
         xi1, xi2, u, u_spot, ct = self._local_coordinates(x, y, z, t)
         xp = _get_array_module(xi1, xi2, u, u_spot, ct)
 
@@ -864,9 +872,11 @@ class PulseTrainParaxialLaser(SeparableParaxialLaser):
             -0.5 * ((xi1 / s1) ** 2 + (xi2 / s2) ** 2)
         )
 
-        # Temporal envelope in phase time (convert from 1/s to 1/cm)
+        # Temporal envelope in phase time (normalized to 1 over phase_time).
+        # The Jacobian du/d(phase_time) = C_CGS, so we divide by C_CGS to
+        # normalize the integral over u to 1.
         phase_time = self._phase_time(xi1, xi2, u, u_spot, ct, xp)
-        temporal = self.temporal_envelope.envelope(phase_time, xp) * C_CGS
+        temporal = self.temporal_envelope.envelope(phase_time, xp) / C_CGS
 
         return transverse * temporal
 

@@ -344,14 +344,11 @@ def test_stage_0_agrees_with_the_predecessors_total_yield():
         assert computed == pytest.approx(golden, rel=5e-3), name
 
 
-def test_an_unbuilt_backend_says_so_rather_than_running_on_the_host():
+def test_integrate_trajectories_validates_n_steps():
     interaction = scenarios.build(
         replace(scenarios.BASELINE,
                 sampling=replace(scenarios.BASELINE.sampling, n_particles=10))
     )
-    with pytest.raises(NotImplementedError, match="numpy-only until"):
-        integrate_trajectories(interaction.bunch, interaction.laser, interaction.N_e,
-                               backend="cupy")
     with pytest.raises(ValueError, match="n_steps"):
         integrate_trajectories(interaction.bunch, interaction.laser, interaction.N_e,
                                n_steps=0)
