@@ -186,6 +186,7 @@ def _define_kernel(capacity=32):
         params_Arr,
         H,
         H_marginal,
+        H_gamma_marginal,
         gamma_min,
         gamma_width,
         n_gamma,
@@ -220,6 +221,7 @@ def _define_kernel(capacity=32):
         nominal_inverse,
         doppler_lo,
         doppler_hi,
+        ahat_ref,
     ):
         thread_idx = jit.threadIdx.x
         out_idx = jit.blockIdx.x
@@ -370,6 +372,26 @@ def _define_kernel(capacity=32):
                         xi = min(CP_UINT(n_theta_x - 1), CP_UINT(cp.floor((x - theta_x_min) / theta_x_width)))
                         yj = min(CP_UINT(n_theta_y - 1), CP_UINT(cp.floor((y - theta_y_min) / theta_y_width)))
                         w = H_marginal[xi, yj]
+
+                    # Resonance-informed proposal with positive support at every node (RES080).
+                    h_g = CP_ZERO
+                    for node in jit.range(3):
+                        radius = max(CP_ZERO, r + (CP_FLOAT(node) - CP_ONE) * dr / CP_FLOAT(2))
+                        px = x0 + radius * cp.cos(phi)
+                        py = y0 + radius * cp.sin(phi)
+                        direction = (CP_ONE - (n0x * px + n0y * py + n0z) / cp.sqrt(CP_ONE + px*px + py*py)) * nominal_inverse
+                        inverse = direction / s - radius * radius
+                        marginal = CP_FLOAT(PROPOSAL_FLOOR_FRACTION)
+                        if inverse > CP_ZERO:
+                            root = cp.sqrt((CP_ONE + ahat_ref) / inverse)
+                            gf = (root - gamma_min) / gamma_width - CP_FLOAT(0.5)
+                            if gf >= CP_ZERO and gf <= CP_FLOAT(n_gamma - 1):
+                                gi = min(CP_INT(cp.floor(gf)), CP_INT(n_gamma - 2))
+                                fraction = gf - CP_FLOAT(gi)
+                                marginal = H_gamma_marginal[gi] * (CP_ONE - fraction) + H_gamma_marginal[gi + 1] * fraction
+                        coefficient = CP_FLOAT(4) if node == 1 else CP_ONE
+                        h_g += coefficient * marginal / CP_FLOAT(6)
+                    w *= h_g
 
                     dphi_cell = (phi_max - phi_min) / PHI_CELLS
                     cell_weights[sample_idx] = w * dphi_cell * r
@@ -685,6 +707,13 @@ def calculate_angular_spectrum_gpu(
     # A coarse zero must not exclude nonzero interpolated target density between cells.
     H_marginal_gpu += CP_FLOAT(PROPOSAL_FLOOR_FRACTION) * H_marginal_gpu.max()
 
+    # Normalize the energy marginal before multiplying proposal densities (RES080).
+    H_gamma_gpu = (H_gpu * ahat_widths[None, None, None, :]).sum(axis=(1, 2, 3))
+    H_gamma_gpu /= H_gamma_gpu.max()
+    H_gamma_gpu += CP_FLOAT(PROPOSAL_FLOOR_FRACTION)
+    ahat_marginal = (table.H * scale).sum(axis=(0, 1, 2)) * table.ahat_widths
+    ahat_ref = float(np.dot(table.ahat_centers, ahat_marginal) / ahat_marginal.sum())
+
     spec = cp.zeros((grid_x,), dtype=CP_FLOAT)
 
     kernel = _kernel if rings <= 32 else _kernel64
@@ -693,6 +722,7 @@ def calculate_angular_spectrum_gpu(
         params,
         H_gpu,
         H_marginal_gpu,
+        H_gamma_gpu,
         gamma_min,
         gamma_width,
         n_gamma,
@@ -718,6 +748,7 @@ def calculate_angular_spectrum_gpu(
         CP_FLOAT(1.0 / (1.0 - n0[2])),
         CP_FLOAT(doppler_lo),
         CP_FLOAT(doppler_hi),
+        CP_FLOAT(ahat_ref),
     )
     cp.cuda.Stream.null.synchronize()
 

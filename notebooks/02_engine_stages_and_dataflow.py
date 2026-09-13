@@ -163,6 +163,10 @@ print(f"  Polarization degree P = {stokes.P:.4f}, Angle chi = {stokes.chi:.4f} r
 # Exact finite-speed Doppler is retained as a separate diagnostic, not mixed into this
 # approximation. The table-free linear spectrum also shifts each particle's energy and
 # density by D; it still omits the nonlinear redshift (DER013, RES082).
+# CuPy allocates samples using angular and resonance-evaluated gamma marginals
+# (RES080). This changes sampling efficiency; the physical kernel stays the same.
+# A positive proposal floor preserves support when the representative intensity
+# misses an emitting population. Refine rings/subsampling for each new case.
 
 # %%
 from gammaforge.engines.xigma.stages import direction_doppler_factor, doppler_factor_per_particle
