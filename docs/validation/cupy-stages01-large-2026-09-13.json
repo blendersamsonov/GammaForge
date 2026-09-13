@@ -1,0 +1,121 @@
+{
+  "status": "passed",
+  "particles": 65536,
+  "n_steps": 64,
+  "cupy": "14.2.0",
+  "source_sha256_before": {
+    "/home/alexander/Work/Code/GammaForge/src/gammaforge/engines/xigma/stages.py": "44e350ac803017bd181011668782d4fee0f9fef6dd50ab92a2e61ea7352f2f05",
+    "/home/alexander/Work/Code/GammaForge/src/gammaforge/io/laser.py": "f2c3e9654dac3aeb62cd9ea0b3a08dc21e812648c515553d83f0e06d9e6dea6f",
+    "/home/alexander/Work/Code/GammaForge/src/gammaforge/engines/xigma/collision.py": "9d0a2d07fd46b9ccdf05cbfa8c6e0fe20aa8e5ca897c94f34222d7f1744dff70"
+  },
+  "source_sha256_after": {
+    "/home/alexander/Work/Code/GammaForge/src/gammaforge/engines/xigma/stages.py": "44e350ac803017bd181011668782d4fee0f9fef6dd50ab92a2e61ea7352f2f05",
+    "/home/alexander/Work/Code/GammaForge/src/gammaforge/io/laser.py": "f2c3e9654dac3aeb62cd9ea0b3a08dc21e812648c515553d83f0e06d9e6dea6f",
+    "/home/alexander/Work/Code/GammaForge/src/gammaforge/engines/xigma/collision.py": "9d0a2d07fd46b9ccdf05cbfa8c6e0fe20aa8e5ca897c94f34222d7f1744dff70"
+  },
+  "records": [
+    {
+      "scenario": "baseline",
+      "stage0_errors": {
+        "luminosity_l1": 7.094499229961548e-17,
+        "a0_shape_l1": 1.2391597973971222e-16
+      },
+      "stage0_seconds": {
+        "numpy": 1.4987766090780497,
+        "cupy": 0.06286304199602455
+      },
+      "stage1": [
+        {
+          "scheme": "nearest",
+          "density_l1": 3.4717199877117817e-17,
+          "seconds": {
+            "numpy": 0.0052224439568817616,
+            "cupy": 0.005776172038167715
+          },
+          "mass_relative_error": 2.220446049250313e-16,
+          "host_output": true
+        },
+        {
+          "scheme": "cic",
+          "density_l1": 2.5598558307194723e-17,
+          "seconds": {
+            "numpy": 0.04900600900873542,
+            "cupy": 0.014529000967741013
+          },
+          "mass_relative_error": 2.220446049250313e-16,
+          "host_output": true
+        }
+      ],
+      "pass": true
+    },
+    {
+      "scenario": "low_a0",
+      "stage0_errors": {
+        "luminosity_l1": 7.161187947033882e-17,
+        "a0_shape_l1": 1.2518398924523723e-16
+      },
+      "stage0_seconds": {
+        "numpy": 1.667101540020667,
+        "cupy": 0.051464544027112424
+      },
+      "stage1": [
+        {
+          "scheme": "nearest",
+          "density_l1": 3.242368779240187e-17,
+          "seconds": {
+            "numpy": 0.005666911951266229,
+            "cupy": 0.004893776960670948
+          },
+          "mass_relative_error": 1.1102230246251565e-16,
+          "host_output": true
+        },
+        {
+          "scheme": "cic",
+          "density_l1": 2.613860076380318e-17,
+          "seconds": {
+            "numpy": 0.048583003925159574,
+            "cupy": 0.01716453698463738
+          },
+          "mass_relative_error": 1.1102230246251565e-16,
+          "host_output": true
+        }
+      ],
+      "pass": true
+    },
+    {
+      "scenario": "near_a0_max",
+      "stage0_errors": {
+        "luminosity_l1": 6.99812217625891e-17,
+        "a0_shape_l1": 1.2549360498567247e-16
+      },
+      "stage0_seconds": {
+        "numpy": 1.4673965700203553,
+        "cupy": 0.04936623608227819
+      },
+      "stage1": [
+        {
+          "scheme": "nearest",
+          "density_l1": 3.223739988589512e-17,
+          "seconds": {
+            "numpy": 0.0038181650452315807,
+            "cupy": 0.003696018015034497
+          },
+          "mass_relative_error": 2.220446049250313e-16,
+          "host_output": true
+        },
+        {
+          "scheme": "cic",
+          "density_l1": 2.5173301889725985e-17,
+          "seconds": {
+            "numpy": 0.03979282395448536,
+            "cupy": 0.015021202969364822
+          },
+          "mass_relative_error": 2.220446049250313e-16,
+          "host_output": true
+        }
+      ],
+      "pass": true
+    }
+  ],
+  "timing_scope": "One warm wall-time measurement including host geometry and transfers; not a universal speedup claim."
+}

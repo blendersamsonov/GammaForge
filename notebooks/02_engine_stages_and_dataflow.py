@@ -141,6 +141,12 @@ from gammaforge.engines.xigma.collision import Collision
 # Instantiate a Collision object
 collision = Collision(interaction=interaction, params=xigma.schema)
 
+# The schema backend selects Stage 0/1 as well as Stage 2 (RES083).
+# Use xigma.schema.with_values(backend="numpy") for CPU-only execution, or "auto"
+# for CUDA/CPU selection. Geometry windows and public stage arrays stay on the host;
+# trajectory evaluation, source histograms and nearest/CIC deposition run on CUDA
+# when selected. Completed particle chunks return to NumPy before caching/retrying.
+#
 # 1. Run Stage 0: Trajectory integration
 t0 = time.perf_counter()
 samples = collision.build_overlap()

@@ -1,6 +1,6 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.35 — 2026-09-12
+**Status:** draft v0.36 — 2026-09-13
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 
@@ -481,18 +481,21 @@ class Engine(Protocol):
 
 ### 4.2 xigma engine (`engines/xigma/`) — first-class
 
-**Script alpha update (RES062, RES069):** Stage 0/1 remain NumPy. Stage 2 dispatches
-angular queries with uniform incident linear/elliptical/circular polarization and
-the existing two-plane crossing geometry to CuPy when selected and CUDA is available.
-NumPy is the alpha default; CuPy remains experimental. Numerical sampling defects
-are repaired (RES068), and direct polarization/refined-input density gates cover the
-extension (RES069; `docs/ALPHA_GPU_VALIDATION.md`). Broader convergence coverage
-remains open. Explicit CuPy requests without CUDA raise; auto falls back to NumPy.
-The alpha exception to the v0.18 target
-below keeps deterministic CPU quadrature in production until a validated CPU sampler
-exists. Numerical kernel comparison does not close independent emission validation.
-`Collision` fixes its public inputs at construction (RES064); cached intermediates
-are per-instance, with no new cross-run cache.
+**Current execution (v0.36, RES080–RES083):** the xigma schema selects CuPy by
+default; explicit NumPy and automatic CUDA/CPU selection remain available. The
+selection applies to Stage-0 trajectory/intensity evaluation and diagnostics, Stage-1
+nearest/CIC deposition, and Stage-2 angular sampling. Stage-0 geometry windows and
+Stage-1 edge construction remain on the host. Public stage arrays, caches and Results
+remain NumPy; each particle chunk transfers its completed result back before device
+memory is released. Both particle stages use the shared OOM-retry utility, without
+committing failed partial deposits. Retargeting remains NumPy. Explicit CuPy without
+CUDA raises; auto selects an available backend once for a Collision's Stage 0/1 caches.
+Result metadata reports the selected stage backends. No new physics or unit conversion
+is introduced. Numba remains gated; broader independent emission validation remains open.
+
+The dated extension/promotion contracts below record the earlier NumPy-default stage
+of development; the current execution contract above supersedes their default/gating
+statements. CPU quadrature remains supported alongside the validated CuPy sampler.
 
 **Extension contract (v0.31, RES069):** CuPy follows the existing NumPy
 incident-polarization and crossing-angle contract (DER004–DER006, RES060), retaining
@@ -1057,6 +1060,9 @@ duplicated (C4).
 ---
 
 ## Changelog
+
+- **v0.36**: Wire explicit Stage-0/1 backend selection and particle-chunk device work,
+  preserving NumPy stage boundaries, cache ownership, and retry-safe deposition (RES083).
 
 - **v0.35**: Extend xigma's Doppler direction factor consistently through overlap flux,
   tabulated resonance/Jacobian, GPU support and the table-free linear spectrum, retaining

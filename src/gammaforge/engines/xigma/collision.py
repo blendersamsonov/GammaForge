@@ -35,6 +35,7 @@ from .stages import (
     bunch_stokes_parameters,
     deposit_shape_table,
     direction_doppler_factor,
+    _check_backend,
     integrate_trajectories,
     retarget_ahat,
     stage2_backend,
@@ -82,6 +83,7 @@ class Collision:
     params: Parameters
 
     _samples: TrajectorySamples | None = field(default=None, init=False, repr=False)
+    _overlap_backend: str | None = field(default=None, init=False, repr=False)
     _shape_table: ShapeTable | None = field(default=None, init=False, repr=False)
     _tables: dict[float, Table] = field(default_factory=dict, init=False, repr=False)
 
@@ -97,11 +99,13 @@ class Collision:
             len(spatial_edges) != 2 or diagnostics is None or diagnostics.spatial_edges is None
             or any(not np.array_equal(a, b) for a, b in zip(spatial_edges, diagnostics.spatial_edges)))
         if self._samples is None or needs_time or needs_space:
+            backend = self._overlap_backend or _check_backend(self.params.get_choice("backend"))
             samples = integrate_trajectories(
                 self.interaction.bunch,
                 self.interaction.laser,
                 self.interaction.N_e,
                 n_steps=self.params.get_int("n_steps"),
+                backend=backend,
                 threshold=self.params.get_float("threshold"),
                 t_edges=t_edges,
                 spatial_edges=spatial_edges,
@@ -116,6 +120,7 @@ class Collision:
                     if values is not None:
                         values.setflags(write=False)
             object.__setattr__(self, "_samples", samples)
+            object.__setattr__(self, "_overlap_backend", backend)
         return self._samples
 
     def _shape(self) -> ShapeTable:
@@ -131,6 +136,7 @@ class Collision:
                     self.params.get_int("n_bins_a0_shape"),
                 ),
                 scheme=self.params.get_choice("scheme"),
+                backend=self._overlap_backend,
             ))
         return self._shape_table
 
@@ -353,6 +359,9 @@ class Collision:
             "warnings": warnings,
             "doppler": {"convention": "direction", "beta": 1.0},
         }
+        model_specific["stage0_backend"] = self._overlap_backend
+        if self._shape_table is not None:
+            model_specific["stage1_backend"] = self._overlap_backend
         captured = {}
         total = self.build_overlap().total_yield()
         for kind in (OutputKind.TEMPORAL_ENVELOPE, OutputKind.SPATIAL_DISTRIBUTION):

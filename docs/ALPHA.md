@@ -151,6 +151,13 @@ shift while retaining its linear-shape approximation. See the
 [direction-Doppler validation record](validation/direction-doppler-2026-09-12.md)
 for checked configurations and the remaining scientific-acceptance scope.
 
+The backend setting also controls Stage-0 trajectory/intensity evaluation and source
+histograms, and Stage-1 nearest/CIC deposition (RES083). These stages transfer particle
+chunks to CUDA and return NumPy arrays for caching, retargeting and persistence.
+Geometry windows and bin-edge construction remain on the CPU. Result metadata records
+`stage0_backend` and, when deposition runs, `stage1_backend`. Explicit CuPy requires
+CUDA even for total-yield-only runs; choose NumPy or auto on CPU-only machines.
+
 The historical `ahat_decades=1.0` default remains unchanged; the tracked roughly 1%
 centroid-grid bias is still an author decision. The validation tier uses an explicit
 0.3 override. Treat table-grid refinement as part of any new angular-spectrum study.

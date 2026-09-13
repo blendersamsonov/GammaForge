@@ -163,10 +163,9 @@ deliberately carries only what does not change between phases:
 - Most module files named in `GRAND_PLAN.md` are **deliberately absent** until their phase
   lands (RES003 in `docs/decisions/`). Check before assuming one exists; the knowledge graph
   (`graphify query`) answers this faster than grep.
-- Stage 0/1 use **numpy**. Stage 2 has a **cupy** ring/annulus sampler for head-on
-  linear-polarization angular queries, currently experimental due to numerical
-  disagreement; NumPy quadrature remains the alpha default (RES062).
-  `numba` remains gated. See `docs/ALPHA.md` for the supported release scope.
+- Backend support and defaults are documented in `docs/ALPHA.md` and `PROGRESS.md`.
+  Stage 0/1 device execution retains NumPy public stage boundaries (RES083).
+  `numba` remains gated; numerical backend agreement does not close independent physics validation.
 - **§9.2 and §9.3 emission kernel factors are implemented** (DER004, DER005, DER006, RES060),
   and `ELLIPTICITY_IS_NOOP` and `EMISSION_IS_HEAD_ON` are `False`. The lab-frame per-particle
   velocity projection is author-approved (RES060) and formula-checked against Eq. `udef`.

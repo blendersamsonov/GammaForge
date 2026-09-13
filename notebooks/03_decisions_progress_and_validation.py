@@ -158,6 +158,10 @@ search_knowledge_base("cupy")
 # Its historical nominal and exact finite-speed modes remain diagnostics. DER013 is
 # author-verified (2026-09-13); broader independent arbitrary-angle acceptance remains open.
 # 
+# The Stage-0/1 CUDA agreement gate is `scripts/validate_cupy_stages01.py` (RES083).
+# It iterates the shared scenario bank and reports agreement separately from warm
+# timing; direct device tests additionally observe CuPy arrays inside both stages.
+#
 # Validation in GammaForge lives in `gammaforge.validation`:
 # - `gammaforge.validation.scenarios.SCENARIOS`: A curated bank of physical scenarios (`BASELINE`, `LOW_A0`, `NEAR_A0_MAX`).
 # - A `Scenario` contains **physics only**: beam, laser, target.

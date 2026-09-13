@@ -3,6 +3,8 @@
 Status: direction-Doppler consistency (RES082) and gamma-resonance proposal (RES080)
 implemented, with CuPy selected by schema default — 2026-09-13. See the [renewed validation record](validation/direction-doppler-2026-09-12.md).
 Independent arbitrary-angle scientific acceptance remains open.
+Stage 0/1 now execute on the selected device with host stage boundaries (RES083);
+see the [execution and timing record](validation/cupy-stages01-2026-09-13.md).
 The [gamma-proposal integration record](validation/gamma-proposal-2026-09-13.md)
 compares RES080 sampling efficiency and documents its limits. Backend-default and
 physics descriptions in the dated measurements below refer to their original versions.

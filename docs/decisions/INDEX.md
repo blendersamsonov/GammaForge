@@ -88,3 +88,4 @@ cross-checks this table against the files on disk.
 | RES080 | Gamma-resonance importance proposal | feature | implemented | implemented/feature/RES080-xigma-gamma-resonance-importance-proposal.md |
 | RES081 | Xigma temporal and spatial source diagnostics | feature | implemented | implemented/feature/RES081-xigma-source-diagnostics.md |
 | RES082 | Consistent per-electron direction Doppler in xigma | bug-fix | implemented | implemented/bug-fix/RES082-consistent-direction-doppler.md |
+| RES083 | Explicit CuPy execution for xigma Stages 0 and 1 | bug-fix | implemented | implemented/bug-fix/RES083-explicit-cupy-stage01-execution.md |

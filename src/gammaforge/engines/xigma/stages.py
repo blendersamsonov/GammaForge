@@ -864,6 +864,11 @@ def integrate_trajectories(
     Optional ``t_edges`` (seconds) and ``spatial_edges`` (x/y, cm) request overlap
     histograms on fixed grids shared by every chunk. Bin-average densities are returned
     in ``diagnostics``; photons outside those grids are not redistributed.
+
+    ``backend`` selects NumPy, CuPy, or automatic CUDA/CPU selection. Geometry windows
+    stay on the host; trajectory/intensity evaluation and histogram reduction execute
+    on the selected device. Each chunk returns host arrays before releasing device memory
+    (RES083).
     """
     if n_steps < 1:
         raise ValueError(f"integrate_trajectories: n_steps must be >= 1, got {n_steps}")
@@ -871,15 +876,14 @@ def integrate_trajectories(
         raise ValueError(
             f"integrate_trajectories: window must be 'active_region' or 'illumination', got {window!r}"
         )
-    _check_backend(backend)
-
-    # Determine array module from bunch arrays (supports both numpy and cupy)
-    xp = _get_array_module(bunch.x, bunch.y, bunch.z, bunch.thx, bunch.thy, bunch.gamma, bunch.weight)
+    backend = _check_backend(backend)
+    xp = cp if backend == "cupy" else np
+    to_host = cp.asnumpy if backend == "cupy" else np.asarray
 
     def checked_edges(edges):
-        values = xp.array(edges, dtype=float, copy=True)
-        if (values.ndim != 1 or values.size < 2 or not bool(xp.all(xp.isfinite(values)))
-                or bool(xp.any(xp.diff(values) <= 0))):
+        values = np.array(edges, dtype=float, copy=True)
+        if (values.ndim != 1 or values.size < 2 or not bool(np.all(np.isfinite(values)))
+                or bool(np.any(np.diff(values) <= 0))):
             raise ValueError("diagnostic edges must be finite, strictly increasing 1D arrays")
         return values
 
@@ -893,7 +897,7 @@ def integrate_trajectories(
         t0, t1 = illumination_window(bunch, laser, threshold)
     else:
         t0, t1 = overlap_time_window(bunch, laser, threshold)
-    span = xp.maximum(0.0, t1 - t0)
+    span = np.maximum(0.0, t1 - t0)
     # A particle that never enters the pulse gets an empty window, which
     # `overlap_time_window` reports as t0 = +inf, t1 = -inf. Its span is zero and it
     # contributes nothing — but `inf + 0 * 0` is still `inf`, and a trajectory evaluated
@@ -901,7 +905,7 @@ def integrate_trajectories(
     # empty windows are anchored at a finite time, and the zero span does the rest.
     # (With the prefilter on such particles are already gone; with it off they are not,
     # which is how the §7 prefilter-invariance property found this.)
-    start = xp.where(span > 0.0, t0, 0.0)
+    start = np.where(span > 0.0, t0, 0.0)
     # Midpoint rule: no sample sits on the window edge, where the integrand is smallest and
     # the window definition is least meaningful.
     offsets = (xp.arange(n_steps) + 0.5) / n_steps
@@ -916,7 +920,7 @@ def integrate_trajectories(
     # a prefiltered run and a full run identical (§3.2).
     weight = n_electrons * bunch.weight
 
-    norm = xp.sqrt(1.0 + bunch.thx**2 + bunch.thy**2)
+    norm = np.sqrt(1.0 + bunch.thx**2 + bunch.thy**2)
     velocity = (C_CGS * bunch.thx / norm, C_CGS * bunch.thy / norm, C_CGS / norm)
     if hasattr(laser, "focusing_axes"):
         k_hat, _, _ = laser.focusing_axes()
@@ -931,21 +935,21 @@ def integrate_trajectories(
 
     def integrate(first_index: int, last_index: int):
         sl = slice(first_index, last_index)
-        times = start[sl, None] + offsets[None, :] * span[sl, None]
+        local_span = xp.asarray(span[sl])
+        local_rate = xp.asarray(rate[sl])
+        local_weight = xp.asarray(weight[sl])
+        times = xp.asarray(start[sl, None]) + offsets[None, :] * local_span[:, None]
+        positions = tuple(xp.asarray(position[sl, None]) + xp.asarray(speed[sl, None]) * times
+                          for position, speed in zip((bunch.x, bunch.y, bunch.z), velocity))
         # `<a^2>`, not `a0`: everything below is a functional of the cycle-averaged
         # intensity, polarization-agnostic at fixed pulse energy (RES054). Do not form `a0`
         # and square it here — that's where RES053's missing factor of two hid.
-        intensity = laser.intensity_profile(
-            bunch.x[sl, None] + velocity[0][sl, None] * times,
-            bunch.y[sl, None] + velocity[1][sl, None] * times,
-            bunch.z[sl, None] + velocity[2][sl, None] * times,
-            times,
-        )
+        intensity = xp.asarray(laser.intensity_profile(*positions, times))
         # The photon density an electron flies through, and the rate it scatters at.
         # In CGS this is simply flux x cross-section x time; the predecessor's k0**2 was
         # the Jacobian of its coordinate normalization and has no counterpart here (RES015).
-        dt = span[sl] / n_steps
-        luminosity = rate[sl] * weight[sl] * dt * xp.sum(intensity, axis=1)
+        dt = local_span / n_steps
+        luminosity = local_rate * local_weight * dt * xp.sum(intensity, axis=1)
 
         # `ratio` is the local intensity as a fraction of the pulse's peak. a0_shape is its
         # second moment over the trajectory, normalized by its first: the intensity an
@@ -961,20 +965,20 @@ def integrate_trajectories(
         )
         time_mass = spatial_mass = None
         if t_edges is not None or spatial_edges is not None:
-            contribution = rate[sl, None] * weight[sl, None] * dt[:, None] * intensity
+            contribution = local_rate[:, None] * local_weight[:, None] * dt[:, None] * intensity
             if t_edges is not None:
                 # Direct bin sums avoid subtracting large cumulative masses in dim tails.
-                index = xp.searchsorted(t_edges, times.ravel(), side="right") - 1
+                index = xp.searchsorted(xp.asarray(t_edges), times.ravel(), side="right") - 1
                 index = xp.where(times.ravel() == t_edges[-1], t_edges.size - 2, index)
                 inside = (index >= 0) & (index < t_edges.size - 1)
                 time_mass = xp.bincount(index[inside], weights=contribution.ravel()[inside],
                                         minlength=t_edges.size - 1)
             if spatial_edges is not None:
-                x = bunch.x[sl, None] + velocity[0][sl, None] * times
-                y = bunch.y[sl, None] + velocity[1][sl, None] * times
-                spatial_mass = xp.histogram2d(x.ravel(), y.ravel(), bins=spatial_edges,
+                x, y = positions[:2]
+                spatial_mass = xp.histogram2d(x.ravel(), y.ravel(), bins=tuple(xp.asarray(edge) for edge in spatial_edges),
                                              weights=contribution.ravel())[0]
-        return luminosity, a0_shape, time_mass, spatial_mass
+        return tuple(None if value is None else to_host(value)
+                     for value in (luminosity, a0_shape, time_mass, spatial_mass))
 
     parts = run_in_chunks(
         bunch.n_particles,
@@ -993,23 +997,23 @@ def integrate_trajectories(
     # which would make the prefilter turn a zero yield into an exception — the opposite of
     # the pure optimization §3.2 promises.
     if parts:
-        luminosity = xp.concatenate([part[0] for part in parts])
-        a0_shape = xp.concatenate([part[1] for part in parts])
+        luminosity = np.concatenate([part[0] for part in parts])
+        a0_shape = np.concatenate([part[1] for part in parts])
     else:
-        luminosity = xp.zeros(0, dtype=xp.float64)
-        a0_shape = xp.zeros(0, dtype=xp.float64)
+        luminosity = np.zeros(0, dtype=np.float64)
+        a0_shape = np.zeros(0, dtype=np.float64)
 
     diagnostics = None
     if t_edges is not None or spatial_edges is not None:
         time_envelope = spatial_envelope = None
         if t_edges is not None:
-            mass = sum((part[2] for part in parts), xp.zeros(t_edges.size - 1))
-            time_envelope = mass / xp.diff(t_edges)
+            mass = sum((part[2] for part in parts), np.zeros(t_edges.size - 1))
+            time_envelope = mass / np.diff(t_edges)
         if spatial_edges is not None:
             x_edges, y_edges = spatial_edges
             mass = sum((part[3] for part in parts),
-                       xp.zeros((x_edges.size - 1, y_edges.size - 1)))
-            spatial_envelope = mass / (xp.diff(x_edges)[:, None] * xp.diff(y_edges)[None, :])
+                       np.zeros((x_edges.size - 1, y_edges.size - 1)))
+            spatial_envelope = mass / (np.diff(x_edges)[:, None] * np.diff(y_edges)[None, :])
         diagnostics = TrajectoryDiagnostics(t_edges, time_envelope, spatial_edges, spatial_envelope)
 
     return TrajectorySamples(
@@ -1187,7 +1191,7 @@ def _deposit_nearest(coords, weight, n_bins):
     xp = _get_array_module(*coords, weight)
     idx = [xp.clip(xp.floor(c).astype(xp.int64), 0, n - 1) for c, n in zip(coords, n_bins)]
     flat = xp.ravel_multi_index(idx, n_bins)
-    return xp.bincount(flat, weights=weight, minlength=int(xp.prod(n_bins))).reshape(n_bins)
+    return xp.bincount(flat, weights=weight, minlength=math.prod(n_bins)).reshape(n_bins)
 
 
 def _deposit_cic(coords, weight, n_bins):
@@ -1205,7 +1209,7 @@ def _deposit_cic(coords, weight, n_bins):
     low = [xp.floor(s).astype(xp.int64) for s in shifted]
     frac = [s - lo for s, lo in zip(shifted, low)]
 
-    flat_size = int(xp.prod(n_bins))
+    flat_size = math.prod(n_bins)
     H_flat = xp.zeros(flat_size, dtype=xp.float64)
     for corner in itertools.product((0, 1), repeat=n_axes):
         idx = []
@@ -1226,6 +1230,8 @@ def deposit_shape_table(
     n_bins: tuple[int, int, int, int] = DEFAULT_SHAPE_BINS,
     scheme: str = "nearest",
     margin: float = 0.02,
+    backend: str = "numpy",
+    chunk: int | None = None,
 ) -> ShapeTable:
     """Stage 1: bin Stage 0's per-particle samples into the 4D ``a0_shape`` table ``H``.
 
@@ -1238,11 +1244,17 @@ def deposit_shape_table(
     ``scheme`` is ``"nearest"`` (one cell per sample) or ``"cic"`` (cloud-in-cell, 16
     neighbours per sample) — both conserve total weight exactly; CIC trades a discretized
     ``H`` for a smoother one, at 16x the deposition cost.
+
+    ``backend`` selects deposition independently of the host input arrays. Particle
+    chunks share fixed host-derived edges; device deposits return host masses before
+    accumulation, retaining the NumPy ShapeTable contract (RES083).
     """
     if scheme not in ("nearest", "cic"):
         raise ValueError(f"deposit_shape_table: scheme must be 'nearest' or 'cic', got {scheme!r}")
 
-    xp = _get_array_module(samples.gamma, samples.theta_x, samples.theta_y, samples.a0_shape, samples.luminosity)
+    backend = _check_backend(backend)
+    xp = cp if backend == "cupy" else np
+    to_host = cp.asnumpy if backend == "cupy" else np.asarray
 
     gamma_edges = _uniform_edges(samples.gamma, n_bins[0], margin)
     theta_x_edges = _uniform_edges(samples.theta_x, n_bins[1], margin)
@@ -1250,16 +1262,23 @@ def deposit_shape_table(
     a0_shape_edges = _uniform_edges(samples.a0_shape, n_bins[3], margin, floor_zero=True)
     edges = (gamma_edges, theta_x_edges, theta_y_edges, a0_shape_edges)
 
-    coords = tuple(
-        _cell_fractions(values, e, n)
-        for values, e, n in zip(
-            (samples.gamma, samples.theta_x, samples.theta_y, samples.a0_shape), edges, n_bins
-        )
-    )
+    H_raw = np.zeros(n_bins, dtype=float)
     deposit = _deposit_nearest if scheme == "nearest" else _deposit_cic
-    H_raw = deposit(coords, samples.luminosity, n_bins)
 
-    bin_volume = float(xp.prod([e[-1] - e[0] for e in edges]) / xp.prod(n_bins))
+    def deposit_chunk(start, stop):
+        coords = tuple(_cell_fractions(xp.asarray(values[start:stop]), edge, n)
+                       for values, edge, n in zip(
+                           (samples.gamma, samples.theta_x, samples.theta_y, samples.a0_shape),
+                           edges, n_bins))
+        mass = to_host(deposit(coords, xp.asarray(samples.luminosity[start:stop]), n_bins))
+        # Commit only after device work/transfer succeeds, so an OOM retry cannot double-count.
+        H_raw[:] += mass
+
+    # Budget particle coordinates, CIC indices/fractions and corner temporaries;
+    # fixed table buffers must still fit at the smallest retry size.
+    run_in_chunks(samples.n_particles, deposit_chunk, chunk=chunk,
+                  bytes_per_item=256, backend=backend)
+    bin_volume = math.prod(float(e[-1] - e[0]) for e in edges) / math.prod(n_bins)
     return ShapeTable(
         gamma_edges=gamma_edges,
         theta_x_edges=theta_x_edges,
@@ -1685,16 +1704,15 @@ def spectrum_in_angular_range(
     return cube, dN_ds, n_photons
 
 
-def _check_backend(backend: str) -> None:
-    """Validate the backend for Stage 0/1.
-
-    Stage 0 and 1 now support both numpy and cupy backends. The laser's
-    intensity_profile method is array-module-agnostic (P15/§3.3), accepting
-    numpy or cupy arrays and returning arrays of the same module.
-    """
-    if backend not in ("numpy", "cupy"):
-        raise ValueError(
-            f"integrate_trajectories(backend={backend!r}): backend must be 'numpy' or 'cupy'"
-        )
-    if backend == "cupy" and not _HAS_CUPY:
-        raise RuntimeError("cupy backend requested but CuPy is not installed")
+def _check_backend(backend: str) -> str:
+    """Resolve Stage-0/1 execution explicitly; public stage arrays stay on the host."""
+    if backend not in ("numpy", "cupy", "auto"):
+        raise ValueError(f"backend must be 'numpy', 'cupy', or 'auto', got {backend!r}")
+    if backend == "numpy":
+        return backend
+    from .spectrum_sampler import is_gpu_available
+    if is_gpu_available():
+        return "cupy"
+    if backend == "cupy":
+        raise RuntimeError("CuPy or a CUDA device is not available for Stage 0/1")
+    return "numpy"

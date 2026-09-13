@@ -391,7 +391,7 @@ class PulseTrainTemporalEnvelope:
     def envelope(self, phase_time, xp):
         """Sum of Gaussian sub-pulses in phase time."""
         sigma_t = self.m("subpulse_duration")
-        delays = self.subpulse_delays()
+        delays = xp.asarray(self.subpulse_delays())
 
         # phase_time and delays broadcast: (..., n_subpulses)
         phase_time = xp.asarray(phase_time)
