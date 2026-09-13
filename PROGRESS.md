@@ -41,12 +41,6 @@ Ordered by who is blocked. Each names the file that carries the detail.
 
 ### Waiting on the author (physics)
 
-- **Review DER013's direction-Doppler derivation.** The adopted beta=1 extension now
-  applies each electron's direction consistently to Stage-0 encounter flux and both
-  backends' resonance/Jacobian (RES082). Independent mass/centroid and CUDA support
-  regressions pass. Author algebra review remains distinct from accepting the speed
-  approximation and from numerical agreement; DER013 remains `derived`.
-
 - **`ahat_decades`.** RES032's grid defaults were tuned against `ahat` values that RES053 later
   halved, so the bank now sits in the grid's coarse floor. Measured centroid bias ~1%,
   pre-existing rather than introduced; `decades = 1.0 -> 0.3` removes most of it. Pinned by
@@ -65,7 +59,7 @@ Ordered by who is blocked. Each names the file that carries the detail.
   for the baseline, low-a0 and near-a0-max bank cases, head-on and small crossed
   geometry, on/off axis. The 2026-09-12 packet passes provisional spectral/count
   budgets with converged energy-bin quadrature; it remains a pilot, not full acceptance.
-  Review DER013, extend the independent coverage and finish RES074's convergence and
+  Extend the independent coverage and finish RES074's convergence and
   acceptance requirements before closing Phase 3b. See
   `docs/validation/direction-doppler-2026-09-12.md` for scope and reproducible evidence.
 

@@ -66,3 +66,10 @@ can still differ by the finite-gamma correction intentionally omitted from produ
 Earlier numerical promotion records describe their original source versions; renewed
 CPU/GPU and matched-bin evidence is required. Independent scientific acceptance and
 author review of the extended derivation remain separate from numerical test success.
+
+## Author verification (2026-09-13)
+
+A. Samsonov explicitly confirmed DER013 as verified. Its status now combines author
+verification with the existing symbolic and numerical implementation checks. The
+author-review thread recorded above is closed; broader arbitrary-angle scientific
+acceptance remains open.

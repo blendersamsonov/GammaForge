@@ -82,3 +82,10 @@ the nominal-axis and finite-speed modes remain diagnostic alternatives. The orig
 proposal above records the boundary before that decision. Renewed numerical evidence
 is in `docs/validation/direction-doppler-2026-09-12.md`; it does not close this proposal's
 full scientific acceptance requirements.
+
+## Author verification (2026-09-13)
+
+A. Samsonov explicitly confirmed DER013 as verified. Its status now combines author
+verification with the existing symbolic and numerical implementation checks. The
+author-review thread recorded above is closed; broader arbitrary-angle scientific
+acceptance remains open.

@@ -1,6 +1,6 @@
 # DER013 — Direction-dependent Doppler reduction at ultra-relativistic speed
 
-Status: derived
+Status: verified
 
 ## Setup
 
@@ -64,5 +64,7 @@ of the near-backscattering approximation at those angles.
 
 The scenario-bank matched-bin packet and its scope are recorded in
 [the validation record](../../validation/direction-doppler-2026-09-12.md).
-Author review of the full derivation remains open; accepting the approximation and
-passing numerical checks are not an algebra review. Status therefore remains derived.
+Author verification: A. Samsonov explicitly confirmed DER013 as verified on
+2026-09-13. Together with the symbolic and numerical checks above, this completes
+the derivation confidence pipeline. Broader arbitrary-angle scientific acceptance
+remains a separate validation task (RES074).

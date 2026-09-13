@@ -155,8 +155,8 @@ search_knowledge_base("cupy")
 # %% [markdown]
 # ## 4. The Validation Scenario Bank in Action
 # The matched-bin delta pilot now explicitly uses the direction-Doppler mode (beta=1).
-# Its historical nominal and exact finite-speed modes remain diagnostics. Agreement of
-# shared-input numerical methods does not close the independent physics review (DER013).
+# Its historical nominal and exact finite-speed modes remain diagnostics. DER013 is
+# author-verified (2026-09-13); broader independent arbitrary-angle acceptance remains open.
 # 
 # Validation in GammaForge lives in `gammaforge.validation`:
 # - `gammaforge.validation.scenarios.SCENARIOS`: A curated bank of physical scenarios (`BASELINE`, `LOW_A0`, `NEAR_A0_MAX`).

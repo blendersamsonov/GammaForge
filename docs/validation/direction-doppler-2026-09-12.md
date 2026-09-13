@@ -2,8 +2,8 @@
 
 RES082 and DER013 apply beta=1 electron directions consistently to Stage-0 encounter
 flux and Stage-2 resonance, Jacobian and CUDA support. This record checks implementation
-and scoped numerical agreement. DER013 remains derived pending author algebra review;
-RES074's full arbitrary-angle scientific acceptance remains open.
+and scoped numerical agreement. Subsequent author verification on 2026-09-13 promoted
+DER013 to verified; RES074's full arbitrary-angle scientific acceptance remains open.
 
 ## Independent matched-bin pilot
 

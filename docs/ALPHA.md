@@ -149,7 +149,7 @@ Xigma uses each electron’s direction at beta=1 consistently in encounter flux,
 resonance and its Jacobian (RES082). The table-free spectrum also uses that energy
 shift while retaining its linear-shape approximation. See the
 [direction-Doppler validation record](validation/direction-doppler-2026-09-12.md)
-for checked configurations and the remaining derivation-review boundary.
+for checked configurations and the remaining scientific-acceptance scope.
 
 The historical `ahat_decades=1.0` default remains unchanged; the tracked roughly 1%
 centroid-grid bias is still an author decision. The validation tier uses an explicit
