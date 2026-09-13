@@ -89,3 +89,11 @@ A. Samsonov explicitly confirmed DER013 as verified. Its status now combines aut
 verification with the existing symbolic and numerical implementation checks. The
 author-review thread recorded above is closed; broader arbitrary-angle scientific
 acceptance remains open.
+
+## Production integration (2026-09-14)
+
+RES084 wires the independent fixed-direction matched-bin measurement into the
+production runner, with provisional agreement, energy-quadrature, angular-table
+and retarget refinement gates. Particle/seed, Stage-0, gamma/shape-grid,
+angular-aperture and independent CUDA convergence remain explicit coverage gaps.
+This proposal's complete scientific acceptance criteria remain open.

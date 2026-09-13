@@ -1,7 +1,5 @@
 """Fast orchestration checks; scientific acceptance is deliberately out of scope."""
-import importlib.util
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -14,11 +12,8 @@ pytestmark = pytest.mark.tier0
 
 @pytest.fixture
 def pilot():
-    path = Path(__file__).parents[1] / "scripts" / "validate_delta_emission.py"
-    spec = importlib.util.spec_from_file_location("delta_pilot_test", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    from gammaforge.validation import delta_validation
+    return delta_validation
 
 
 @pytest.mark.parametrize('source_changed', [False, True])

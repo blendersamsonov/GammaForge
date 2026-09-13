@@ -138,19 +138,19 @@ search_knowledge_base("cupy")
 # %% [markdown]
 # ## 3. Active Blockers & Known Gaps Deep Dive
 # 
-# In `PROGRESS.md`, three items are currently open:
-# 
-# 1. **CuPy / GPU Discrepancy (`RES062`, `DER008`, `docs/ALPHA_GPU_VALIDATION.md`)**:
-#    The CuPy ring/annulus importance sampler runs on GPU, but baseline test cubes give an
-#    integrated ratio of 1.419 against NumPy. NumPy quadrature remains the default for the alpha release.
-# 2. **Arbitrary-Angle Emission Validation (`RES060`, `DER005`, `DER006`)**:
-#    Lab-frame per-particle polarization projection is implemented, but independent arbitrary-angle
-#    multi-code benchmarks remain open.
-# 3. **Spatial Autoranging under Laser Displacement**:
-#    Laser offset sweeps require event-source coordinate tracing through displaced overlap.
-# 
-# This honesty-first culture is enforced by `validation.run --production`, which will purposefully
-# exit with a non-zero code if these blockers are bypassed without resolution.
+# Independent fixed-direction xigma/delta spectra now run through
+# `python -m gammaforge.validation.run --production` (RES084). The matrix covers
+# head-on linear, crossed elliptical and crossed circular polarization, on/off axis.
+# Counts, spectral L1 and centroid use matched finite energy bins without rescaling.
+# Energy quadrature, angular-table and retarget refinement have separate gates.
+# The 2026-09-14 packet passes all finest-grid comparisons but fails six low-a0
+# refinement checks; see `docs/validation/delta-production-2026-09-14.md`.
+#
+# These provisional numerical checks share Stage-0 samples and reduced assumptions.
+# Particle/seed, Stage-0, gamma/shape-grid, angular-aperture and independent CUDA
+# convergence remain open, as does four-method coverage. Production therefore exits
+# nonzero while these blockers remain, even when all numerical checks pass.
+# The alpha selector retains its restricted analytical/xigma checks and runtime.
 
 # %% [markdown]
 # ## 4. The Validation Scenario Bank in Action

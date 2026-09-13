@@ -134,6 +134,7 @@ _PRODUCTION_OUTPUTS = (
     ("spectrum", (96,)),
 )
 _PRODUCTION_XIGMA_PARAMS = {
+    "backend": "numpy",
     "n_steps": 64,
     "n_bins_gamma": 48,
     "n_bins_theta_x": 32,
@@ -180,9 +181,9 @@ def production_checks(scenarios: Sequence[Scenario]) -> tuple[list[Check], list[
     """Opt-in distribution checks over the shared bank's real engine implementations.
 
     Analytical and xigma agree only in their documented head-on, weakly nonlinear common
-    regime. Those yield and spectrum checks are gates. Angular checks are deliberately
-    absent: the histogram measure contract exists (RES061), but the independent angular
-    comparisons have not been wired. Kascade's Phase-5 four-method comparison is also open.
+    regime. Those yield and spectrum checks are gates. The production selector adds
+    independent fixed-direction delta comparisons separately (RES084), keeping the
+    restricted alpha selector at its existing cost and scope.
     """
     from ..engines.analytical.engine import AnalyticalEngine
     from ..engines.xigma.engine import XigmaEngine
@@ -191,11 +192,7 @@ def production_checks(scenarios: Sequence[Scenario]) -> tuple[list[Check], list[
     checks: list[Check] = []
     notes: list[str] = []
     blockers = [
-        "angular xigma/delta validation was not run: the histogram measure contract is "
-        "implemented (RES061), but the distribution comparison remains unwired",
         "kascade is not part of this tier: the independent four-method comparison remains unwired",
-        "arbitrary-angle emission is not independently validated: the approved per-particle "
-        "lab-frame polarization projection has only its direct Eq. udef implementation check",
     ]
     xigma = XigmaEngine()
     analytical = AnalyticalEngine()
@@ -370,6 +367,18 @@ def run_suite(
             "tier runs xigma and analytical over every scenario, with delta only as a "
             "shared-input Stage-2 angular reference. Kascade/four-method coverage remains open."
         )
+
+    if production:
+        from .delta_validation import production_checks as delta_checks
+
+        report.section("independent xigma/delta emission (provisional numerical gates)")
+        checks, notes, blockers = delta_checks(scenarios)
+        for check in checks:
+            report.check(check)
+        for note in notes:
+            report.note(note)
+        for blocker in blockers:
+            report.blocked(blocker)
 
     report.section("engines")
     if not engines:

@@ -89,3 +89,4 @@ cross-checks this table against the files on disk.
 | RES081 | Xigma temporal and spatial source diagnostics | feature | implemented | implemented/feature/RES081-xigma-source-diagnostics.md |
 | RES082 | Consistent per-electron direction Doppler in xigma | bug-fix | implemented | implemented/bug-fix/RES082-consistent-direction-doppler.md |
 | RES083 | Explicit CuPy execution for xigma Stages 0 and 1 | bug-fix | implemented | implemented/bug-fix/RES083-explicit-cupy-stage01-execution.md |
+| RES084 | Production delta emission gates | testing | implemented | implemented/testing/RES084-production-delta-emission-gates.md |

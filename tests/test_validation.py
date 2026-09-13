@@ -579,6 +579,8 @@ def test_main_rejects_an_unknown_validation_selector():
 
 
 def test_production_coverage_blockers_prevent_a_full_pass(monkeypatch, small_scenario):
+    from gammaforge.validation import delta_validation
+    monkeypatch.setattr(delta_validation, "production_checks", lambda scenarios: ([], [], []))
     monkeypatch.setattr(
         validation_run,
         "production_checks",

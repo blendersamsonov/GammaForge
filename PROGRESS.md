@@ -23,15 +23,17 @@ unfinished or waiting on someone*.
 | 4. analytical engine | 🟢 landed and merged to `main`; general overlap-integral yield, width breakdown, quadrature spectrum, flying focus, crossing angle for the yield. Open: collimated-spectrum construction |
 | 5. kascade port + delta full role | 🟡 minimal `KascadeEngine`, Thomson sanity anchor, and opt-in GUI integration landed (RES059); four-method validation wiring remains open |
 | 6. GUI | 🟡 NiceGUI local browser UI implemented (RES058, `docs/UI_SPEC.md`): Inputs/Results, split panes, schema forms, preview, worker execution, plots/exports. Cross-run xigma stage reuse remains open; no LAN executor yet. |
-| 7. Validation completion | 🟡 restricted headless alpha gate implemented; full independent angular/four-method coverage remains open |
+| 7. Validation completion | 🟡 restricted headless alpha gate implemented; independent fixed-direction delta gates wired (RES084); full angular/four-method coverage remains open |
 | 8. Polish | 🟡 script alpha 0.1.0a1: explicit-input example, figure/data, request/result persistence and installation guide; broader release work remains open |
 
 **Suite:** tiered with execution markers (`pytest -m fast` in ~20s, bare `pytest` in ~1.2m, `pytest --run-heavy` for full ~11m sweep; RES075); `python -m gammaforge.validation.run` passes its runnable
 core/identity/golden checks. `python -m gammaforge.validation.run --alpha` adds reduced
 analytical/xigma comparisons within the release scope (RES065).
 `python -m gammaforge.validation.run --production` runs the
-reduced xigma/analytical yield and spectral gates over the shared bank, then exits nonzero
-for its explicit angular, kascade, and arbitrary-angle-emission coverage blockers.
+reduced xigma/analytical gates plus independent xigma/delta matched-bin count, spectral-L1
+and centroid gates over the shared bank (RES084). It checks energy-quadrature, angular-table
+and retarget refinement, and exits nonzero for failed numerical checks or remaining
+sampling/integration, angular-aperture, independent CUDA and four-method coverage gaps.
 
 ---
 
@@ -57,11 +59,13 @@ Ordered by who is blocked. Each names the file that carries the detail.
 - **Complete independent arbitrary-angle scientific acceptance.** DER012/RES078's
   transverse-dipole model and RES082's direction Doppler now have matched-bin evidence
   for the baseline, low-a0 and near-a0-max bank cases, head-on and small crossed
-  geometry, on/off axis. The 2026-09-12 packet passes provisional spectral/count
-  budgets with converged energy-bin quadrature; it remains a pilot, not full acceptance.
-  Extend the independent coverage and finish RES074's convergence and
-  acceptance requirements before closing Phase 3b. See
-  `docs/validation/direction-doppler-2026-09-12.md` for scope and reproducible evidence.
+  geometry, on/off axis. The production runner now measures these plus crossed circular
+  polarization, with explicit agreement and refinement gates (RES084). All finest-grid
+  comparisons pass, but six low-a0 angular-table/retarget L1 refinement checks fail;
+  resolve these first. Evidence: `docs/validation/delta-production-2026-09-14.md`.
+  Finish particle/seed,
+  Stage-0, gamma/shape-grid, angular-aperture and independent CUDA convergence and RES074's
+  acceptance requirements before closing Phase 3b.
 
 - **Spatial autoranging under displacement.** The current Kascade reproduction captured its
   sampled photon weights inside the symmetric auto range for laser offsets through 120 µm;
@@ -75,8 +79,9 @@ Ordered by who is blocked. Each names the file that carries the detail.
   elegant-compatible final-electron export and future typing remain the format items
   in GRAND_PLAN.md §8/§10.8. Kascade is outside alpha support.
 - **Extend production coverage.** Reduced analytical/xigma yield and spectral comparisons
-  run through the alpha/production selectors. Independent angular distributions and
-  four-method comparisons remain unwired; the default command still runs only core,
+  run through the alpha/production selectors; production additionally checks independent
+  fixed-direction delta spectra. Angular-aperture distributions and four-method comparisons
+  remain unwired; the default command still runs only core,
   identity and scalar-golden checks.
 - **Cross-run xigma stage reuse.** The GUI uses the public `LocalRunner`, which enumerates
   available engines and reuses the sampled bunch, but xigma still creates one `Collision`

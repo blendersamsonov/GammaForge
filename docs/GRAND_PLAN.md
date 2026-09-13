@@ -1,6 +1,6 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.36 — 2026-09-13
+**Status:** draft v0.37 — 2026-09-14
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 
@@ -800,8 +800,11 @@ state. Plot projections and the geometry sketch remain available headlessly.
 The script-first alpha has a restricted validation selector covering Gaussian
 analytical/xigma total yields and their common head-on weak-field spectrum regime.
 It runs the existing numerical gates unchanged and explicitly lists out-of-scope
-coverage. Full production validation keeps independent angular-emission and
-four-method coverage as blockers. GUI and kascade are outside alpha support.
+coverage. Full production validation additionally runs independent xigma/delta
+matched-energy-bin checks at fixed observation directions, with explicit energy
+quadrature, angular-table and retarget-grid refinement gates (RES084). These use
+provisional numerical budgets and retain unmeasured particle/Stage-0, gamma/shape,
+angular-aperture and four-method coverage as blockers. GUI and kascade are outside alpha support.
 
 The experimental CuPy sampler and NumPy cell-center quadrature are different
 integration algorithms. Their finite-resolution mass/density/centroid comparisons
@@ -1060,6 +1063,10 @@ duplicated (C4).
 ---
 
 ## Changelog
+
+- **v0.37**: Wire the independent matched-bin delta measurement into the production
+  selector with provisional agreement and separate refinement gates. Keep the alpha
+  selector lightweight and retain explicit scientific-coverage blockers (RES084).
 
 - **v0.36**: Wire explicit Stage-0/1 backend selection and particle-chunk device work,
   preserving NumPy stage boundaries, cache ownership, and retry-safe deposition (RES083).
