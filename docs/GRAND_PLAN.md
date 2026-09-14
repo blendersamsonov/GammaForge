@@ -1,6 +1,6 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.37 — 2026-09-14
+**Status:** draft v0.38 — 2026-09-14
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 
@@ -642,6 +642,14 @@ Closed-form estimates, no per-particle Monte Carlo:
 
 ### 4.5 delta — validation reference (`validation/references/delta.py`)
 
+- The optional `validation/references/delta_cupy.py` accelerator follows the
+  independent physical-energy line/bin contract of `delta_emission.py`. Explicit
+  CUDA execution uses float64, bounded particle chunks and NumPy public inputs/outputs;
+  it never silently falls back to CPU. A separate fused emission kernel implements
+  the verified transverse-dipole and Doppler conventions (DER012, DER013), without
+  calling xigma's production polarization or resonance helpers. The extended-precision
+  CPU reference remains the correctness oracle. GPU numerical agreement does not close
+  independent Stage-0 or full arbitrary-angle scientific acceptance.
 - Brute-force per-macroparticle resonance binning reusing xigma's Stage 0.
 - Lives in the **validation suite**, not the engine registry, not the GUI model list.
   Its job: an independent first-principles check on xigma's Stage 2 — and the **arbiter
@@ -1064,6 +1072,9 @@ duplicated (C4).
 
 ## Changelog
 
+- **v0.38**: Specify the optional chunked CuPy delta reference, independently checked
+  against extended-precision emission lines. Preserve host array boundaries, explicit
+  CUDA failure and existing scientific-acceptance limits (§4.5).
 - **v0.37**: Wire the independent matched-bin delta measurement into the production
   selector with provisional agreement and separate refinement gates. Keep the alpha
   selector lightweight and retain explicit scientific-coverage blockers (RES084).

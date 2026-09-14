@@ -1,0 +1,1986 @@
+{
+  "status": "passed",
+  "scientific_acceptance": false,
+  "source_sha256_before": {
+    "src/gammaforge/engines/xigma/stages.py": "44e350ac803017bd181011668782d4fee0f9fef6dd50ab92a2e61ea7352f2f05",
+    "src/gammaforge/validation/scenarios.py": "caeaa4199bfd2b7e6ea830bca60c25de9156de0e00ed978a8bbc64937fabcdc3",
+    "src/gammaforge/validation/references/delta_cupy.py": "e62b186576691bea96be5bde95f07aee0d50dd3f3954d64f54e5ec37e8c18686",
+    "src/gammaforge/validation/references/delta_emission.py": "9eb03f788931e68536ded83507f0d4bb694856bb17fe54d834fa9fb3084fe922",
+    "scripts/validate_delta_cupy.py": "e1dac5fe7d7746afcc9b7a0a5b51004f574d70a0771a569710fe666880731d3c"
+  },
+  "source_sha256_after": {
+    "src/gammaforge/engines/xigma/stages.py": "44e350ac803017bd181011668782d4fee0f9fef6dd50ab92a2e61ea7352f2f05",
+    "src/gammaforge/validation/scenarios.py": "caeaa4199bfd2b7e6ea830bca60c25de9156de0e00ed978a8bbc64937fabcdc3",
+    "src/gammaforge/validation/references/delta_cupy.py": "e62b186576691bea96be5bde95f07aee0d50dd3f3954d64f54e5ec37e8c18686",
+    "src/gammaforge/validation/references/delta_emission.py": "9eb03f788931e68536ded83507f0d4bb694856bb17fe54d834fa9fb3084fe922",
+    "scripts/validate_delta_cupy.py": "e1dac5fe7d7746afcc9b7a0a5b51004f574d70a0771a569710fe666880731d3c"
+  },
+  "environment": {
+    "python": "3.14.6 (main, Jun 15 2026, 11:36:54) [GCC 16.1.1 20260430]",
+    "numpy": "2.5.1",
+    "cupy": "14.2.0",
+    "gpu": "NVIDIA GeForce GTX 1660 Ti",
+    "cuda_runtime": 12090,
+    "cuda_driver": 13000,
+    "platform": "Linux-6.18.39-1-MANJARO-x86_64-with-glibc2.43"
+  },
+  "settings": {
+    "particles": 4096,
+    "seeds": [
+      20260721,
+      20260914
+    ],
+    "n_steps": 64,
+    "bins": 64,
+    "doppler": "direction",
+    "dtype": "float64"
+  },
+  "first_call_seconds": 0.210650157998316,
+  "records": [
+    {
+      "scenario": "baseline",
+      "seed": 20260721,
+      "variant": "headon_linear",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.318011656041399e-16,
+        "max_weight_error_over_peak": 1.3909354455635713e-13,
+        "relative_total_weight_error": 6.661338147750939e-16,
+        "spectral_l1": 6.783074959672503e-15,
+        "normalized_spectral_l1": 6.7759899116521145e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014929735101759434
+    },
+    {
+      "scenario": "baseline",
+      "seed": 20260721,
+      "variant": "headon_linear",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.318011656041399e-16,
+        "max_weight_error_over_peak": 1.3909354455635713e-13,
+        "relative_total_weight_error": 2.220446049250313e-16,
+        "spectral_l1": 6.715983892703927e-15,
+        "normalized_spectral_l1": 6.869975242534818e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006533189443871379
+    },
+    {
+      "scenario": "baseline",
+      "seed": 20260721,
+      "variant": "headon_linear",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 4.840962700147777e-16,
+        "max_weight_error_over_peak": 1.7092984359246867e-12,
+        "relative_total_weight_error": 1.6122658763606523e-12,
+        "spectral_l1": 1.6112549350812706e-12,
+        "normalized_spectral_l1": 1.6112713920111467e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014491472044028342
+    },
+    {
+      "scenario": "baseline",
+      "seed": 20260721,
+      "variant": "headon_linear",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 4.840962700147777e-16,
+        "max_weight_error_over_peak": 1.7092984359246867e-12,
+        "relative_total_weight_error": 1.6122658763606523e-12,
+        "spectral_l1": 1.6112816237358383e-12,
+        "normalized_spectral_l1": 1.6113225627145634e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006561250193044543
+    },
+    {
+      "scenario": "baseline",
+      "seed": 20260721,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.537020494883471e-16,
+        "max_weight_error_over_peak": 1.1175377243296279e-13,
+        "relative_total_weight_error": 2.220446049250313e-16,
+        "spectral_l1": 4.605857354351426e-15,
+        "normalized_spectral_l1": 4.6058388344704686e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014641052926890552
+    },
+    {
+      "scenario": "baseline",
+      "seed": 20260721,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.537020494883471e-16,
+        "max_weight_error_over_peak": 1.1175377243296279e-13,
+        "relative_total_weight_error": 2.220446049250313e-16,
+        "spectral_l1": 4.3414675338031264e-15,
+        "normalized_spectral_l1": 4.190178626261864e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006541450275108218
+    },
+    {
+      "scenario": "baseline",
+      "seed": 20260721,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.302832825626602e-16,
+        "max_weight_error_over_peak": 2.0145471728682725e-12,
+        "relative_total_weight_error": 1.4104273304837989e-12,
+        "spectral_l1": 1.4124634670500574e-12,
+        "normalized_spectral_l1": 1.4124677196282736e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014789540902711451
+    },
+    {
+      "scenario": "baseline",
+      "seed": 20260721,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.302832825626602e-16,
+        "max_weight_error_over_peak": 2.0145471728682725e-12,
+        "relative_total_weight_error": 1.410649375088724e-12,
+        "spectral_l1": 1.4124456825356976e-12,
+        "normalized_spectral_l1": 1.4125091283482758e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006501260213553905
+    },
+    {
+      "scenario": "baseline",
+      "seed": 20260721,
+      "variant": "crossed_circular",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.744103109828202e-16,
+        "max_weight_error_over_peak": 6.318047119686291e-14,
+        "relative_total_weight_error": 0.0,
+        "spectral_l1": 5.229246703389914e-15,
+        "normalized_spectral_l1": 5.24776221835234e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014801081968471408
+    },
+    {
+      "scenario": "baseline",
+      "seed": 20260721,
+      "variant": "crossed_circular",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.744103109828202e-16,
+        "max_weight_error_over_peak": 6.318047119686291e-14,
+        "relative_total_weight_error": 2.220446049250313e-16,
+        "spectral_l1": 5.373801567192951e-15,
+        "normalized_spectral_l1": 5.202636625948217e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006941759493201971
+    },
+    {
+      "scenario": "baseline",
+      "seed": 20260721,
+      "variant": "crossed_circular",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.057803134644878e-16,
+        "max_weight_error_over_peak": 1.7371322926325048e-12,
+        "relative_total_weight_error": 1.4346301924206273e-12,
+        "spectral_l1": 1.4335545418866261e-12,
+        "normalized_spectral_l1": 1.4335480838029427e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014708127011545002
+    },
+    {
+      "scenario": "baseline",
+      "seed": 20260721,
+      "variant": "crossed_circular",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.057803134644878e-16,
+        "max_weight_error_over_peak": 1.7371322926325048e-12,
+        "relative_total_weight_error": 1.4344081478157023e-12,
+        "spectral_l1": 1.43367251759603e-12,
+        "normalized_spectral_l1": 1.4335289308569412e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006473800167441368
+    },
+    {
+      "scenario": "baseline",
+      "seed": 20260914,
+      "variant": "headon_linear",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 4.731458280726741e-16,
+        "max_weight_error_over_peak": 1.6450519910424193e-13,
+        "relative_total_weight_error": 0.0,
+        "spectral_l1": 5.8415262870845365e-15,
+        "normalized_spectral_l1": 5.845005780805786e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014528654050081968
+    },
+    {
+      "scenario": "baseline",
+      "seed": 20260914,
+      "variant": "headon_linear",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 4.731458280726741e-16,
+        "max_weight_error_over_peak": 1.6450519910424193e-13,
+        "relative_total_weight_error": 2.220446049250313e-16,
+        "spectral_l1": 5.699736917943605e-15,
+        "normalized_spectral_l1": 5.831667721540995e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006493970286101103
+    },
+    {
+      "scenario": "baseline",
+      "seed": 20260914,
+      "variant": "headon_linear",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 4.741216100279111e-16,
+        "max_weight_error_over_peak": 1.9396766020333753e-12,
+        "relative_total_weight_error": 1.6016077353242508e-12,
+        "spectral_l1": 1.602227795797161e-12,
+        "normalized_spectral_l1": 1.6022256729146818e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014476333046332002
+    },
+    {
+      "scenario": "baseline",
+      "seed": 20260914,
+      "variant": "headon_linear",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 4.741216100279111e-16,
+        "max_weight_error_over_peak": 1.9396766020333753e-12,
+        "relative_total_weight_error": 1.6018297799291759e-12,
+        "spectral_l1": 1.6023427122993045e-12,
+        "normalized_spectral_l1": 1.6023113151152442e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006543570198118687
+    },
+    {
+      "scenario": "baseline",
+      "seed": 20260914,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 6.316561856900549e-16,
+        "max_weight_error_over_peak": 9.570238651431514e-14,
+        "relative_total_weight_error": 1.1102230246251565e-16,
+        "spectral_l1": 8.270310886401015e-15,
+        "normalized_spectral_l1": 8.288684415916623e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014481998980045319
+    },
+    {
+      "scenario": "baseline",
+      "seed": 20260914,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 6.316561856900549e-16,
+        "max_weight_error_over_peak": 9.570238651431514e-14,
+        "relative_total_weight_error": 3.3306690738754696e-16,
+        "spectral_l1": 8.452416271680722e-15,
+        "normalized_spectral_l1": 8.356251588974025e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006455429829657078
+    },
+    {
+      "scenario": "baseline",
+      "seed": 20260914,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.608577838267514e-16,
+        "max_weight_error_over_peak": 1.6155688469034222e-12,
+        "relative_total_weight_error": 1.397770788003072e-12,
+        "spectral_l1": 1.3980988633795135e-12,
+        "normalized_spectral_l1": 1.3980987061519384e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014365008100867271
+    },
+    {
+      "scenario": "baseline",
+      "seed": 20260914,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.608577838267514e-16,
+        "max_weight_error_over_peak": 1.6155688469034222e-12,
+        "relative_total_weight_error": 1.397770788003072e-12,
+        "spectral_l1": 1.3981029962186296e-12,
+        "normalized_spectral_l1": 1.3981675269076563e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.000643195933662355
+    },
+    {
+      "scenario": "baseline",
+      "seed": 20260914,
+      "variant": "crossed_circular",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.708324438136181e-16,
+        "max_weight_error_over_peak": 7.683644819363852e-14,
+        "relative_total_weight_error": 2.220446049250313e-16,
+        "spectral_l1": 4.494546162697987e-15,
+        "normalized_spectral_l1": 4.485128561581132e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014446833985857666
+    },
+    {
+      "scenario": "baseline",
+      "seed": 20260914,
+      "variant": "crossed_circular",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.708324438136181e-16,
+        "max_weight_error_over_peak": 7.683644819363852e-14,
+        "relative_total_weight_error": 0.0,
+        "spectral_l1": 4.313499530771945e-15,
+        "normalized_spectral_l1": 4.180462018873309e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.000647015986032784
+    },
+    {
+      "scenario": "baseline",
+      "seed": 20260914,
+      "variant": "crossed_circular",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.874207370526463e-16,
+        "max_weight_error_over_peak": 1.873011187570486e-12,
+        "relative_total_weight_error": 1.4197532038906502e-12,
+        "spectral_l1": 1.42047668591067e-12,
+        "normalized_spectral_l1": 1.4204740865444832e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014387761009857059
+    },
+    {
+      "scenario": "baseline",
+      "seed": 20260914,
+      "variant": "crossed_circular",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.874207370526463e-16,
+        "max_weight_error_over_peak": 1.873011187570486e-12,
+        "relative_total_weight_error": 1.4195311592857252e-12,
+        "spectral_l1": 1.4203923689699874e-12,
+        "normalized_spectral_l1": 1.4204523168526692e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.000646307016722858
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260721,
+      "variant": "headon_linear",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.222601864862675e-16,
+        "max_weight_error_over_peak": 1.389059836386747e-13,
+        "relative_total_weight_error": 4.440892098500626e-16,
+        "spectral_l1": 3.2721072021009886e-15,
+        "normalized_spectral_l1": 3.3042791038262218e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014998662052676082
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260721,
+      "variant": "headon_linear",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.222601864862675e-16,
+        "max_weight_error_over_peak": 1.389059836386747e-13,
+        "relative_total_weight_error": 4.440892098500626e-16,
+        "spectral_l1": 3.312864302320315e-15,
+        "normalized_spectral_l1": 3.2871990773484997e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006518310401588678
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260721,
+      "variant": "headon_linear",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 4.959140736948697e-16,
+        "max_weight_error_over_peak": 1.7094282006138887e-12,
+        "relative_total_weight_error": 1.6122658763606523e-12,
+        "spectral_l1": 1.6125930411236453e-12,
+        "normalized_spectral_l1": 1.6125821087613714e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014492548070847988
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260721,
+      "variant": "headon_linear",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 4.959140736948697e-16,
+        "max_weight_error_over_peak": 1.7094282006138887e-12,
+        "relative_total_weight_error": 1.6120438317557273e-12,
+        "spectral_l1": 1.6127813475404916e-12,
+        "normalized_spectral_l1": 1.612727269593774e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0007091619772836566
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260721,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.554367729643239e-16,
+        "max_weight_error_over_peak": 1.1183600910248705e-13,
+        "relative_total_weight_error": 4.440892098500626e-16,
+        "spectral_l1": 3.5897548256814405e-15,
+        "normalized_spectral_l1": 3.5681675894404335e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014457726036198437
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260721,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.554367729643239e-16,
+        "max_weight_error_over_peak": 1.1183600910248705e-13,
+        "relative_total_weight_error": 4.440892098500626e-16,
+        "spectral_l1": 3.0748095356600435e-15,
+        "normalized_spectral_l1": 2.8970071035430976e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006427280604839325
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260721,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.297411814764175e-16,
+        "max_weight_error_over_peak": 2.0147866450952356e-12,
+        "relative_total_weight_error": 1.410871419693649e-12,
+        "spectral_l1": 1.4112972292718691e-12,
+        "normalized_spectral_l1": 1.4112967315709075e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014418174978345633
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260721,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.297411814764175e-16,
+        "max_weight_error_over_peak": 2.0147866450952356e-12,
+        "relative_total_weight_error": 1.410871419693649e-12,
+        "spectral_l1": 1.4113003260778521e-12,
+        "normalized_spectral_l1": 1.4112674225142821e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006525840144604445
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260721,
+      "variant": "crossed_circular",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.521299563382431e-16,
+        "max_weight_error_over_peak": 6.31995631198151e-14,
+        "relative_total_weight_error": 2.220446049250313e-16,
+        "spectral_l1": 4.609867274350468e-15,
+        "normalized_spectral_l1": 4.61035525855505e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014533455017954111
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260721,
+      "variant": "crossed_circular",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.521299563382431e-16,
+        "max_weight_error_over_peak": 6.31995631198151e-14,
+        "relative_total_weight_error": 2.220446049250313e-16,
+        "spectral_l1": 4.768412346533033e-15,
+        "normalized_spectral_l1": 4.727949492997997e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006728459848091006
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260721,
+      "variant": "crossed_circular",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 4.735795089416683e-16,
+        "max_weight_error_over_peak": 1.7372031205358574e-12,
+        "relative_total_weight_error": 1.4344081478157023e-12,
+        "spectral_l1": 1.4360625417028198e-12,
+        "normalized_spectral_l1": 1.4360817047081417e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014478015946224332
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260721,
+      "variant": "crossed_circular",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 4.735795089416683e-16,
+        "max_weight_error_over_peak": 1.7372031205358574e-12,
+        "relative_total_weight_error": 1.4346301924206273e-12,
+        "spectral_l1": 1.4361674604143718e-12,
+        "normalized_spectral_l1": 1.4361694219818457e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006523539777845144
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260914,
+      "variant": "headon_linear",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.427516075462435e-16,
+        "max_weight_error_over_peak": 1.6456733498387468e-13,
+        "relative_total_weight_error": 0.0,
+        "spectral_l1": 4.151301049011857e-15,
+        "normalized_spectral_l1": 4.1339035804056076e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014571940060704947
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260914,
+      "variant": "headon_linear",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.427516075462435e-16,
+        "max_weight_error_over_peak": 1.6456733498387468e-13,
+        "relative_total_weight_error": 2.220446049250313e-16,
+        "spectral_l1": 4.291386916018426e-15,
+        "normalized_spectral_l1": 4.292111810543687e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006490600062534213
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260914,
+      "variant": "headon_linear",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.056718932472393e-16,
+        "max_weight_error_over_peak": 1.9395721283930206e-12,
+        "relative_total_weight_error": 1.6016077353242508e-12,
+        "spectral_l1": 1.5996349891199569e-12,
+        "normalized_spectral_l1": 1.5996402653502432e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014507037936709821
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260914,
+      "variant": "headon_linear",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.056718932472393e-16,
+        "max_weight_error_over_peak": 1.9395721283930206e-12,
+        "relative_total_weight_error": 1.6016077353242508e-12,
+        "spectral_l1": 1.599569154982372e-12,
+        "normalized_spectral_l1": 1.5995903734818601e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006437390111386776
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260914,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.666040553409246e-16,
+        "max_weight_error_over_peak": 9.554085039773819e-14,
+        "relative_total_weight_error": 2.220446049250313e-16,
+        "spectral_l1": 3.276894447852234e-15,
+        "normalized_spectral_l1": 3.2711527198786064e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014538749004714191
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260914,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.666040553409246e-16,
+        "max_weight_error_over_peak": 9.554085039773819e-14,
+        "relative_total_weight_error": 2.220446049250313e-16,
+        "spectral_l1": 3.027777540609348e-15,
+        "normalized_spectral_l1": 3.166319880102046e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006443969905376434
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260914,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.82433407059213e-16,
+        "max_weight_error_over_peak": 1.6157354636011694e-12,
+        "relative_total_weight_error": 1.397326698793222e-12,
+        "spectral_l1": 1.3965430235256444e-12,
+        "normalized_spectral_l1": 1.3965364957736437e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014850646024569869
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260914,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.82433407059213e-16,
+        "max_weight_error_over_peak": 1.6157354636011694e-12,
+        "relative_total_weight_error": 1.397548743398147e-12,
+        "spectral_l1": 1.396557174007401e-12,
+        "normalized_spectral_l1": 1.3965007826530199e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006947499932721257
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260914,
+      "variant": "crossed_circular",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.960943544325303e-16,
+        "max_weight_error_over_peak": 7.681952902113128e-14,
+        "relative_total_weight_error": 1.1102230246251565e-16,
+        "spectral_l1": 6.756711917651247e-15,
+        "normalized_spectral_l1": 6.7624291797120696e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014625309966504574
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260914,
+      "variant": "crossed_circular",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.960943544325303e-16,
+        "max_weight_error_over_peak": 7.681952902113128e-14,
+        "relative_total_weight_error": 0.0,
+        "spectral_l1": 6.872168848712854e-15,
+        "normalized_spectral_l1": 7.0058892558020886e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006388809997588396
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260914,
+      "variant": "crossed_circular",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.353790327733421e-16,
+        "max_weight_error_over_peak": 1.8727720149686667e-12,
+        "relative_total_weight_error": 1.4199752484955752e-12,
+        "spectral_l1": 1.41923510271308e-12,
+        "normalized_spectral_l1": 1.4192383392285956e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014450819930061698
+    },
+    {
+      "scenario": "low_a0",
+      "seed": 20260914,
+      "variant": "crossed_circular",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.353790327733421e-16,
+        "max_weight_error_over_peak": 1.8727720149686667e-12,
+        "relative_total_weight_error": 1.4199752484955752e-12,
+        "spectral_l1": 1.4192708947670185e-12,
+        "normalized_spectral_l1": 1.4192254439354036e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006484369514510036
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260721,
+      "variant": "headon_linear",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 4.920109458739219e-16,
+        "max_weight_error_over_peak": 1.3889758403539794e-13,
+        "relative_total_weight_error": 6.661338147750939e-16,
+        "spectral_l1": 5.952025938034081e-15,
+        "normalized_spectral_l1": 5.951129462570277e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.01449907396454364
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260721,
+      "variant": "headon_linear",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 4.920109458739219e-16,
+        "max_weight_error_over_peak": 1.3889758403539794e-13,
+        "relative_total_weight_error": 4.440892098500626e-16,
+        "spectral_l1": 5.590196873417347e-15,
+        "normalized_spectral_l1": 5.632446894469541e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006431490182876587
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260721,
+      "variant": "headon_linear",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.153755026909845e-16,
+        "max_weight_error_over_peak": 1.709396190548379e-12,
+        "relative_total_weight_error": 1.6118217871508023e-12,
+        "spectral_l1": 1.6127499394475436e-12,
+        "normalized_spectral_l1": 1.6127401498493262e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.01446956500876695
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260721,
+      "variant": "headon_linear",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.153755026909845e-16,
+        "max_weight_error_over_peak": 1.709396190548379e-12,
+        "relative_total_weight_error": 1.6115997425458772e-12,
+        "spectral_l1": 1.61275009407101e-12,
+        "normalized_spectral_l1": 1.6127028598233423e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006481669843196869
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260721,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.38306378639053e-16,
+        "max_weight_error_over_peak": 1.118250061743052e-13,
+        "relative_total_weight_error": 4.440892098500626e-16,
+        "spectral_l1": 4.7728103772064845e-15,
+        "normalized_spectral_l1": 4.7272959177654995e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.01446913497056812
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260721,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.38306378639053e-16,
+        "max_weight_error_over_peak": 1.118250061743052e-13,
+        "relative_total_weight_error": 2.220446049250313e-16,
+        "spectral_l1": 4.724925373002948e-15,
+        "normalized_spectral_l1": 5.007020199746553e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006515179993584752
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260721,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.493652407984051e-16,
+        "max_weight_error_over_peak": 2.0146245789872193e-12,
+        "relative_total_weight_error": 1.410871419693649e-12,
+        "spectral_l1": 1.408889988524045e-12,
+        "normalized_spectral_l1": 1.4088832640310532e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014395168982446194
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260721,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.493652407984051e-16,
+        "max_weight_error_over_peak": 2.0146245789872193e-12,
+        "relative_total_weight_error": 1.410871419693649e-12,
+        "spectral_l1": 1.4087511100477296e-12,
+        "normalized_spectral_l1": 1.4087885548560735e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006434869719669223
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260721,
+      "variant": "crossed_circular",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.681219383824043e-16,
+        "max_weight_error_over_peak": 6.311894575557511e-14,
+        "relative_total_weight_error": 2.220446049250313e-16,
+        "spectral_l1": 4.9550832348498934e-15,
+        "normalized_spectral_l1": 4.972317641892372e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014584155986085534
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260721,
+      "variant": "crossed_circular",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.681219383824043e-16,
+        "max_weight_error_over_peak": 6.311894575557511e-14,
+        "relative_total_weight_error": 4.440892098500626e-16,
+        "spectral_l1": 4.939684445125549e-15,
+        "normalized_spectral_l1": 4.865443922481026e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006452379748225212
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260721,
+      "variant": "crossed_circular",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.126107871511465e-16,
+        "max_weight_error_over_peak": 1.7371623988420386e-12,
+        "relative_total_weight_error": 1.4341861032107772e-12,
+        "spectral_l1": 1.4357816050032771e-12,
+        "normalized_spectral_l1": 1.4357846952264975e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014722674037329853
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260721,
+      "variant": "crossed_circular",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.126107871511465e-16,
+        "max_weight_error_over_peak": 1.7371623988420386e-12,
+        "relative_total_weight_error": 1.4346301924206273e-12,
+        "spectral_l1": 1.435800532620502e-12,
+        "normalized_spectral_l1": 1.4358403192444648e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006521109025925398
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260914,
+      "variant": "headon_linear",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 4.754226526348937e-16,
+        "max_weight_error_over_peak": 1.6451925522350813e-13,
+        "relative_total_weight_error": 2.220446049250313e-16,
+        "spectral_l1": 6.397252176984904e-15,
+        "normalized_spectral_l1": 6.375505341227093e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014392080949619412
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260914,
+      "variant": "headon_linear",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 4.754226526348937e-16,
+        "max_weight_error_over_peak": 1.6451925522350813e-13,
+        "relative_total_weight_error": 2.220446049250313e-16,
+        "spectral_l1": 6.585376804180479e-15,
+        "normalized_spectral_l1": 6.5297628962025026e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006558221066370606
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260914,
+      "variant": "headon_linear",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 4.598101413511024e-16,
+        "max_weight_error_over_peak": 1.939457387254753e-12,
+        "relative_total_weight_error": 1.6018297799291759e-12,
+        "spectral_l1": 1.6032966406926695e-12,
+        "normalized_spectral_l1": 1.6032898606851248e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014570266008377075
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260914,
+      "variant": "headon_linear",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 4.598101413511024e-16,
+        "max_weight_error_over_peak": 1.939457387254753e-12,
+        "relative_total_weight_error": 1.6020518245341009e-12,
+        "spectral_l1": 1.6033671369114657e-12,
+        "normalized_spectral_l1": 1.6032976319218426e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006503849290311337
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260914,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 6.059605942021484e-16,
+        "max_weight_error_over_peak": 9.570430113976287e-14,
+        "relative_total_weight_error": 0.0,
+        "spectral_l1": 4.815553912416038e-15,
+        "normalized_spectral_l1": 4.808471213135021e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.01481314399279654
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260914,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 6.059605942021484e-16,
+        "max_weight_error_over_peak": 9.570430113976287e-14,
+        "relative_total_weight_error": 2.220446049250313e-16,
+        "spectral_l1": 4.810693817511909e-15,
+        "normalized_spectral_l1": 5.036421518028676e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006485759513452649
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260914,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 4.814941848008125e-16,
+        "max_weight_error_over_peak": 1.6156238844642293e-12,
+        "relative_total_weight_error": 1.397326698793222e-12,
+        "spectral_l1": 1.3976736661099173e-12,
+        "normalized_spectral_l1": 1.3976692098312183e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.015127577004022896
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260914,
+      "variant": "crossed_elliptic",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 4.814941848008125e-16,
+        "max_weight_error_over_peak": 1.6156238844642293e-12,
+        "relative_total_weight_error": 1.397326698793222e-12,
+        "spectral_l1": 1.3976894787117535e-12,
+        "normalized_spectral_l1": 1.3977543103792808e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006518500158563256
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260914,
+      "variant": "crossed_circular",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.980459183430042e-16,
+        "max_weight_error_over_peak": 7.689938415579447e-14,
+        "relative_total_weight_error": 2.220446049250313e-16,
+        "spectral_l1": 4.397019200710459e-15,
+        "normalized_spectral_l1": 4.378619145644713e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014971190015785396
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260914,
+      "variant": "crossed_circular",
+      "observer": [
+        0.0,
+        0.0
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.980459183430042e-16,
+        "max_weight_error_over_peak": 7.689938415579447e-14,
+        "relative_total_weight_error": 2.220446049250313e-16,
+        "spectral_l1": 4.3833994119789005e-15,
+        "normalized_spectral_l1": 4.319464540855404e-15
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006483671022579074
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260914,
+      "variant": "crossed_circular",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 127,
+      "errors": {
+        "max_relative_energy_error": 5.120686860649037e-16,
+        "max_weight_error_over_peak": 1.8728542248428353e-12,
+        "relative_total_weight_error": 1.4197532038906502e-12,
+        "spectral_l1": 1.4184555751319772e-12,
+        "normalized_spectral_l1": 1.4184527158291718e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.014512596069835126
+    },
+    {
+      "scenario": "near_a0_max",
+      "seed": 20260914,
+      "variant": "crossed_circular",
+      "observer": [
+        0.00025,
+        -0.000125
+      ],
+      "actual_particles": 4096,
+      "chunk": 65536,
+      "errors": {
+        "max_relative_energy_error": 5.120686860649037e-16,
+        "max_weight_error_over_peak": 1.8728542248428353e-12,
+        "relative_total_weight_error": 1.4195311592857252e-12,
+        "spectral_l1": 1.4183899411357619e-12,
+        "normalized_spectral_l1": 1.4183319752697974e-12
+      },
+      "limits": {
+        "max_relative_energy_error": 3e-13,
+        "max_weight_error_over_peak": 3e-08,
+        "relative_total_weight_error": 3e-08,
+        "spectral_l1": 3e-08,
+        "normalized_spectral_l1": 3e-08
+      },
+      "passed": true,
+      "warm_spectrum_seconds": 0.0006586071103811264
+    }
+  ],
+  "caveat": "GPU/independent CPU numerical parity on identical Stage-0 samples; not particle convergence, xigma speedup, or full arbitrary-angle physics closure."
+}

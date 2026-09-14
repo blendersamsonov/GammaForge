@@ -161,6 +161,12 @@ search_knowledge_base("cupy")
 # The Stage-0/1 CUDA agreement gate is `scripts/validate_cupy_stages01.py` (RES083).
 # It iterates the shared scenario bank and reports agreement separately from warm
 # timing; direct device tests additionally observe CuPy arrays inside both stages.
+# The independent GPU delta reference is `gammaforge.validation.references.delta_cupy`
+# (RES085). It accepts NumPy trajectory samples, computes float64 emission and weighted
+# histograms on CUDA in bounded chunks, and returns NumPy arrays. Its standalone gate
+# is `scripts/validate_delta_cupy.py`; it checks against the long-double CPU reference.
+# Select `doppler="direction"` for current xigma. Numerical backend agreement does not
+# close the broader particle, Stage-0, or arbitrary-angle convergence requirements.
 #
 # Validation in GammaForge lives in `gammaforge.validation`:
 # - `gammaforge.validation.scenarios.SCENARIOS`: A curated bank of physical scenarios (`BASELINE`, `LOW_A0`, `NEAR_A0_MAX`).
@@ -220,6 +226,35 @@ print(f"\nBenchmark Results on BASELINE:")
 print(f"  Xigma time:      {t_xigma:.2f} ms | Yield: {y_xigma:,.1f}")
 print(f"  Analytical time: {t_ana:.2f} ms | Yield: {y_ana:,.1f}")
 print(f"  Relative difference: {rel_diff:.2f}% (Consistent with 100-particle sampling)")
+
+# %% [markdown]
+# ### Independent CPU/GPU delta emission lines
+# The same Stage-0 samples let us check emission arithmetic separately from table
+# interpolation. Energies are in erg; histogram densities are per erg. The GPU call
+# requires actual CUDA and never falls back silently. Skip explicitly when unavailable.
+
+# %%
+from gammaforge.engines.xigma.stages import integrate_trajectories
+from gammaforge.engines.xigma.spectrum_sampler import is_gpu_available
+from gammaforge.validation.references import delta_emission, delta_cupy
+import numpy as np
+
+delta_samples = integrate_trajectories(interaction.bunch, interaction.laser,
+                                      interaction.N_e, n_steps=32, backend="numpy")
+delta_kwargs = dict(photon_energy=float(interaction.laser.photon_energy()), doppler="direction")
+cpu_energy, cpu_weight = delta_emission.emission_lines(delta_samples, 0., 0., **delta_kwargs)
+if is_gpu_available():
+    gpu_energy, gpu_weight = delta_cupy.emission_lines(delta_samples, 0., 0., chunk=17, **delta_kwargs)
+    np.testing.assert_allclose(gpu_energy, cpu_energy, rtol=3e-13)
+    np.testing.assert_allclose(gpu_weight, cpu_weight, rtol=3e-8, atol=1e-12*float(cpu_weight.max()))
+    edges = np.geomspace(float(cpu_energy.min())*.9, float(cpu_energy.max())*1.1, 17)
+    gpu_bins = delta_cupy.bin_emission(gpu_energy, gpu_weight, edges)
+    cpu_bins = delta_emission.bin_emission(cpu_energy, cpu_weight, edges)
+    np.testing.assert_allclose(gpu_bins["bin_mass"], cpu_bins["bin_mass"],
+                               rtol=3e-8, atol=1e-12*float(cpu_weight.sum()))
+    print("Independent CPU/GPU delta line and finite-bin agreement passed.")
+else:
+    print("CUDA unavailable: independent GPU delta example explicitly skipped.")
 
 # %% [markdown]
 # ### Visualizing the Baseline Photon Spectrum Comparison
