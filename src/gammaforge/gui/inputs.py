@@ -16,6 +16,16 @@ except ImportError:  # pragma: no cover - exercised on installations without Nic
 
 ChangeCallback = Callable[[str, str], None]
 
+# Laser type specific field keys
+_GAUSSIAN_LASER_KEYS = ("duration",)
+_PULSE_TRAIN_LASER_KEYS = ("subpulse_duration", "repetition_period", "n_subpulses")
+_COMMON_LASER_KEYS = (
+    "pulse_energy", "wavelength", "laser_type", "sigma_x", "sigma_y",
+    "z_fx", "z_fy", "x_off", "y_off", "t_off",
+    "theta_xz", "theta_yz", "psi_focus", "psi_pol",
+    "ellipticity", "beta_ff",
+)
+
 _CONVENTION_LABELS = {
     "sigma_intensity_rms": "RMS intensity",
     "sigma_field_rms": "Field RMS",
@@ -136,6 +146,14 @@ def render_input_columns(state: InputState, on_change: ChangeCallback, render_ge
     _require_ui()
     editors: list[Editor] = []
     angle_keys = ("theta_xz", "theta_yz", "psi_focus", "psi_pol")
+    
+    # Get laser field keys based on current laser_type
+    laser_type = state.groups["laser"].get_choice("laser_type")
+    if laser_type == "pulse_train":
+        laser_keys = tuple(k for k in _COMMON_LASER_KEYS if k not in angle_keys) + _PULSE_TRAIN_LASER_KEYS
+    else:
+        laser_keys = tuple(k for k in _COMMON_LASER_KEYS if k not in angle_keys) + _GAUSSIAN_LASER_KEYS
+    
     with ui.element("div").classes("gf-input-pane"):
         with ui.element("div").classes("gf-input-columns"):
             with ui.card().classes("gf-input-column"):
@@ -146,11 +164,12 @@ def render_input_columns(state: InputState, on_change: ChangeCallback, render_ge
                 editors += _render_fields(state, "sampling", on_change)
             with ui.card().classes("gf-input-column"):
                 ui.label("Laser")
-                editors += _render_fields(state, "laser", on_change, tuple(k for k in state.groups["laser"] if k not in angle_keys))
+                editors += _render_fields(state, "laser", on_change, laser_keys)
             with ui.card().classes("gf-input-column"):
                 ui.label("Geometry")
                 editors += _render_fields(state, "laser", on_change, angle_keys)
                 render_geometry()
+    
     ui.add_head_html("""
     <style>
       .gf-input-pane { width:100%; container-type:inline-size; }
@@ -170,6 +189,7 @@ def render_input_columns(state: InputState, on_change: ChangeCallback, render_ge
       @container (max-width: 760px) { .gf-output-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .gf-engine-fields { grid-template-columns:repeat(2,minmax(0,1fr)); } }
       @container (max-width: 480px) { .gf-target-angles, .gf-output-grid, .gf-engine-fields { grid-template-columns:1fr; } }
     </style>""")
+    
     return editors
 
 

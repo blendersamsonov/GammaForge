@@ -25,7 +25,7 @@ from gammaforge.io.formats.hdf5 import load_results, save_results, sidecar_path
 from gammaforge.io.formats.sdds import load_elegant_ele, save_elegant_ele
 from gammaforge.io.formats.yaml_spec import SPEC_VERSION, load_spec, save_spec
 from gammaforge.io.interaction import SamplingSpec
-from gammaforge.io.laser import GaussianParaxialLaser
+from gammaforge.io.laser import GaussianParaxialLaser, PulseTrainParaxialLaser
 from gammaforge.io.results import Axis, PhasespaceSlice, PhotonMacroparticles, Results
 from gammaforge.io.schema import Parameters, SchemaError
 from gammaforge.io.target import OutputKind, Target
@@ -62,7 +62,14 @@ def test_every_declared_field_matches_a_dataclass_field(specs, cls):
     import dataclasses
 
     names = {f.name for f in dataclasses.fields(cls)}
-    assert {spec.key for spec in specs} <= names
+    # LASER_FIELDS contains fields for both GaussianParaxialLaser and PulseTrainParaxialLaser
+    # Check against the union of both dataclass fields
+    if cls is GaussianParaxialLaser:
+        pulse_train_names = {f.name for f in dataclasses.fields(PulseTrainParaxialLaser)}
+        names = names | pulse_train_names
+    # laser_type is a GUI-only selector field, not a dataclass field
+    spec_keys = {spec.key for spec in specs if spec.key != "laser_type"}
+    assert spec_keys <= names
 
 
 def test_dataclass_parameter_bridges_round_trip():
@@ -94,7 +101,9 @@ def test_yaml_spec_round_trips_through_display_units(tmp_path):
 
     for name in (spec.key for spec in BEAM_FIELDS):
         assert value(beam_back, name) == pytest.approx(value(make_beam(), name), rel=1e-11, abs=1e-30), name
-    for name in (spec.key for spec in LASER_FIELDS):
+    # Only check fields that exist on GaussianParaxialLaser (skip laser_type and pulse train fields)
+    gaussian_laser_keys = {spec.key for spec in LASER_FIELDS if spec.key not in ("laser_type", "subpulse_duration", "repetition_period", "n_subpulses")}
+    for name in gaussian_laser_keys:
         assert value(laser_back, name) == pytest.approx(value(make_laser(), name), rel=1e-11, abs=1e-30), name
 
 

@@ -19,7 +19,7 @@ from typing import TypeVar
 
 from .bunch import GaussianElectronBeam
 from .interaction import SamplingSpec
-from .laser import GaussianParaxialLaser
+from .laser import GaussianParaxialLaser, PulseTrainParaxialLaser
 from .schema import DIMENSIONLESS, FieldKind, FieldSpec, Parameters
 from .units import Quantity, TimeConvention, WidthConvention
 
@@ -51,12 +51,17 @@ _ANGLE_UNITS = ("rad", "mrad", "urad", "degree")
 _BUNCH_LENGTH_UNITS = ("um", "mm", "cm", "m", "fs", "ps", "ns", "s")
 _PULSE_DURATION_UNITS = ("fs", "ps", "ns", "s", "um", "mm", "cm", "m")
 
+# Laser type specific field keys (used for round-trip conversion)
+_GAUSSIAN_LASER_KEYS = ("duration",)
+_PULSE_TRAIN_LASER_KEYS = ("subpulse_duration", "repetition_period", "n_subpulses")
+
 #: Each field's canonical unit is read from the dataclass that stores it, so the unit is
 #: stated in exactly one place. (Nothing breaks if they differ — the boundary converts
 #: either way — but there is no reason for them to, and one statement is one fewer thing
 #: to keep in step.)
 _BEAM = GaussianElectronBeam.UNITS
 _LASER = GaussianParaxialLaser.UNITS
+_LASER_PULSE_TRAIN = PulseTrainParaxialLaser.UNITS
 
 
 BEAM_FIELDS: tuple[FieldSpec, ...] = (
@@ -96,12 +101,20 @@ LASER_FIELDS: tuple[FieldSpec, ...] = (
               display_units=("J", "mJ", "erg"), value_range=_POSITIVE),
     FieldSpec("wavelength", "Central wavelength", FieldKind.SCALAR, _LASER["wavelength"], 0.8e-4,
               display_units=_WAVELENGTH_UNITS, value_range=_POSITIVE),
+    FieldSpec("laser_type", "Laser type", FieldKind.CHOICE, DIMENSIONLESS, "gaussian",
+              choices=("gaussian", "pulse_train")),
     FieldSpec("sigma_x", "Spot size (focusing axis 1)", FieldKind.WIDTH, _LASER["sigma_x"], 10e-4,
               display_units=_SIZE_UNITS, convention=_RMS, value_range=_POSITIVE),
     FieldSpec("sigma_y", "Spot size (focusing axis 2)", FieldKind.WIDTH, _LASER["sigma_y"], 10e-4,
               display_units=_SIZE_UNITS, convention=_RMS, value_range=_POSITIVE),
     FieldSpec("duration", "Pulse duration", FieldKind.DURATION, _LASER["duration"], 30e-15,
               display_units=_PULSE_DURATION_UNITS, convention=_RMS_T, value_range=_POSITIVE),
+    FieldSpec("subpulse_duration", "Sub-pulse duration", FieldKind.DURATION, _LASER_PULSE_TRAIN["subpulse_duration"], 30e-15,
+              display_units=_PULSE_DURATION_UNITS, convention=_RMS_T, value_range=_POSITIVE),
+    FieldSpec("repetition_period", "Repetition period", FieldKind.DURATION, _LASER_PULSE_TRAIN["repetition_period"], 100e-15,
+              display_units=_PULSE_DURATION_UNITS, convention=_RMS_T, value_range=_POSITIVE),
+    FieldSpec("n_subpulses", "Number of sub-pulses", FieldKind.SCALAR, DIMENSIONLESS, 10,
+              value_range=(1, 1000), integer=True),
     FieldSpec("z_fx", "Focal offset (axis 1)", FieldKind.SCALAR, _LASER["z_fx"], 0.0, display_units=_SIZE_UNITS),
     FieldSpec("z_fy", "Focal offset (axis 2)", FieldKind.SCALAR, _LASER["z_fy"], 0.0, display_units=_SIZE_UNITS),
     # Misalignment of the pulse against the bunch. No `z_off`: a rigid longitudinal shift
@@ -209,11 +222,28 @@ def beam_from_parameters(params: Parameters) -> GaussianElectronBeam:
     return from_parameters(GaussianElectronBeam, params)
 
 
-def laser_to_parameters(laser: GaussianParaxialLaser) -> Parameters:
-    return to_parameters(laser, LASER_FIELDS)
+def laser_to_parameters(laser: GaussianParaxialLaser | PulseTrainParaxialLaser) -> Parameters:
+    """Convert a laser (Gaussian or PulseTrain) to Parameters."""
+    # Determine laser_type from the actual object type
+    laser_type = "pulse_train" if isinstance(laser, PulseTrainParaxialLaser) else "gaussian"
+    
+    # Select relevant field specs based on laser type
+    if laser_type == "pulse_train":
+        relevant_specs = tuple(s for s in LASER_FIELDS if s.key not in _GAUSSIAN_LASER_KEYS)
+    else:
+        relevant_specs = tuple(s for s in LASER_FIELDS if s.key not in _PULSE_TRAIN_LASER_KEYS)
+    
+    # Create a dict with all field values, including laser_type
+    values = {spec.key: _magnitude(getattr(laser, spec.key), spec) for spec in relevant_specs if spec.key != "laser_type"}
+    values["laser_type"] = laser_type
+    return Parameters.from_specs(LASER_FIELDS, **values)
 
 
-def laser_from_parameters(params: Parameters) -> GaussianParaxialLaser:
+def laser_from_parameters(params: Parameters) -> GaussianParaxialLaser | PulseTrainParaxialLaser:
+    """Build a laser from Parameters, selecting type based on laser_type field."""
+    laser_type = params.get_choice("laser_type")
+    if laser_type == "pulse_train":
+        return from_parameters(PulseTrainParaxialLaser, params)
     return from_parameters(GaussianParaxialLaser, params)
 
 
