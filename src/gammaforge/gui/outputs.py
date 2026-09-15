@@ -235,7 +235,6 @@ def _render_collimated(available, view_state):
     if engine not in available:
         engine = next(iter(available))
     engine_select = ui.select(list(available), value=engine, label="Engine")
-    view_select = ui.select([], label="Collimated view")
 
     def redraw(engine, view):
         try:
@@ -254,6 +253,7 @@ def _render_collimated(available, view_state):
             with ui.row():
                 ui.button("PNG", on_click=lambda: _download_plot(projections[view], ".png", density_axes=density_axes)).props("outline")
                 ui.button("PDF", on_click=lambda: _download_plot(projections[view], ".pdf", density_axes=density_axes)).props("outline")
+
     def select_engine(engine):
         try:
             projections = collimated_projections(available[engine])
@@ -263,12 +263,21 @@ def _render_collimated(available, view_state):
         view = view_state.get("collimated_view")
         if view not in projections:
             view = "spectrum"
-        view_select.options = list(projections)
-        view_select.value = view
-        view_select.update()
+        # Use tabs for better view selection
+        view_tabs = ui.tabs(value=view, on_change=lambda e: redraw(engine_select.value, e.value)).classes("w-full")
+        with view_tabs:
+            # Order: 2D projections first, then 1D slices, then integrated spectrum
+            for v in ("energy_theta_x", "energy_theta_y", "energy_at_theta_x_zero", "energy_at_theta_y_zero", "spectrum"):
+                if v in projections:
+                    ui.tab(v, label=v.replace("_", " ").title())
+        with ui.tab_panels(view_tabs, value=view).classes("w-full"):
+            for v in ("energy_theta_x", "energy_theta_y", "energy_at_theta_x_zero", "energy_at_theta_y_zero", "spectrum"):
+                if v in projections:
+                    with ui.tab_panel(v):
+                        pass  # Content rendered by redraw()
         redraw(engine, view)
+
     engine_select.on_value_change(lambda e: select_engine(e.value))
-    view_select.on_value_change(lambda e: redraw(engine_select.value, e.value))
     select_engine(engine_select.value)
 
 
