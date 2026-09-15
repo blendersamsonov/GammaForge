@@ -40,7 +40,7 @@ class _FakeEngine:
 def test_default_runner_exposes_xigma_then_opt_in_kascade():
     runner = LocalRunner()
 
-    assert list(runner.engines) == ["xigma", "kascade"]
+    assert list(runner.engines) == ["xigma", "kascade", "delta"]
     assert isinstance(runner.engines["kascade"], KascadeEngine)
 
 

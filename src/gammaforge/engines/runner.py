@@ -14,6 +14,7 @@ from ..io.results import Results
 from ..io.target import OutputKind, OutputRequest
 from .analytical.engine import AnalyticalEngine
 from .base import Engine
+from .delta.engine import DeltaEngine
 from .kascade.engine import KascadeEngine
 from .xigma.engine import XigmaEngine
 
@@ -31,7 +32,7 @@ class LocalRunner:
 
     def __init__(self, engines: dict[str, Engine] | None = None) -> None:
         self.engines: dict[str, Engine] = (
-            {"xigma": XigmaEngine(), "kascade": KascadeEngine()}
+            {"xigma": XigmaEngine(), "kascade": KascadeEngine(), "delta": DeltaEngine()}
             if engines is None
             else engines
         )
