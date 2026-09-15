@@ -30,7 +30,7 @@ def _engine_color(name: str) -> str:
     return _ENGINE_COLORS[sum(name.encode("utf-8")) % len(_ENGINE_COLORS)]
 
 
-def _plot(figure, *, height: int = 384) -> None:
+def _plot(figure, *, height: int = 500) -> None:
     """Embed a split-pane-safe Plotly chart without NiceGUI's hidden-pane resize bug."""
     ui = _ui()
     options = figure.to_plotly_json()
@@ -285,7 +285,7 @@ def render_geometry(beam: GaussianElectronBeam, laser: LaserField, view_state: d
         view_state["geometry_mode"] = mode
         holder.clear()
         with holder:
-            _plot(plot_geometry(beam, laser, three_d=(mode == "3D")), height=300)
+            _plot(plot_geometry(beam, laser, three_d=(mode == "3D")), height=400)
     ui.toggle(["2D", "3D"], value=mode, on_change=lambda e: redraw(e.value))
     holder = ui.column().classes("w-full")
     redraw(mode)

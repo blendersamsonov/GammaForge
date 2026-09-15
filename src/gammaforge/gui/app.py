@@ -66,6 +66,8 @@ class BrowserWorkspace:
         self.preview_error = ""
         self.last_result_state = None
         self.last_status_state = None
+        # Settings
+        self.show_debug_warnings = True
         with ui.row().classes("gf-header w-full items-center justify-between"):
             with ui.column().classes("gap-0"):
                 ui.label("GammaForge").classes("text-h5 font-medium")
@@ -226,10 +228,12 @@ class Pane:
         self.status = ui.refreshable(self._status)
         self.estimates = ui.refreshable(self._estimates)
         self.geometry = ui.refreshable(self._geometry)
+        self.settings = ui.refreshable(self._settings)
         with ui.column().classes("gf-pane w-full gap-0"):
             with ui.tabs().classes("w-full") as tabs:
                 ui.tab("inputs", label="Inputs", icon="tune")
                 ui.tab("results", label="Results", icon="show_chart")
+                ui.tab("settings", label="Settings", icon="settings")
             with ui.tab_panels(tabs, value=page.active_tabs[index],
                                on_change=lambda e: page.active_tabs.__setitem__(index, e.value),
                                animated=False).classes("w-full"):
@@ -237,6 +241,8 @@ class Pane:
                     self.inputs()
                 with ui.tab_panel("results"):
                     self.results()
+                with ui.tab_panel("settings"):
+                    self.settings()
 
     def _inputs(self) -> None:
         model = self.page.model
@@ -309,14 +315,15 @@ class Pane:
             ui.label(model.error).classes("gf-error")
         for error in dict.fromkeys(model.inputs.errors.values()):
             ui.label(error).classes("gf-error")
-        try:
-            state = model.inputs
-            warnings = validate_beam(beam_from_parameters(state.groups["beam"]))
-            warnings += validate_laser(laser_from_parameters(state.groups["laser"]))
-            for warning in warnings:
-                ui.label(warning).classes("text-amber-10 text-caption")
-        except ValueError:
-            pass  # The field errors already identify invalid physical inputs.
+        if self.page.show_debug_warnings:
+            try:
+                state = model.inputs
+                warnings = validate_beam(beam_from_parameters(state.groups["beam"]))
+                warnings += validate_laser(laser_from_parameters(state.groups["laser"]))
+                for warning in warnings:
+                    ui.label(warning).classes("text-amber-10 text-caption")
+            except ValueError:
+                pass  # The field errors already identify invalid physical inputs.
 
     def _results(self) -> None:
         model = self.page.model
@@ -332,6 +339,40 @@ class Pane:
             ui.button("Download input snapshot", icon="download", on_click=self.page.download_snapshot).props("outline")
         render_results(model.results, requested, stale=model.stale,
                        view_state=self.page.view_states[self.index])
+
+    def _settings(self) -> None:
+        """Render the Settings tab with program info and debug options."""
+        with ui.column().classes("w-full gap-4"):
+            with ui.card().classes("gf-section"):
+                ui.label("About GammaForge").classes("gf-section-title")
+                ui.label(
+                    "GammaForge computes properties of Compton photons produced by "
+                    "an electron-bunch / laser-pulse interaction."
+                ).classes("text-grey-7")
+                ui.label(
+                    "Version: 0.1.0 (development)  |  "
+                    "Physics: Compton scattering in CGS-Gaussian units  |  "
+                    "Engines: analytical, xigma (GPU), kascade"
+                ).classes("text-caption text-grey-7")
+                ui.separator()
+                ui.label("Documentation:").classes("text-subtitle1")
+                with ui.column().classes("gap-1"):
+                    ui.label("• GRAND_PLAN.md — Architecture and phase plan")
+                    ui.label("• PROGRESS.md — Current state and open threads")
+                    ui.label("• docs/decisions/ — Implementation decisions (RESNNN)")
+                    ui.label("• docs/derivations/ — Physics derivations (DERNNN)")
+            
+            with ui.card().classes("gf-section"):
+                ui.label("Debug & Display").classes("gf-section-title")
+                ui.switch(
+                    "Show debug warnings in status",
+                    value=self.page.show_debug_warnings,
+                    on_change=lambda e: setattr(self.page, "show_debug_warnings", e.value)
+                ).props("dense")
+                ui.label(
+                    "When disabled, validation warnings (e.g., focus position, "
+                    "paraxial approximation limits) are hidden from the status panel."
+                ).classes("text-caption text-grey-7")
 
 
 def index() -> None:
