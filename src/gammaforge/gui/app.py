@@ -307,26 +307,32 @@ class Pane:
 
             with ui.element("div").classes(
                 f"gf-run-item {'selected' if is_selected else ''}"
-            ).on("click", lambda e, rid=run.id: self._select_run(rid)):
-                with ui.element("div").classes("gf-run-item-header"):
+            ):
+                with ui.element("div").classes("gf-run-item-header").on(
+                    "click", lambda rid=run.id: self._select_run(rid)
+                ):
                     ui.label(run.name).classes("gf-run-item-name")
                     with ui.row().classes("items-center gap-1"):
                         icon = {"completed": "check_circle", "running": "pending",
                                 "failed": "error", "pending": "schedule"}.get(run.status, "help")
                         ui.icon(icon, size="sm").classes(status_class)
-                ui.label(run.engine_name).classes("gf-run-item-engine")
+                ui.label(run.engine_name).classes("gf-run-item-engine").on(
+                    "click", lambda rid=run.id: self._select_run(rid)
+                )
                 ts = time.strftime("%H:%M:%S", time.localtime(run.timestamp))
-                ui.label(ts).classes("text-caption text-grey")
+                ui.label(ts).classes("text-caption text-grey").on(
+                    "click", lambda rid=run.id: self._select_run(rid)
+                )
 
                 # Action buttons
                 with ui.row().classes("w-full mt-1"):
-                    ui.button(icon="edit", on_click=lambda e, rid=run.id: self._rename_run(rid)).props(
+                    ui.button(icon="edit", on_click=lambda rid=run.id: self._rename_run(rid)).props(
                         "flat dense size=xs color=grey-7"
                     )
-                    ui.button(icon="content_copy", on_click=lambda e, rid=run.id: self._fork_run(rid)).props(
+                    ui.button(icon="content_copy", on_click=lambda rid=run.id: self._fork_run(rid)).props(
                         "flat dense size=xs color=grey-7"
                     )
-                    ui.button(icon="delete", on_click=lambda e, rid=run.id: self._delete_run(rid)).props(
+                    ui.button(icon="delete", on_click=lambda rid=run.id: self._delete_run(rid)).props(
                         "flat dense size=xs color=negative"
                     )
 
