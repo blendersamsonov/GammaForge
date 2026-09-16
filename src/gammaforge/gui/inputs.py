@@ -215,7 +215,7 @@ def render_target(state: InputState, on_change: ChangeCallback) -> list[Editor]:
                     checkbox.disable()
                     checkbox.tooltip("No selected engine supports this output")
                 elif not enabled:
-                    checkbox.tooltip("Unavailable with the selected engines. Uncheck to remove this request.")
+                    checkbox.tooltip("Unavailable with the selected engine. Uncheck to remove this request.")
                 error = ui.label(state.errors.get(state.error_key("outputs", kind.name), "")).classes("text-negative text-caption")
                 widgets = [checkbox]
                 axes = SLICE_AXES[kind]
@@ -256,37 +256,43 @@ def render_target(state: InputState, on_change: ChangeCallback) -> list[Editor]:
     return editors
 
 
-def render_engines(state: InputState, on_change: ChangeCallback) -> list[Editor]:
-    """Render only concrete public engine schemas, with selection in each engine tab."""
+def render_engine_selector(state: InputState, on_change: ChangeCallback) -> tuple[Any, list[Editor]]:
+    """Render engine selection dropdown and return (select_widget, editors_for_selected_engine)."""
     _require_ui()
     editors: list[Editor] = []
-    with ui.tabs().classes("w-full") as tabs:
-        for name in state.engines:
-            ui.tab(name, label=name)
-    with ui.tab_panels(tabs, value=next(iter(state.engines), None)).classes("w-full"):
-        for name in state.engines:
-            with ui.tab_panel(name):
-                selected = ui.checkbox("Use for calculation", value=name in state.selected).props(
-                    f'aria-label="Use {name} for calculation" data-field="engine:{name}.use"'
-                )
-                editor = Editor(f"engine:{name}", "use", [selected])
-                editors.append(editor)
+    
+    engine_names = list(state.engines.keys())
+    current = state.selected_engine or (engine_names[0] if engine_names else None)
+    
+    with ui.row().classes("w-full items-center gap-4"):
+        ui.label("Engine").classes("text-weight-medium")
+        select = ui.select(
+            engine_names,
+            value=current,
+            label="Calculation engine",
+        ).props('dense').classes("w-64")
+        
+        def on_engine_change(event):
+            engine_name = event.value
+            if state.set_selected_engine(engine_name):
+                on_change("engine", "selected")
+                # Refresh will be triggered by the page
+        select.on_value_change(on_engine_change)
+    
+    # Render fields for the currently selected engine
+    if current and f"engine:{current}" in state.groups:
+        with ui.element("div").classes("gf-engine-fields w-full mt-4"):
+            editors += _render_fields(state, f"engine:{current}", on_change)
+    
+    return select, editors
 
-                def update_selection(event, engine_name=name):
-                    enabled = bool(event.value)
-                    if (engine_name in state.selected) == enabled:
-                        return
-                    _set_engine_selected(state, engine_name, enabled)
-                    on_change(f"engine:{engine_name}", "use")
 
-                selected.on_value_change(update_selection)
-                with ui.element("div").classes("gf-engine-fields w-full"):
-                    editors += _render_fields(state, f"engine:{name}", on_change)
+def render_selected_engine_fields(state: InputState, on_change: ChangeCallback) -> list[Editor]:
+    """Render parameter fields for the currently selected engine."""
+    _require_ui()
+    editors: list[Editor] = []
+    current = state.selected_engine
+    if current and f"engine:{current}" in state.groups:
+        with ui.element("div").classes("gf-engine-fields w-full"):
+            editors += _render_fields(state, f"engine:{current}", on_change)
     return editors
-
-
-def _set_engine_selected(state: InputState, name: str, selected: bool) -> None:
-    if selected:
-        state.selected.add(name)
-    else:
-        state.selected.discard(name)

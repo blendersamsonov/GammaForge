@@ -41,7 +41,7 @@ class InputState:
 
     engines: dict[str, "Engine"]
     groups: dict[str, Parameters] = field(init=False)
-    selected: set[str] = field(init=False)
+    selected_engine: str | None = field(init=False, default=None)
     requested: dict[OutputKind, tuple[int, ...]] = field(
         default_factory=lambda: {OutputKind.TOTAL_YIELD: (), OutputKind.SPECTRUM: (64,)}
     )
@@ -58,10 +58,9 @@ class InputState:
             "target": Parameters.from_specs(TARGET_FIELDS),
             **{f"engine:{name}": engine.schema for name, engine in self.engines.items()},
         }
-        # The first concrete engine is the normal/default path. Validation engines remain
-        # visible but opt-in, without teaching the GUI any engine-specific names.
+        # Default to first engine
         first_engine = next(iter(self.engines), None)
-        self.selected = {first_engine} if first_engine is not None else set()
+        self.selected_engine = first_engine
 
     @staticmethod
     def error_key(group: str, key: str) -> str:
@@ -127,7 +126,16 @@ class InputState:
         return True
 
     def supports(self, kind: OutputKind) -> bool:
-        return any(kind in self.engines[name].supported_outputs for name in self.selected)
+        if self.selected_engine is None:
+            return False
+        return kind in self.engines[self.selected_engine].supported_outputs
+
+    def set_selected_engine(self, engine_name: str | None) -> bool:
+        """Set the selected engine for calculation."""
+        if engine_name is not None and engine_name not in self.engines:
+            return False
+        self.selected_engine = engine_name
+        return True
 
     def set_requested(self, kind: OutputKind, enabled: bool, resolution: tuple[int | str, ...] | None = None) -> bool:
         """Update an output request, refusing an output no selected engine can make."""
@@ -142,7 +150,7 @@ class InputState:
             return True
         try:
             if not self.supports(kind):
-                raise ValueError(f"No selected engine supports {kind.name}")
+                raise ValueError(f"Selected engine does not support {kind.name}")
             raw_resolution = resolution if resolution is not None else self.requested.get(kind, (64,) * len(SLICE_AXES[kind] or ()))
             self.output_raw[kind] = tuple(str(value) for value in raw_resolution)
             request = OutputRequest(
@@ -161,8 +169,10 @@ class InputState:
         if self.errors:
             raise ValueError("Input errors must be corrected before Calculate")
         unsupported = [kind.name for kind in self.requested if not self.supports(kind)]
-        if self.selected and unsupported:
-            raise ValueError(f"No selected engine supports requested outputs: {', '.join(unsupported)}")
+        if self.selected_engine and unsupported:
+            raise ValueError(f"Selected engine does not support requested outputs: {', '.join(unsupported)}")
+        if not self.selected_engine:
+            raise ValueError("Select an engine for calculation.")
         outputs = tuple(OutputRequest(kind, resolution) for kind, resolution in self.requested.items())
         target_params = self.groups["target"]
         try:
@@ -187,8 +197,6 @@ class InputState:
             target=target,
             sampling=sampling,
             engine_params={
-                name: self.groups[f"engine:{name}"]
-                for name in self.engines
-                if name in self.selected
+                self.selected_engine: self.groups[f"engine:{self.selected_engine}"]
             },
         )

@@ -41,6 +41,23 @@ class Runner:
         status("test", "completed")
         return {"test": Results({OutputKind.TOTAL_YIELD: PhasespaceSlice({}, np.array(100.0))})}
 
+    def calculate_one(self, engine_name, request, status):
+        self.calls += 1
+        self.request = request
+        status(engine_name, "running")
+        self.started.set()
+        assert self.release.wait(5)
+        status(engine_name, "completed")
+        return Results({OutputKind.TOTAL_YIELD: PhasespaceSlice({}, np.array(100.0))})
+
+
+def _get_results_for_engine(workspace, engine_name):
+    """Helper to get results from the latest completed run."""
+    for run in reversed(workspace.runs):
+        if run.engine_name == engine_name and run.results is not None:
+            return run.results
+    return None
+
 
 def test_charge_only_rescale_and_combined_edits_stale():
     runner = Runner()
@@ -50,12 +67,16 @@ def test_charge_only_rescale_and_combined_edits_stale():
     workspace.inputs.groups["beam"] = workspace.inputs.groups["beam"].with_values(bunch_charge=2 * old)
     workspace.changed("beam", "bunch_charge")
     assert not workspace.stale
-    assert float(workspace.results["test"].photon_slices[OutputKind.TOTAL_YIELD].distr) == 200
+    results = _get_results_for_engine(workspace, "test")
+    assert results is not None
+    assert float(results.photon_slices[OutputKind.TOTAL_YIELD].distr) == 200
     workspace.changed("laser", "pulse_energy")
     workspace.inputs.groups["beam"] = workspace.inputs.groups["beam"].with_values(bunch_charge=3 * old)
     workspace.changed("beam", "bunch_charge")
     assert workspace.stale
-    assert float(workspace.results["test"].photon_slices[OutputKind.TOTAL_YIELD].distr) == 200
+    results = _get_results_for_engine(workspace, "test")
+    assert results is not None
+    assert float(results.photon_slices[OutputKind.TOTAL_YIELD].distr) == 200
     assert runner.calls == 1
 
 
@@ -96,14 +117,18 @@ def test_invalid_draft_never_runs_old_valid_values():
 
 def test_failed_run_keeps_last_result_outdated():
     class Fails(Runner):
+        def calculate_one(self, engine_name, request, status):
+            raise RuntimeError("test failure")
         def calculate(self, request, status):
             raise RuntimeError("test failure")
+
     workspace = Workspace(Runner())
     asyncio.run(workspace.calculate())
-    previous = workspace.results
+    previous = workspace.runs.copy()
     workspace.runner = Fails()
     asyncio.run(workspace.calculate())
-    assert workspace.results is previous
+    assert len(workspace.runs) == 2
+    assert workspace.runs[0] in previous
     assert workspace.stale
     assert "test failure" in workspace.error
     assert not workspace.busy
@@ -111,6 +136,9 @@ def test_failed_run_keeps_last_result_outdated():
 
 def test_all_selected_engine_failures_keep_previous_results_and_unlock():
     class Fails(Runner):
+        def calculate_one(self, engine_name, request, status):
+            self.calls += 1
+            raise RuntimeError("engine failure")
         def calculate(self, request, status):
             self.calls += 1
             self.errors = {"test": "engine failure"}
@@ -118,43 +146,23 @@ def test_all_selected_engine_failures_keep_previous_results_and_unlock():
 
     workspace = Workspace(Runner())
     asyncio.run(workspace.calculate())
-    previous = workspace.results
+    previous = workspace.runs.copy()
     workspace.locked = True
     workspace.runner = Fails()
 
     asyncio.run(workspace.calculate())
 
-    assert workspace.results is previous
+    assert len(workspace.runs) == 2
+    assert workspace.runs[0] in previous
     assert workspace.stale
     assert not workspace.locked
-    assert "test: engine failure" in workspace.error
-
-
-def test_partial_engine_failure_keeps_only_current_successful_results_unlocked():
-    class Partial(Runner):
-        def __init__(self):
-            super().__init__()
-            self.engines["other"] = Engine()
-
-        def calculate(self, request, status):
-            self.errors = {"other": "engine failure"}
-            return {
-                "analytical": Results({}),
-                "test": Results({OutputKind.TOTAL_YIELD: PhasespaceSlice({}, np.array(50.0))}),
-            }
-
-    workspace = Workspace(Partial())
-
-    asyncio.run(workspace.calculate())
-
-    assert set(workspace.results) == {"analytical", "test"}
-    assert workspace.stale
-    assert not workspace.locked
-    assert "other: engine failure" in workspace.error
+    assert "engine failure" in workspace.error
 
 
 def test_exception_after_a_locked_result_unlocks_for_retry():
     class Fails(Runner):
+        def calculate_one(self, engine_name, request, status):
+            raise RuntimeError("test failure")
         def calculate(self, request, status):
             raise RuntimeError("test failure")
 

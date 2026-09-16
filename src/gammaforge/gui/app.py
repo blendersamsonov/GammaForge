@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import io
+import time
 import zipfile
+from typing import Any
 
 import yaml
 
@@ -19,7 +21,12 @@ from ..io.formats.yaml_spec import SPEC_VERSION, parameters_to_yaml_dict
 from ..io.laser import validate as validate_laser
 from ..io.target import OutputKind
 from .controller import Workspace
-from .inputs import render_engines, render_input_columns, render_target
+from .inputs import (
+    render_engine_selector,
+    render_input_columns,
+    render_selected_engine_fields,
+    render_target,
+)
 from .outputs import render_geometry, render_results
 
 
@@ -47,6 +54,24 @@ body { background: #f3f6fa; color: #26364a; }
 .q-splitter__separator { background: #c8d6e3; width: 5px; }
 .q-splitter__before, .q-splitter__after { min-width: 0; overflow: auto; }
 .gf-pane .q-tab-panel > .nicegui-column { width: 100%; }
+/* Run history panel */
+.gf-run-panel { width: 240px; min-width: 240px; max-width: 240px; height: 100%;
+  overflow-y: auto; border-right: 1px solid #dce4ed; padding: 12px; background: #f8fafc; }
+.gf-run-item { padding: 8px 10px; margin-bottom: 6px; border: 1px solid #dce4ed;
+  border-radius: 6px; cursor: pointer; transition: all 0.15s ease; }
+.gf-run-item:hover { background: #e8eef5; }
+.gf-run-item.selected { background: #d0e1ed; border-color: #256782; }
+.gf-run-item-header { display: flex; justify-content: space-between; align-items: center; }
+.gf-run-item-name { font-weight: 500; font-size: 13px; }
+.gf-run-item-engine { font-size: 11px; color: #6b7280; margin-top: 2px; }
+.gf-run-item-status { font-size: 11px; }
+.gf-run-status-completed { color: #16a34a; }
+.gf-run-status-running { color: #d97706; }
+.gf-run-status-failed { color: #dc2626; }
+.gf-run-status-pending { color: #6b7280; }
+.gf-run-actions { display: flex; gap: 4px; margin-top: 6px; }
+.gf-input-layout { display: flex; width: 100%; height: 100%; }
+.gf-input-main { flex: 1; overflow-y: auto; min-width: 0; }
 """
 
 
@@ -102,15 +127,22 @@ class BrowserWorkspace:
                     pane.inputs.refresh()
             self._update_locks()
             return
+        if group == "engine" and key == "selected":
+            # Engine selection changed — refresh engine fields and outputs
+            for pane in self.panes:
+                pane.engine_fields.refresh()
+                pane.inputs.refresh()
+            self.preview_error = ""
+            for pane in self.panes:
+                pane.estimates.refresh()
+                pane.status.refresh()
+                pane.results.refresh()
+            self._update_locks()
+            return
         self.model.changed(group, key)
         self.preview_error = ""
         for pane in self.panes:
-            if key == "use":
-                for editor in pane.editors:
-                    if (editor.group, editor.key) == (group, key):
-                        name = group.split(":", 1)[1]
-                        editor.widgets[0].set_value(name in self.model.inputs.selected)
-            elif pane.index != source:
+            if pane.index != source:
                 pane.inputs.refresh()
             pane.estimates.refresh()
             pane.status.refresh()
@@ -121,9 +153,6 @@ class BrowserWorkspace:
         state = self.model.inputs
         for pane in self.panes:
             for editor in pane.editors:
-                if editor.key == "use":
-                    editor.set_locked(self.model.busy)
-                    continue
                 if editor.group == "outputs":
                     kind = OutputKind[editor.key]
                     supported = state.supports(kind)
@@ -133,6 +162,13 @@ class BrowserWorkspace:
                         *(supported and requested for _ in editor.widgets[1:]),
                     ]
                 editor.set_locked(self.model.busy)
+
+    def _refresh_run_panels(self) -> None:
+        """Refresh the run history panel on all panes."""
+        for pane in self.panes:
+            pane.run_panel.refresh()
+            pane.status.refresh()
+            pane.results.refresh()
 
     async def calculate(self) -> None:
         if self.model.busy:
@@ -146,9 +182,7 @@ class BrowserWorkspace:
         await task
         if not self.client.is_deleted:
             self._update_locks()
-            for pane in self.panes:
-                pane.status.refresh()
-                pane.results.refresh()
+            self._refresh_run_panels()
 
     async def _tick(self) -> None:
         if self.client.is_deleted:
@@ -159,7 +193,7 @@ class BrowserWorkspace:
             self.last_status_state = status_state
             for pane in self.panes:
                 pane.status.refresh()
-        result_state = (id(self.model.results), self.model.stale)
+        result_state = (id(self.model.runs), self.model.stale)
         if result_state != self.last_result_state:
             self.last_result_state = result_state
             for pane in self.panes:
@@ -193,7 +227,8 @@ class BrowserWorkspace:
                 pane.geometry.refresh()
 
     def download_snapshot(self) -> None:
-        request = self.model.completed_request
+        current = self.model.current_run
+        request = current.request if current else None
         if request is None:
             return
         groups = self.model.inputs.groups
@@ -223,7 +258,9 @@ class Pane:
 
         # Each refreshable belongs to one pane, so an edit can refresh its sibling
         # without rebuilding the focused form and losing the cursor position.
+        self.run_panel = ui.refreshable(self._run_panel)
         self.inputs = ui.refreshable(self._inputs)
+        self.engine_fields = ui.refreshable(self._engine_fields)
         self.results = ui.refreshable(self._results)
         self.status = ui.refreshable(self._status)
         self.estimates = ui.refreshable(self._estimates)
@@ -238,11 +275,107 @@ class Pane:
                                on_change=lambda e: page.active_tabs.__setitem__(index, e.value),
                                animated=False).classes("w-full"):
                 with ui.tab_panel("inputs"):
-                    self.inputs()
+                    self._inputs_with_panel()
                 with ui.tab_panel("results"):
                     self.results()
                 with ui.tab_panel("settings"):
                     self.settings()
+
+    def _inputs_with_panel(self) -> None:
+        """Render inputs tab with run history panel on the left."""
+        with ui.element("div").classes("gf-input-layout w-full h-full"):
+            with ui.element("div").classes("gf-run-panel"):
+                self.run_panel()
+            with ui.element("div").classes("gf-input-main"):
+                self.inputs()
+
+    def _run_panel(self) -> None:
+        """Render the run history panel on the left side of Inputs tab."""
+        model = self.page.model
+
+        ui.label("Run History").classes("text-subtitle2 font-medium mb-2")
+        ui.button("New Run", icon="add", on_click=self._new_run).props("flat dense color=primary")
+        ui.separator().classes("my-2")
+
+        if not model.runs:
+            ui.label("No runs yet. Click Calculate to start.").classes("text-grey text-caption")
+            return
+
+        for run in reversed(model.runs):  # Show newest first
+            is_selected = run.id == model.current_run_id
+            status_class = f"gf-run-status-{run.status}"
+
+            with ui.element("div").classes(
+                f"gf-run-item {'selected' if is_selected else ''}"
+            ).on("click", lambda e, rid=run.id: self._select_run(rid)):
+                with ui.element("div").classes("gf-run-item-header"):
+                    ui.label(run.name).classes("gf-run-item-name")
+                    with ui.row().classes("items-center gap-1"):
+                        icon = {"completed": "check_circle", "running": "pending",
+                                "failed": "error", "pending": "schedule"}.get(run.status, "help")
+                        ui.icon(icon, size="sm").classes(status_class)
+                ui.label(run.engine_name).classes("gf-run-item-engine")
+                ts = time.strftime("%H:%M:%S", time.localtime(run.timestamp))
+                ui.label(ts).classes("text-caption text-grey")
+
+                with ui.element("div").classes("gf-run-actions"):
+                    ui.button(icon="edit", on_click=lambda e, rid=run.id: self._rename_run(rid)).props(
+                        "flat dense size=xs color=grey-7"
+                    )
+                    ui.button(icon="content_copy", on_click=lambda e, rid=run.id: self._fork_run(rid)).props(
+                        "flat dense size=xs color=grey-7"
+                    )
+                    ui.button(icon="delete", on_click=lambda e, rid=run.id: self._delete_run(rid)).props(
+                        "flat dense size=xs color=negative"
+                    )
+
+    def _new_run(self) -> None:
+        """Clear the draft for a fresh calculation."""
+        model = self.page.model
+        model.select_run(None)
+        self.page._refresh_run_panels()
+
+    def _select_run(self, run_id: int) -> None:
+        """Select a run in the history panel."""
+        model = self.page.model
+        model.select_run(run_id)
+        self.page._refresh_run_panels()
+
+    def _fork_run(self, run_id: int) -> None:
+        """Load a historical run's inputs into the draft for editing."""
+        model = self.page.model
+        if model.fork_run(run_id):
+            self.page._refresh_run_panels()
+
+    def _delete_run(self, run_id: int) -> None:
+        """Delete a run from history."""
+        model = self.page.model
+        if model.delete_run(run_id):
+            self.page._refresh_run_panels()
+
+    def _rename_run(self, run_id: int) -> None:
+        """Open a dialog to rename a run."""
+        model = self.page.model
+        run = next((r for r in model.runs if r.id == run_id), None)
+        if run is None:
+            return
+
+        dialog = ui.dialog()
+        with dialog:
+            with ui.card():
+                ui.label("Rename Run").classes("text-h6")
+                name_input = ui.input("Run name", value=run.name).classes("w-full")
+                with ui.row().classes("w-full justify-end gap-2"):
+                    ui.button("Cancel", on_click=dialog.close).props("flat")
+                    ui.button("Save", on_click=lambda: self._save_rename(run_id, name_input.value, dialog)).props("flat color=primary")
+        dialog.open()
+
+    def _save_rename(self, run_id: int, new_name: str, dialog: Any) -> None:
+        """Save the new run name."""
+        model = self.page.model
+        if model.rename_run(run_id, new_name):
+            dialog.close()
+            self.page._refresh_run_panels()
 
     def _inputs(self) -> None:
         model = self.page.model
@@ -255,9 +388,18 @@ class Pane:
             with ui.card().classes("gf-section"):
                 self.estimates()
             with ui.card().classes("gf-section"):
-                ui.label("Calculation engines").classes("gf-section-title")
-                self.editors += render_engines(model.inputs, change)
+                ui.label("Calculation engine").classes("gf-section-title")
+                select, engine_editors = render_engine_selector(model.inputs, change)
+                self.editors += engine_editors
+                self.engine_fields.refresh()
                 self.status()
+
+    def _engine_fields(self) -> None:
+        """Refreshable engine fields for the currently selected engine."""
+        model = self.page.model
+        change = lambda group, key: self.page.changed(self.index, group, key)
+        self.editors = [e for e in self.editors if not e.group.startswith("engine:")]
+        self.editors += render_selected_engine_fields(model.inputs, change)
 
     def _geometry(self) -> None:
         state = self.page.model.inputs
@@ -303,7 +445,7 @@ class Pane:
         model = self.page.model
         with ui.row().classes("items-center gap-3"):
             button = ui.button("Calculate", icon="play_arrow", on_click=self.page.calculate)
-            if model.busy or model.inputs.errors or not model.inputs.selected:
+            if model.busy or model.inputs.errors or not model.inputs.selected_engine:
                 button.disable()
             if model.busy:
                 ui.spinner(size="sm")
@@ -327,18 +469,20 @@ class Pane:
 
     def _results(self) -> None:
         model = self.page.model
+        completed_runs = model.completed_runs
         requested = tuple(model.inputs.requested)
-        if model.completed_request is not None:
-            requested = tuple(dict.fromkeys(
-                [output.kind for output in model.completed_request.target.outputs] + list(requested)))
         if model.busy:
             ui.label("Calculation in progress; completed results appear below.").classes("gf-status")
         if model.error:
             ui.label(model.error).classes("gf-error")
-        if model.completed_request is not None:
+        if completed_runs:
             ui.button("Download input snapshot", icon="download", on_click=self.page.download_snapshot).props("outline")
-        render_results(model.results, requested, stale=model.stale,
-                       view_state=self.page.view_states[self.index])
+        render_results(
+            completed_runs,
+            requested,
+            stale=model.stale,
+            view_state=self.page.view_states[self.index],
+        )
 
     def _settings(self) -> None:
         """Render the Settings tab with program info and debug options."""
@@ -361,7 +505,7 @@ class Pane:
                     ui.label("• PROGRESS.md — Current state and open threads")
                     ui.label("• docs/decisions/ — Implementation decisions (RESNNN)")
                     ui.label("• docs/derivations/ — Physics derivations (DERNNN)")
-            
+
             with ui.card().classes("gf-section"):
                 ui.label("Debug & Display").classes("gf-section-title")
                 ui.switch(

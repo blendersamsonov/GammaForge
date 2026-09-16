@@ -72,14 +72,15 @@ def test_requested_outputs_need_a_selected_supporting_engine():
 def test_only_first_engine_is_selected_by_default_and_requests_keep_registry_order():
     state = InputState({"first": AnalyticalEngine(), "second": AnalyticalEngine()})
 
-    assert state.selected == {"first"}
-    state.selected.add("second")
-    assert list(state.request().engine_params) == ["first", "second"]
+    assert state.selected_engine == "first"
+    state.set_selected_engine("second")
+    assert state.selected_engine == "second"
+    assert list(state.request().engine_params) == ["second"]
 
 
 def test_previously_requested_output_can_be_removed_after_engine_selection_changes():
     state = InputState({"analytical": AnalyticalEngine()})
-    state.selected.clear()
+    state.set_selected_engine(None)
 
     assert state.set_requested(OutputKind.SPECTRUM, False)
     assert OutputKind.SPECTRUM not in state.requested

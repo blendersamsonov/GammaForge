@@ -91,6 +91,36 @@ class LocalRunner:
             self._run_one(name, lambda engine=engine, params=params: engine.run(interaction, params), results, on_status)
         return results
 
+    def calculate_one(
+        self, engine_name: str, request: CalculationRequest, on_status: StatusCallback | None = None
+    ) -> Results | None:
+        """Run a single engine (plus analytical overlay) and return its results.
+
+        Returns the engine's Results on success, None on failure.
+        """
+        if engine_name not in self.engines:
+            raise ValueError(f"unknown calculation engine: {engine_name}")
+
+        self.errors.clear()
+        results: dict[str, Results] = {}
+
+        # Always run analytical as overlay
+        self._run_one("analytical", lambda: self._analytical(request, request.target), results, on_status)
+
+        try:
+            interaction = self._interaction(request)
+        except Exception as error:
+            self.errors[engine_name] = str(error)
+            _status(on_status, engine_name, "failed")
+            return None
+
+        engine = self.engines[engine_name]
+        self._run_one(engine_name, lambda engine=engine, params=request.engine_params[engine_name]: engine.run(interaction, params), results, on_status)
+
+        if engine_name in self.errors:
+            return None
+        return results.get(engine_name)
+
     def _interaction(self, request: CalculationRequest) -> InteractionParameters:
         key = _sampling_key(request)
         if self._cached_sampling_key == key and self._cached_interaction is not None:
