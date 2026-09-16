@@ -167,6 +167,7 @@ class BrowserWorkspace:
         """Refresh the run history panel on all panes."""
         for pane in self.panes:
             pane.run_panel.refresh()
+            pane.inputs.refresh()
             pane.status.refresh()
             pane.results.refresh()
 
