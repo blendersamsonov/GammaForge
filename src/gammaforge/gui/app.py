@@ -318,15 +318,16 @@ class Pane:
                 ts = time.strftime("%H:%M:%S", time.localtime(run.timestamp))
                 ui.label(ts).classes("text-caption text-grey")
 
-                with ui.element("div").classes("gf-run-actions"):
+                # Action buttons
+                with ui.row().classes("w-full mt-1"):
                     ui.button(icon="edit", on_click=lambda e, rid=run.id: self._rename_run(rid)).props(
-                        "flat dense size=xs color=grey-7 @click.stop"
+                        "flat dense size=xs color=grey-7"
                     )
                     ui.button(icon="content_copy", on_click=lambda e, rid=run.id: self._fork_run(rid)).props(
-                        "flat dense size=xs color=grey-7 @click.stop"
+                        "flat dense size=xs color=grey-7"
                     )
                     ui.button(icon="delete", on_click=lambda e, rid=run.id: self._delete_run(rid)).props(
-                        "flat dense size=xs color=negative @click.stop"
+                        "flat dense size=xs color=negative"
                     )
 
     def _new_run(self) -> None:
