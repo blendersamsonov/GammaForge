@@ -320,13 +320,13 @@ class Pane:
 
                 with ui.element("div").classes("gf-run-actions"):
                     ui.button(icon="edit", on_click=lambda e, rid=run.id: self._rename_run(rid)).props(
-                        "flat dense size=xs color=grey-7"
+                        "flat dense size=xs color=grey-7 @click.stop"
                     )
                     ui.button(icon="content_copy", on_click=lambda e, rid=run.id: self._fork_run(rid)).props(
-                        "flat dense size=xs color=grey-7"
+                        "flat dense size=xs color=grey-7 @click.stop"
                     )
                     ui.button(icon="delete", on_click=lambda e, rid=run.id: self._delete_run(rid)).props(
-                        "flat dense size=xs color=negative"
+                        "flat dense size=xs color=negative @click.stop"
                     )
 
     def _new_run(self) -> None:

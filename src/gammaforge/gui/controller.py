@@ -110,6 +110,7 @@ class Workspace:
         from ..io.fields import (
             beam_from_parameters,
             laser_from_parameters,
+            laser_to_parameters,
             sampling_from_parameters,
             to_parameters,
         )
@@ -122,8 +123,8 @@ class Workspace:
             if spec.key in beam_params.values:
                 self.inputs.groups["beam"] = self.inputs.groups["beam"].with_values(**{spec.key: beam_params.values[spec.key]})
 
-        # Load laser
-        laser_params = to_parameters(request.laser, self.inputs.groups["laser"].specs)
+        # Load laser (use laser_to_parameters to handle laser_type correctly)
+        laser_params = laser_to_parameters(request.laser)
         self.inputs.groups["laser"] = Parameters.from_specs(self.inputs.groups["laser"].specs)
         for spec in self.inputs.groups["laser"].specs:
             if spec.key in laser_params.values:
