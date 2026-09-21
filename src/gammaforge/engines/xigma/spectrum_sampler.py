@@ -1,10 +1,11 @@
 """Stage 2: CuPy ring/annulus importance-sampling kernel for xigma.
 
-Ports the predecessor's `spectrum_kernel_4d` (ComptonSuite) onto GammaForge's
-architecture:
+The kernel follows GammaForge's Stage-2 contract:
 - Applies `KERNEL_NORMALIZATION_CONSTANT = 1.5 / (2 pi)` (RES033).
 - Adapts the ahat quadrature loop to arbitrary non-uniform target grids (RES032),
-  consuming 1D device arrays `ahat_centers` and `ahat_widths`.
+  consuming 1D device arrays `ahat_eval_points` and `ahat_widths`. The evaluation
+  points use an explicit zeroth bin at ahat=0 for sub-floor contributions and for
+  the n_bins=1 "ignore nonlinearity" mode.
 - Dispatches multi-point angular spectrum queries to GPU rawkernel when CUDA and CuPy
   are available, falling back to NumPy brute-force grid quadrature.
 """
@@ -43,7 +44,7 @@ __all__ = [
     "gamma_bracket",
 ]
 
-# Sizing and launch constants (matching ComptonSuite config.py)
+# Sizing and launch constants pinned by the CUDA validation gates (RES062, RES072).
 CP_FLOAT = np.float32
 CP_UINT = np.uint32
 CP_INT = np.int32
@@ -196,7 +197,7 @@ def _define_kernel(capacity=32):
         theta_y_min,
         theta_y_width,
         n_theta_y,
-        ahat_centers,
+        ahat_eval_points,
         ahat_widths,
         ahat_min,
         ahat_max,
@@ -502,7 +503,7 @@ def _define_kernel(capacity=32):
                             h_sum = CP_ZERO
                             if inv_base > CP_ZERO:
                                 for ai2 in jit.range(CP_INT(n_a0)):
-                                    a0_val = ahat_centers[ai2]
+                                    a0_val = ahat_eval_points[ai2]
                                     a0_width = ahat_widths[ai2]
                                     g_sq = (CP_ONE + a0_val) / inv_base
                                     g = cp.sqrt(g_sq)
@@ -682,7 +683,8 @@ def calculate_angular_spectrum_gpu(
     theta_y_width = CP_FLOAT(table.theta_y_edges[1] - table.theta_y_edges[0])
     n_theta_y = CP_UINT(table.H.shape[2])
 
-    ahat_centers = cp.asarray(table.ahat_centers, dtype=CP_FLOAT)
+    # Use evaluation points (zeroth bin at ahat=0 for sub-floor/linear mode) instead of centers
+    ahat_eval_points = cp.asarray(table.ahat_eval_points, dtype=CP_FLOAT)
     ahat_widths = cp.asarray(table.ahat_widths, dtype=CP_FLOAT)
     ahat_min = CP_FLOAT(table.ahat_edges[0])
     ahat_max = CP_FLOAT(table.ahat_edges[-1])
@@ -712,7 +714,7 @@ def calculate_angular_spectrum_gpu(
     H_gamma_gpu /= H_gamma_gpu.max()
     H_gamma_gpu += CP_FLOAT(PROPOSAL_FLOOR_FRACTION)
     ahat_marginal = (table.H * scale).sum(axis=(0, 1, 2)) * table.ahat_widths
-    ahat_ref = float(np.dot(table.ahat_centers, ahat_marginal) / ahat_marginal.sum())
+    ahat_ref = float(np.dot(table.ahat_eval_points, ahat_marginal) / ahat_marginal.sum())
 
     spec = cp.zeros((grid_x,), dtype=CP_FLOAT)
 
@@ -732,7 +734,7 @@ def calculate_angular_spectrum_gpu(
         theta_y_min,
         theta_y_width,
         n_theta_y,
-        ahat_centers,
+        ahat_eval_points,
         ahat_widths,
         ahat_min,
         ahat_max,

@@ -62,9 +62,13 @@ def test_table_jacobian_preserves_independent_line_mass_and_centroid(crossing):
     tx, ty, ahat = .12, -.08, .02
     gamma_edges = np.linspace(600., 1400., 49)
     centers = (gamma_edges[:-1] + gamma_edges[1:])/2
+    ahat_edges = np.array([0., 2*ahat])
+    # Single bin [0, 0.04] should be evaluated at its center (0.02), not at 0
+    ahat_eval_points = np.array([ahat])
     table = Table(gamma_edges, np.array([tx-1e-5, tx+1e-5]),
-                  np.array([ty-1e-5, ty+1e-5]), np.array([0., 2*ahat]),
-                  (1 + (centers/1000)**2)[:, None, None, None], 1., 'doppler-check')
+                  np.array([ty-1e-5, ty+1e-5]), ahat_edges,
+                  (1 + (centers/1000)**2)[:, None, None, None], 1., 'doppler-check',
+                  _ahat_eval_points=ahat_eval_points)
     nodes, quad = np.polynomial.legendre.leggauss(12)
     g = ((centers[:-1, None]+centers[1:, None])/2
          + np.diff(centers)[:, None]*nodes/2).ravel()

@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import itertools
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -692,7 +692,7 @@ def polarization_factor_vectorized(
 
 
 #: Live bytes per (particle x step) in Stage 0's inner loop, for auto-chunking.
-#: Calibrated on the predecessor's equivalent kernel on a GTX 1660 Ti (6 GB): 400,000
+#: Calibrated on a GTX 1660 Ti (6 GB): 400,000
 #: particles at 64 steps fit, 800,000 did not, with the failing allocation reported at
 #: 409,600,000 bytes — about 113 bytes per particle-step, consistent with roughly fourteen
 #: concurrently-live float64 temporaries. Rounded up for headroom against other processes
@@ -774,8 +774,8 @@ class TrajectorySamples:
     It is one scalar per particle rather than a per-timestep distribution, and that is
     physics, not an optimization: in this weakly nonlinear regime the photon formation
     length spans the whole trajectory, so — unlike synchrotron radiation — the trajectory
-    may **not** be split into independently radiating segments. The predecessor learned
-    this the hard way and left a warning against going back to per-timestep a0.
+    may **not** be split into independently radiating segments. Do not replace this with
+    per-timestep emission amplitudes.
     """
 
     gamma: np.ndarray
@@ -855,8 +855,8 @@ def integrate_trajectories(
 
     The default is deliberately the wider one. The illuminated window is an *estimate*
     rather than a bound, so switching changes results (slightly, and towards the converged
-    answer) — a deliberate act, not something to inherit silently, and the reason the golden
-    references still describe the geometric window.
+    answer) — a deliberate act, not something to inherit silently. Validation therefore
+    states explicitly which window it exercises.
 
     Chunking is over particles, whose trajectories are independent, so the partition
     cannot change the answer.
@@ -946,8 +946,8 @@ def integrate_trajectories(
         # and square it here — that's where RES053's missing factor of two hid.
         intensity = xp.asarray(laser.intensity_profile(*positions, times))
         # The photon density an electron flies through, and the rate it scatters at.
-        # In CGS this is simply flux x cross-section x time; the predecessor's k0**2 was
-        # the Jacobian of its coordinate normalization and has no counterpart here (RES015).
+        # In CGS this is simply flux x cross-section x time; no coordinate-normalization
+        # Jacobian belongs here (RES015).
         dt = local_span / n_steps
         luminosity = local_rate * local_weight * dt * xp.sum(intensity, axis=1)
 
@@ -984,8 +984,8 @@ def integrate_trajectories(
         bunch.n_particles,
         integrate,
         chunk=chunk,
-        # No ceiling: the predecessor's measured chunk ceiling was for the *spectrum*
-        # path's s-axis, where per-launch overhead amortized by ~8-16. Stage 0 partitions
+        # No ceiling: the measured chunk ceiling applies to the *spectrum* path's s-axis,
+        # where per-launch overhead amortized by ~8-16. Stage 0 partitions
         # particles, where no such measurement exists, and inventing one would be the
         # cargo-culting the chunking module's own docstring warns the constants against.
         bytes_per_item=(BYTES_PER_PARTICLE_STEP + (32 if spatial_edges is not None else
@@ -1035,8 +1035,7 @@ def integrate_trajectories(
 DEFAULT_SHAPE_BINS = (48, 48, 48, 96)
 
 #: Defaults for :func:`retarget_ahat`'s fixed, non-uniform target grid, tuned against this
-#: repo's scenario bank (RES032) rather than re-derived from the predecessor's
-#: ``DEFAULT_A0_MAX``/``retarget_a0`` defaults, which were sized for a different bank.
+#: repo's scenario bank (RES032), independent of defaults tuned for other scenario banks.
 DEFAULT_RETARGET_BINS = 32
 DEFAULT_AHAT_MIN = 0.0
 DEFAULT_AHAT_MAX = 0.5
@@ -1137,6 +1136,9 @@ class Table:
     H: np.ndarray
     total_weight: float
     scheme: str
+    # Precomputed evaluation points for the ahat axis (zeroth bin at 0 for sub-floor/linear mode).
+    # If None, falls back to ahat_centers (for backward compatibility with manually created Tables).
+    _ahat_eval_points: np.ndarray | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         _validate_edges_and_shape(
@@ -1160,6 +1162,25 @@ class Table:
 
     @property
     def ahat_centers(self):
+        xp = _get_array_module(self.ahat_edges)
+        return 0.5 * (self.ahat_edges[:-1] + self.ahat_edges[1:])
+
+    @property
+    def ahat_eval_points(self):
+        """Evaluation points for the ahat axis.
+        
+        If precomputed evaluation points are stored (from retarget_ahat), use those.
+        Otherwise, fall back to geometric centers (ahat_centers).
+        
+        The precomputed points handle:
+        - n_bins=1 "ignore nonlinearity" case: single bin evaluated at 0
+        - Explicit zeroth bin for sub-floor contributions (ahat_min > 0): first bin evaluated at 0
+        """
+        # Use precomputed evaluation points if available
+        if self._ahat_eval_points is not None:
+            return self._ahat_eval_points
+        
+        # Fallback: use geometric centers (no special handling without precomputed points)
         xp = _get_array_module(self.ahat_edges)
         return 0.5 * (self.ahat_edges[:-1] + self.ahat_edges[1:])
 
@@ -1197,7 +1218,7 @@ def _deposit_nearest(coords, weight, n_bins):
 def _deposit_cic(coords, weight, n_bins):
     """Cloud-in-cell: each sample splits its weight over its 16 neighbouring cells.
 
-    Cell-centred convention (predecessor's, §4.2): a sample's continuous coordinate is
+    Cell-centred convention (§4.2): a sample's continuous coordinate is
     shifted by ``-0.5`` so it interpolates between cell *centres*. ``edge='clamp'``
     always — overflow folds into the boundary cell rather than discarding weight, which
     is what keeps a CIC deposit's total exactly equal to a nearest deposit's for the same
@@ -1307,12 +1328,24 @@ def _ahat_target_edges(ahat_min: float, ahat_max: float, n_bins: int, decades: f
     bank actually uses (RES032): the top bin ends up wider than its immediate
     neighbour, not narrower. A deliberate, bounded exception to the "finer toward the top"
     trend at the very last bin, not a bug — every other bin still shrinks monotonically.
+
+    Special case: when ``n_bins == 1``, this returns a single bin spanning ``[0, ahat_max]``
+    to support the "ignore nonlinearity" mode where all spectrum calculations evaluate at
+    ``ahat = 0``. The evaluation point for this bin is 0, not the midpoint.
     """
     if ahat_max <= ahat_min:
         raise ValueError(f"_ahat_target_edges: ahat_max ({ahat_max}) must exceed ahat_min ({ahat_min})")
     if decades <= 0.0:
         raise ValueError(f"_ahat_target_edges: decades must be positive, got {decades}")
+    if n_bins <= 0:
+        raise ValueError(f"_ahat_target_edges: n_bins must be positive, got {n_bins}")
+
     xp = np  # This function creates new arrays, use numpy as base
+
+    # Special case: n_bins == 1 means "ignore nonlinearity" — single bin evaluated at ahat=0
+    if n_bins == 1:
+        return xp.array([0.0, ahat_max])
+
     i = xp.arange(n_bins + 1)
     v = (ahat_max - ahat_min) * 10.0 ** (-decades * i / n_bins)
     edges = ahat_max - v
@@ -1343,9 +1376,18 @@ def retarget_ahat(
     deposited mass is rescaled by ``intensity_peak / shape_table.source_intensity_peak``
     (:meth:`TrajectorySamples.retargeted_luminosity`'s relation), since the requested
     intensity is generally not the one Stage 0 ran at.
+
+    When ``n_bins == 1``, the returned table has a single bin spanning ``[0, ahat_max]``
+    evaluated at ``ahat = 0`` — this is the "ignore nonlinearity" mode.
+
+    When ``n_bins > 1``, an explicit zeroth bin ``[0, ahat_min]`` is prepended to catch
+    sub-floor contributions; this bin is evaluated at ``ahat = 0``. The remaining bins
+    follow the standard non-uniform grid from ``ahat_min`` to ``ahat_max``.
     """
     if ahat_max <= ahat_min:
         raise ValueError(f"retarget_ahat: ahat_max ({ahat_max}) must exceed ahat_min ({ahat_min})")
+    if n_bins <= 0:
+        raise ValueError(f"retarget_ahat: n_bins must be positive, got {n_bins}")
     intensity_peak = float(intensity_peak)
 
     # Get array module from shape_table arrays
@@ -1359,13 +1401,32 @@ def retarget_ahat(
     source_edges = ahat_from_shape(shape_table.a0_shape_edges, intensity_peak)
     target_edges = _ahat_target_edges(ahat_min, ahat_max, n_bins, decades)
 
-    # Extend both outer target edges to +-inf for overlap purposes only: source mass below
-    # ahat_min folds into the floor bin, and — symmetrically — source mass above ahat_max
-    # (a pulse strong enough to push the rescaled source past the configured ceiling) folds
-    # into the top bin rather than being silently dropped.
-    edges_ext = target_edges.copy()
-    edges_ext[0] = -xp.inf
-    edges_ext[-1] = xp.inf
+    # Handle the target grid construction:
+    # 1. n_bins == 1: target_edges is [0, ahat_max] — single bin evaluated at 0
+    #    (ignore nonlinearity mode)
+    # 2. n_bins > 1 and ahat_min > 0: prepend explicit zeroth bin [0, ahat_min]
+    #    for sub-floor contributions, evaluated at 0
+    # 3. n_bins > 1 and ahat_min == 0: use target_edges as-is (first bin starts at 0)
+    if n_bins == 1:
+        # Single bin [0, ahat_max] — everything maps here, evaluated at 0
+        # Extend edges for overlap: [-inf, ahat_max] and [0, +inf]
+        edges_ext = target_edges.copy()
+        edges_ext[0] = -xp.inf
+        edges_ext[-1] = xp.inf
+    elif ahat_min > 0.0:
+        # Prepend explicit zeroth bin [0, ahat_min] for sub-floor contributions
+        # The original target_edges starts at ahat_min; we add 0 at the front
+        target_edges = xp.concatenate([xp.array([0.0]), target_edges])
+        # Extend edges for overlap: [-inf, ahat_min, ..., ahat_max] and [0, ahat_min, ..., +inf]
+        edges_ext = target_edges.copy()
+        edges_ext[0] = -xp.inf
+        edges_ext[-1] = xp.inf
+    else:
+        # ahat_min == 0: target_edges already starts at 0, no need to prepend
+        # Extend edges for overlap: [-inf, 0, ..., ahat_max] and [0, ..., +inf]
+        edges_ext = target_edges.copy()
+        edges_ext[0] = -xp.inf
+        edges_ext[-1] = xp.inf
 
     src_lo, src_hi = source_edges[:-1], source_edges[1:]
     src_width = src_hi - src_lo
@@ -1379,8 +1440,8 @@ def retarget_ahat(
 
     # The source (a0_shape) axis stays uniform in this design — deposit_shape_table only
     # ever builds it via _uniform_edges — so a single scalar width is exact here, unlike
-    # the predecessor's identically-shaped `da_source = table.grid.widths[3]`, which was
-    # only safe because its source was uniform too (never a general non-uniform case).
+    # a scalar width is safe only because the source is uniform; it is not a general
+    # non-uniform-axis operation.
     da_source = shape_table.a0_shape_edges[1] - shape_table.a0_shape_edges[0]
     luminosity_rescale = intensity_peak / shape_table.source_intensity_peak
 
@@ -1400,6 +1461,20 @@ def retarget_ahat(
     H_target = H_target[..., : last + 1]
     target_edges = target_edges[: last + 2]
 
+    # Compute evaluation points for the ahat axis
+    # For n_bins=1: single bin evaluated at 0
+    # For n_bins>1 with explicit zeroth bin (ahat_min > 0): first bin evaluated at 0
+    # For n_bins>1 with ahat_min=0: use centers (no explicit zeroth bin)
+    if n_bins == 1:
+        ahat_eval_points = xp.array([0.0])
+    elif ahat_min > 0.0:
+        # Explicit zeroth bin was prepended: first evaluation point is 0
+        centers = 0.5 * (target_edges[:-1] + target_edges[1:])
+        ahat_eval_points = xp.concatenate([xp.array([0.0]), centers[1:]])
+    else:
+        # No explicit zeroth bin: use centers
+        ahat_eval_points = 0.5 * (target_edges[:-1] + target_edges[1:])
+
     return Table(
         gamma_edges=shape_table.gamma_edges,
         theta_x_edges=shape_table.theta_x_edges,
@@ -1408,11 +1483,12 @@ def retarget_ahat(
         H=H_target,
         total_weight=shape_table.total_weight * luminosity_rescale,
         scheme=shape_table.scheme,
+        _ahat_eval_points=ahat_eval_points,
     )
 
 
-#: The §9.1 constant (§4.2, RES033): the predecessor's kernel math is pi-free (``coef =
-#: 1.5``); ``1/(2 pi)`` is the correction RES026 derived is missing from the paper's
+#: The §9.1 constant (§4.2, RES033): the kernel math is pi-free (``coef = 1.5``);
+#: ``1/(2 pi)`` is the correction RES026 derived is missing from the paper's
 #: cross-section, applied here and nowhere else (`references/delta.py` applies the same
 #: correction to its own transcription).
 #:
@@ -1459,7 +1535,7 @@ def spectrum_from_table(
 ):
     """Stage 2: ``d2N / (ds dOmega)`` at one observation direction, over an array of ``s``.
 
-    A direct grid quadrature over Stage 1's table, not the predecessor's GPU importance
+    A direct grid quadrature over Stage 1's table, independent of the GPU importance
     sampler (RES029) — sums the table's own ``(theta_x, theta_y, ahat)`` cells, inverting the
     resonance condition at each cell to find the gamma an electron there would need to
     radiate a photon of energy ``s`` toward ``(theta_x, theta_y)``, and interpolates ``H``
@@ -1476,7 +1552,8 @@ def spectrum_from_table(
     s_arr = xp.atleast_1d(xp.asarray(s, dtype=float))
     tx_c = table.theta_x_centers[:, None, None]
     ty_c = table.theta_y_centers[None, :, None]
-    a_c = table.ahat_centers[None, None, :]
+    # Use evaluation points (zeroth bin at ahat=0 for sub-floor/linear mode) instead of centers
+    a_c = table.ahat_eval_points[None, None, :]
 
     r_sq = (tx_c - theta_x) ** 2 + (ty_c - theta_y) ** 2
     theta_cell_area = table.gamma_theta_cell_area
@@ -1620,11 +1697,9 @@ def angle_integrated_spectrum(
     rather than imported. delta exists to check this engine independently (§4.5); if it
     imported its own reference formula back from the engine it checks, or this engine
     imported from `validation`, the check would be circular in the first case and invert
-    the package's dependency direction in the second. Matches the predecessor's actual
-    production path (`TabulatedEngine.spectrum(s)` /
-    ``spectrum_from_particles.angle_integrated_spectrum``), which used this exact table-
-    free linear shape rather than Stage 1/2's nonlinear resonance — where ahat matters
-    this is a stated approximation, not the full physics (mirrors delta's own caveat).
+    the package's dependency direction in the second. This table-free linear shape is an
+    intentional approximation rather than Stage 1/2's nonlinear resonance; where ahat
+    matters it is not the full physics (mirrors delta's own caveat).
     The direction-dependent energy scale and its density Jacobian preserve each
     electron's luminosity (DER013, RES082).
     """

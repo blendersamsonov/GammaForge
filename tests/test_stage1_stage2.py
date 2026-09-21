@@ -297,19 +297,25 @@ def test_retarget_ahat_redistributes_mass_toward_higher_ahat_as_the_pulse_streng
 
 
 def test_retarget_ahat_folds_mass_below_ahat_min_into_the_floor_bin():
-    """The floor-fold path — otherwise never exercised, since nothing in the default
-    ahat_min=0.0 configuration has any ahat to fold (RES032).
+    """The floor-fold path — now exercises the explicit zeroth bin at ahat=0.
+    
+    With the new design, when ahat_min > 0, an explicit zeroth bin [0, ahat_min]
+    is prepended to catch sub-floor contributions, evaluated at ahat=0.
     """
     samples = _synthetic_samples(a0_shape=1.0)  # ahat = 0.045 (RES053: C = 1/2)
     shape_table = deposit_shape_table(samples, n_bins=(8, 8, 8, 16))
     # ahat_min well above the population's actual ahat (0.045): everything must fold into
-    # bin 0, and total weight must still be exactly conserved.
+    # the explicit zeroth bin [0, ahat_min], and total weight must still be exactly conserved.
     table = retarget_ahat(shape_table, samples.intensity_peak, ahat_min=0.2, ahat_max=0.5, n_bins=16, decades=1.0)
-    assert table.ahat_edges[0] == pytest.approx(0.2)
+    # First edge is now 0 (explicit zeroth bin for sub-floor contributions)
+    assert table.ahat_edges[0] == pytest.approx(0.0)
+    # The mass should be in the first bin (index 0), which spans [0, 0.2]
     assert table.H[..., 0].sum() * np.diff(table.ahat_edges)[0] * table.gamma_theta_cell_area * (
         table.gamma_edges[-1] - table.gamma_edges[0]
     ) / table.H.shape[0] == pytest.approx(table.total_weight, rel=1e-6)
     assert table.total_weight == pytest.approx(shape_table.total_weight, rel=1e-9)
+    # The evaluation point for the first bin should be 0 (linear limit)
+    assert table.ahat_eval_points[0] == pytest.approx(0.0)
 
 
 def test_retarget_ahat_truncates_unpopulated_bins():
@@ -338,6 +344,7 @@ def test_retarget_ahat_truncation_does_not_change_the_kernel_output():
     pad = 5
     padded_edges = np.concatenate([truncated.ahat_edges, truncated.ahat_edges[-1] + np.arange(1, pad + 1) * 1e-3])
     padded_H = np.concatenate([truncated.H, np.zeros((*truncated.H.shape[:3], pad))], axis=3)
+    # Pass the same evaluation points so the heuristic doesn't misinterpret the padded edges
     padded = Table(
         gamma_edges=truncated.gamma_edges,
         theta_x_edges=truncated.theta_x_edges,
@@ -346,6 +353,7 @@ def test_retarget_ahat_truncation_does_not_change_the_kernel_output():
         H=padded_H,
         total_weight=truncated.total_weight,
         scheme=truncated.scheme,
+        _ahat_eval_points=truncated._ahat_eval_points,
     )
 
     s = np.linspace(1.0, samples.gamma.max() ** 2, 20)
@@ -464,8 +472,8 @@ def test_the_production_ahat_grid_under_resolves_the_bank_by_a_known_amount(
 
 
 def test_spectrum_shifts_with_ahat_not_merely_rescales():
-    """Regression for the predecessor's fixed bug: g/prefac must be recomputed inside the
-    ahat loop. An ahat-independent shortcut would rescale the spectrum's amplitude but
+    """Regression guard: g/prefac must be recomputed inside the ahat loop. An
+    ahat-independent shortcut would rescale the spectrum's amplitude but
     never move where its edge falls; the nonlinear redshift must move the edge.
 
     a0_shape=0.05 and 4.0 at intensity_peak=0.045 give ahat = 0.00225 and 0.18 — bins 0 and 6 of
@@ -526,9 +534,8 @@ def test_stage2_kernel_agrees_with_delta_at_a_point():
     point to check — lands exactly on a cell boundary of a *nearest*-deposited table, and
     a narrow beam spans few enough theta cells that this aliases into ratios anywhere from
     0.5 to 1.7 depending on resolution alone (measured while writing this test, not a
-    hypothetical). That is consistent with the predecessor's own audit, which reports its
-    three independent spectrum methods agreeing "within ~15%" generally. CIC deposition
-    removes the aliasing (measured stable to +-2% from 40 to 250 theta bins) because it
+    hypothetical). CIC deposition removes the aliasing (measured stable to +-2% from 40
+    to 250 theta bins) because it
     never lets a single cell speak for the beam centre alone.
     """
     samples = _synthetic_samples(n=200_000, seed=2)  # a0_shape=1.0, intensity_peak=0.045 -> ahat=0.045
