@@ -3,12 +3,11 @@
 A first-class concept, where the predecessor scattered "target" between GUI fields and
 adapter methods.
 
-**Ranges are auto-derived; the user never enters them.** An `OutputRequest` carries only
-a resolution. Every range comes from :func:`auto_ranges` — Compton-edge kinematics for
-energy, the radiation cone for angles, beam and laser sizes for space, the actual
-beam-laser overlap for time. The one exception is `OutputKind.COLLIMATED_SPECTRUM`, whose
-angular ranges *are* the target's collimation window by definition. GUI plots offer zoom
-instead of manual range entry.
+Ranges are auto-derived by default: Compton-edge kinematics for energy, the radiation
+cone for angles, beam and laser sizes for space, and the actual beam-laser overlap for
+time. `OutputRequest.manual_ranges` may replace individual axis bounds; omitted axes keep
+their derived ranges. `OutputKind.COLLIMATED_SPECTRUM` derives its angular ranges from the
+target's collimation window by definition.
 
 **Autoranging never samples raw fields** (§3.4/P15): it reads descriptive laser metrics
 through :func:`~gammaforge.io.laser.fit_gaussian_paraxial`, which is what keeps it
@@ -79,8 +78,8 @@ class OutputRequest:
     """One requested observable and how finely to resolve it.
 
     ``resolution`` gives the bin count per axis, in :data:`SLICE_AXES` order.
-    ``manual_ranges`` is the advanced-option override the plan allows for
-    `SPATIAL_DISTRIBUTION` only; everywhere else a range is derived, never entered.
+    ``manual_ranges`` optionally replaces the derived bounds for any named slice axis.
+    Axes omitted from the mapping retain their auto-derived bounds.
     """
 
     kind: OutputKind
@@ -109,11 +108,6 @@ class OutputRequest:
                for n in self.resolution):
             raise ValueError(f"{self.kind.name}: resolutions must be positive integers, got {self.resolution}")
         if self.manual_ranges is not None:
-            if self.kind is not OutputKind.SPATIAL_DISTRIBUTION:
-                raise ValueError(
-                    f"{self.kind.name}: manual ranges are an advanced override for "
-                    f"SPATIAL_DISTRIBUTION only — every other range is auto-derived (§3.4)"
-                )
             unknown = set(self.manual_ranges) - set(axes)
             if unknown:
                 raise ValueError(f"{self.kind.name}: {sorted(a.name for a in unknown)} is not one of its axes")
@@ -283,18 +277,22 @@ def auto_ranges(
         elif kind is OutputKind.COLLIMATED_SPECTRUM:
             ranges[kind] = {Axis.ENERGY: energy_range, **collimation_range}
         elif kind is OutputKind.SPATIAL_DISTRIBUTION:
-            derived = dict(spatial_range)
-            derived.update(request.manual_ranges or {})
-            ranges[kind] = derived
+            ranges[kind] = dict(spatial_range)
         elif kind is OutputKind.TEMPORAL_ENVELOPE:
-            if bunch is None:
+            manual = request.manual_ranges or {}
+            if Axis.TIME in manual:
+                ranges[kind] = {Axis.TIME: manual[Axis.TIME]}
+            elif bunch is None:
                 raise ValueError(
                     "auto_ranges: TEMPORAL_ENVELOPE needs the bunch — its window is the "
                     "actual beam-laser overlap, not an estimate (§3.4)"
                 )
-            ranges[kind] = {Axis.TIME: _overlap_window(bunch, laser)}
+            else:
+                ranges[kind] = {Axis.TIME: _overlap_window(bunch, laser)}
         else:  # pragma: no cover — the table above is exhaustive over slice kinds
             raise AssertionError(f"no auto-range rule for {kind}")
+        if kind in ranges:
+            ranges[kind].update(request.manual_ranges or {})
     return ranges
 
 

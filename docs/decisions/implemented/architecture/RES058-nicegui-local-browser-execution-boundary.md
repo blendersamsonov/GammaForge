@@ -65,8 +65,9 @@ convention behavior across panels, while placement remains an explicit visual ch
 
 ## Consequences
 
-The browser server defaults to local use. Refresh creates a fresh workspace; switching
-tabs or split mode preserves state. No LAN execution or durable job service ships.
+The browser server defaults to local use. Refresh creates a fresh workspace initialized
+from any per-panel defaults saved under RES089; switching tabs or split mode preserves
+state. Run history is not persisted. No LAN execution or durable job service ships.
 The current engine boundary reports per-engine state, not percentage progress or
 interruptible cancellation. Missing engine outputs and calculation failures remain
 visible. The interface is tested with controlled engine failures, unit conversions,

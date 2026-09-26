@@ -260,21 +260,31 @@ plt.show()
 # To run any engine in GammaForge, everything is packaged into an immutable `InteractionParameters` object:
 # - **`Target`**: Specifies collimation half-angles (`theta_x_col`, `theta_y_col`) and requested outputs (`OutputRequest`).
 #   Temporal output resolution belongs to the request; its range comes from the actual overlap.
-#   With no overlap, the zero histogram uses a laser-derived display interval. Spatial requests
-#   support advanced manual ranges; explicit histogram widths retain their captured photon mass.
+#   With no overlap, the zero histogram uses a laser-derived display interval. Every slice axis
+#   is auto-ranged by default and can carry a manual override in canonical CGS units; omitted
+#   axes remain automatic. Explicit histogram widths retain their captured photon mass.
 # - **`SamplingSpec`**: Particle count, random seed, and prefilter threshold fraction.
 # - **`build_interaction()`**: The factory function that samples the bunch, prefilters particles outside the laser pulse, and bundles them.
 
 # %%
 from gammaforge.io.target import Target, OutputKind, OutputRequest
 from gammaforge.io.interaction import SamplingSpec, build_interaction
+from gammaforge.io.results import Axis
+
+focused_energy_range = tuple(
+    value.to("erg").magnitude for value in (50 * ureg.keV, 250 * ureg.keV)
+)
 
 target = Target(
     theta_x_col=1.0 * ureg.milliradian,
     theta_y_col=1.0 * ureg.milliradian,
     outputs=(
         OutputRequest(OutputKind.TOTAL_YIELD),
-        OutputRequest(OutputKind.SPECTRUM, resolution=(100,)),
+        OutputRequest(
+            OutputKind.SPECTRUM,
+            resolution=(100,),
+            manual_ranges={Axis.ENERGY: focused_energy_range},
+        ),
     ),
 )
 
@@ -286,6 +296,7 @@ print("Interaction successfully built:")
 print(f"  Physical electron count N_e: {interaction.N_e:.3e}")
 print(f"  Macroparticles in bunch: {interaction.bunch.n_particles}")
 print(f"  Requested outputs: {[out.kind.name for out in interaction.target.outputs]}")
+print(f"  Manual spectrum range [keV]: {[value / 1.602176634e-9 for value in focused_energy_range]}")
 
 # %% [markdown]
 # ---

@@ -86,14 +86,23 @@ and at least one selected calculation engine; analytical estimates remain a prev
 not a substitute for a calculation. Xigma is selected initially; kascade is available
 as an opt-in engine tab.
 
+Each input section has its own **Save as default** action, including electrons,
+sampling, laser, geometry, target, requested outputs, and each engine. Defaults are
+stored in `~/.config/gammaforge/gui-defaults.yaml` (or under `$XDG_CONFIG_HOME`, and
+`$GAMMAFORGE_CONFIG_DIR` can override the directory). Output axes show their current
+Auto bounds at all times; turn off Auto for one axis to enter a manual Min/Max without
+changing the other axes. This is especially useful for narrowing the energy grid of a
+collimated spectrum below its conservative zero-to-Compton-edge Auto interval.
+
 Each browser page owns an in-memory workspace. Refreshing the page starts a new
 workspace; restart the server to load code edits. Results can be downloaded as HDF5,
 and displayed plots as PNG or PDF. A completed calculation also offers an input-snapshot
 ZIP: `inputs.yaml` uses the standard input loader format, while `calculation.yaml`
 records the target and selected engine settings.
 
-This is a local-only interface. LAN execution, remote workers, and persistence across
-browser refreshes are deferred.
+This is a local-only interface. Saved panel defaults survive browser/server restarts;
+run history and the rest of the workspace do not. LAN execution and remote workers are
+deferred.
 
 ## Tests
 

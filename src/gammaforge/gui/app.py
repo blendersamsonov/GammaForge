@@ -21,6 +21,7 @@ from ..io.formats.yaml_spec import SPEC_VERSION, parameters_to_yaml_dict
 from ..io.laser import validate as validate_laser
 from ..io.target import OutputKind
 from .controller import Workspace
+from .defaults import GEOMETRY_KEYS, GuiDefaultsStore
 from .inputs import (
     render_engine_selector,
     render_input_columns,
@@ -80,6 +81,12 @@ class BrowserWorkspace:
 
     def __init__(self) -> None:
         self.model = Workspace()
+        self.defaults = GuiDefaultsStore()
+        self.defaults_error = ""
+        try:
+            self.defaults.apply(self.model.inputs)
+        except ValueError as exc:
+            self.defaults_error = str(exc)
         self.client = ui.context.client
         self.split = False
         self.active_tabs = {0: "inputs", 1: "results"}
@@ -150,18 +157,51 @@ class BrowserWorkspace:
         self._update_locks()
 
     def _update_locks(self) -> None:
-        state = self.model.inputs
         for pane in self.panes:
             for editor in pane.editors:
-                if editor.group == "outputs":
-                    kind = OutputKind[editor.key]
-                    supported = state.supports(kind)
-                    requested = kind in state.requested
-                    editor.enabled = [
-                        kind is not OutputKind.TOTAL_YIELD and (supported or requested),
-                        *(supported and requested for _ in editor.widgets[1:]),
-                    ]
                 editor.set_locked(self.model.busy)
+
+    def save_default(self, section: str) -> None:
+        """Persist one visible panel without changing defaults for the others."""
+        state = self.model.inputs
+        group = {
+            "electrons": "beam",
+            "sampling": "sampling",
+            "laser": "laser",
+            "geometry": "laser",
+            "target": "target",
+        }.get(section)
+        relevant_prefixes = (
+            [f"{group}."] if group else
+            ["outputs."] if section == "outputs" else
+            [f"engine:{state.selected_engine}."] if section == "engine" else []
+        )
+        if any(key.startswith(tuple(relevant_prefixes)) for key in state.errors):
+            ui.notify("Correct this panel's errors before saving its defaults", type="negative")
+            return
+        try:
+            if section == "outputs":
+                self.defaults.save_outputs(state)
+            elif section == "engine":
+                name = state.selected_engine
+                if name is None:
+                    raise ValueError("Select an engine before saving its defaults")
+                self.defaults.save_engine(name, state.groups[f"engine:{name}"])
+            elif group is not None:
+                keys = None
+                if section == "geometry":
+                    keys = GEOMETRY_KEYS
+                elif section == "laser":
+                    keys = tuple(key for key in state.groups["laser"] if key not in GEOMETRY_KEYS)
+                self.defaults.save_parameters(section, state.groups[group], keys=keys)
+            else:
+                raise ValueError(f"Unknown defaults section {section!r}")
+        except ValueError as exc:
+            self.defaults_error = str(exc)
+            ui.notify(self.defaults_error, type="negative")
+            return
+        self.defaults_error = ""
+        ui.notify("Saved as default", type="positive")
 
     def _refresh_run_panels(self) -> None:
         """Refresh the run history panel on all panes."""
@@ -240,7 +280,14 @@ class BrowserWorkspace:
         settings = {
             "target": {key: {"value": request.target.m(key), "unit": "rad"}
                        for key in request.target.UNITS},
-            "outputs": [{"kind": output.kind.value, "resolution": list(output.resolution)}
+            "outputs": [{
+                            "kind": output.kind.value,
+                            "resolution": list(output.resolution),
+                            "manual_ranges": None if output.manual_ranges is None else {
+                                axis.key: list(bounds)
+                                for axis, bounds in output.manual_ranges.items()
+                            },
+                        }
                         for output in request.target.outputs],
             "engines": {name: parameters_to_yaml_dict(params)
                         for name, params in request.engine_params.items()},
@@ -389,15 +436,25 @@ class Pane:
         model = self.page.model
         change = lambda group, key: self.page.changed(self.index, group, key)
         with ui.column().classes("w-full gap-4"):
-            self.editors = render_input_columns(model.inputs, change, self.geometry)
+            self.editors = render_input_columns(
+                model.inputs, change, self.geometry, self.page.save_default
+            )
             with ui.card().classes("gf-section"):
-                ui.label("Target and outputs").classes("gf-section-title")
-                self.editors += render_target(model.inputs, change)
+                with ui.row().classes("w-full items-center justify-between"):
+                    ui.label("Target and outputs").classes("gf-section-title")
+                    ui.button(
+                        "Save target as default",
+                        icon="save",
+                        on_click=lambda: self.page.save_default("target"),
+                    ).props("flat dense size=sm")
+                self.editors += render_target(model.inputs, change, self.page.save_default)
             with ui.card().classes("gf-section"):
                 self.estimates()
             with ui.card().classes("gf-section"):
                 ui.label("Calculation engine").classes("gf-section-title")
-                select, engine_editors = render_engine_selector(model.inputs, change)
+                select, engine_editors = render_engine_selector(
+                    model.inputs, change, self.page.save_default
+                )
                 self.editors += engine_editors
                 self.engine_fields.refresh()
                 self.status()
@@ -463,6 +520,8 @@ class Pane:
             ui.label(f"{name}: {status}").classes("text-caption")
         if model.error:
             ui.label(model.error).classes("gf-error")
+        if self.page.defaults_error:
+            ui.label(self.page.defaults_error).classes("gf-error")
         for error in dict.fromkeys(model.inputs.errors.values()):
             ui.label(error).classes("gf-error")
         if self.page.show_debug_warnings:

@@ -156,6 +156,16 @@ class Workspace:
 
         # Load requested outputs
         self.inputs.requested = {req.kind: req.resolution for req in request.target.outputs}
+        self.inputs.manual_ranges = {
+            req.kind: dict(req.manual_ranges)
+            for req in request.target.outputs
+            if req.manual_ranges
+        }
+        self.inputs.manual_axes = {
+            (kind, axis)
+            for kind, ranges in self.inputs.manual_ranges.items()
+            for axis in ranges
+        }
 
         self.revision += 1
         self.stale = True

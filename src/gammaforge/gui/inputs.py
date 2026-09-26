@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from ..io.schema import FieldKind
+from ..io.plotting import display_scale, display_unit
+from ..io.results import Axis
 from ..io.target import OutputKind, SLICE_AXES
 from .state import InputState
 
@@ -36,6 +38,10 @@ _AXIS_BIN_LABELS = {
     "energy": "E bins", "time": "t bins", "x": "x bins", "y": "y bins",
     "theta_x": "θx bins", "theta_y": "θy bins",
 }
+_AXIS_LIMIT_LABELS = {
+    "energy": "Energy", "time": "Time", "x": "x", "y": "y",
+    "theta_x": "θx", "theta_y": "θy",
+}
 
 
 def _require_ui() -> None:
@@ -51,8 +57,14 @@ class Editor:
     key: str
     widgets: list[Any] = field(default_factory=list)
     enabled: list[bool] | None = None
+    enabled_provider: Callable[[], list[bool]] | None = None
+    state_refresher: Callable[[], None] | None = None
 
     def set_locked(self, locked: bool) -> None:
+        if self.state_refresher is not None:
+            self.state_refresher()
+        if self.enabled_provider is not None:
+            self.enabled = self.enabled_provider()
         for index, widget in enumerate(self.widgets):
             enabled = self.enabled is None or self.enabled[index]
             (widget.disable if locked or not enabled else widget.enable)()
@@ -141,7 +153,23 @@ def _render_fields(state: InputState, group: str, on_change: ChangeCallback, key
     return [_field_editor(state, group, spec.key, on_change) for spec in state.groups[group].specs if selected is None or spec.key in selected]
 
 
-def render_input_columns(state: InputState, on_change: ChangeCallback, render_geometry: Callable[[], None]) -> list[Editor]:
+def _section_title(label: str, section: str, on_save_default: Callable[[str], None] | None) -> None:
+    with ui.row().classes("w-full items-center justify-between"):
+        ui.label(label)
+        if on_save_default is not None:
+            ui.button(
+                "Save as default",
+                icon="save",
+                on_click=lambda s=section: on_save_default(s),
+            ).props("flat dense size=sm")
+
+
+def render_input_columns(
+    state: InputState,
+    on_change: ChangeCallback,
+    render_geometry: Callable[[], None],
+    on_save_default: Callable[[str], None] | None = None,
+) -> list[Editor]:
     """Render desktop A/B/C as an explicit equal-height grid (which stacks narrowly)."""
     _require_ui()
     editors: list[Editor] = []
@@ -157,16 +185,16 @@ def render_input_columns(state: InputState, on_change: ChangeCallback, render_ge
     with ui.element("div").classes("gf-input-pane"):
         with ui.element("div").classes("gf-input-columns"):
             with ui.card().classes("gf-input-column"):
-                ui.label("Electrons")
+                _section_title("Electrons", "electrons", on_save_default)
                 editors += _render_fields(state, "beam", on_change)
                 ui.separator()
-                ui.label("Sampling")
+                _section_title("Sampling", "sampling", on_save_default)
                 editors += _render_fields(state, "sampling", on_change)
             with ui.card().classes("gf-input-column"):
-                ui.label("Laser")
+                _section_title("Laser", "laser", on_save_default)
                 editors += _render_fields(state, "laser", on_change, laser_keys)
             with ui.card().classes("gf-input-column"):
-                ui.label("Geometry")
+                _section_title("Geometry", "geometry", on_save_default)
                 editors += _render_fields(state, "laser", on_change, angle_keys)
                 render_geometry()
     
@@ -183,6 +211,8 @@ def render_input_columns(state: InputState, on_change: ChangeCallback, render_ge
       .gf-output-card { padding:.5rem .7rem; border:1px solid #dce4ed; border-radius:6px; }
       .gf-output-resolutions { gap:.25rem; }
       .gf-output-resolutions .q-field { min-width:0; flex:1 1 4.5rem; }
+      .gf-output-range { border-top:1px solid #edf1f5; padding-top:.35rem; }
+      .gf-output-range .q-field { min-width:0; flex:1 1 5rem; }
       .gf-engine-fields { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.5rem 1rem; }
       .gf-engine-fields .gf-field { min-width:0; }
       @container (max-width: 900px) { .gf-input-columns { grid-template-columns:1fr; } }
@@ -193,12 +223,23 @@ def render_input_columns(state: InputState, on_change: ChangeCallback, render_ge
     return editors
 
 
-def render_target(state: InputState, on_change: ChangeCallback) -> list[Editor]:
+def render_target(
+    state: InputState,
+    on_change: ChangeCallback,
+    on_save_default: Callable[[str], None] | None = None,
+) -> list[Editor]:
     """Render target angles and output choices; estimates and Calculate live in app.py."""
     _require_ui()
     with ui.element("div").classes("gf-target-angles w-full"):
         editors = _render_fields(state, "target", on_change)
-    ui.label("Requested outputs")
+    with ui.row().classes("w-full items-center justify-between"):
+        ui.label("Requested outputs")
+        if on_save_default is not None:
+            ui.button(
+                "Save outputs as default",
+                icon="save",
+                on_click=lambda: on_save_default("outputs"),
+            ).props("flat dense size=sm")
     with ui.element("div").classes("gf-output-grid w-full"):
         for kind in OutputKind:
             with ui.element("div").classes("gf-output-card"):
@@ -208,7 +249,6 @@ def render_target(state: InputState, on_change: ChangeCallback) -> list[Editor]:
                 checkbox = ui.checkbox(title, value=checked).props(
                     f'dense aria-label="Request {title}" data-field="outputs.{kind.name}"'
                 )
-                recoverable = kind is not OutputKind.TOTAL_YIELD and (enabled or checked)
                 if kind is OutputKind.TOTAL_YIELD:
                     checkbox.disable()
                 elif not enabled and not checked:
@@ -230,25 +270,138 @@ def render_target(state: InputState, on_change: ChangeCallback) -> list[Editor]:
                         if not visible:
                             box.disable()
                         widgets.append(box)
+
+                resolution_boxes = widgets[1:].copy()
+                range_axes = axes or ()
+                range_controls: list[tuple[Axis, Any, Any, Any, Any]] = []
+                auto = None
+                try:
+                    auto = state.auto_range(kind)
+                except ValueError:
+                    auto = None
+                for axis in range_axes:
+                    manual = state.manual_ranges.get(kind, {}).get(axis)
+                    is_manual = (kind, axis) in state.manual_axes
+                    shown = state.range_raw.get((kind, axis))
+                    if shown is None:
+                        canonical = manual or ((auto or {}).get(axis) if auto is not None else None)
+                        shown = (
+                            (format(canonical[0] * display_scale(axis), ".8g"),
+                             format(canonical[1] * display_scale(axis), ".8g"))
+                            if canonical is not None else ("", "")
+                        )
+                    with ui.column().classes("gf-output-range w-full gap-1"):
+                        with ui.row().classes("w-full items-center justify-between"):
+                            ui.label(f"{_AXIS_LIMIT_LABELS[axis.key]} limits").classes("text-caption")
+                            auto_box = ui.checkbox("Auto", value=not is_manual).props("dense")
+                        if auto is not None:
+                            low_auto, high_auto = auto[axis]
+                            scale = display_scale(axis)
+                            auto_label = ui.label(
+                                f"Auto: {low_auto * scale:.6g} to {high_auto * scale:.6g} {display_unit(axis)}"
+                            ).classes("text-caption text-grey-7")
+                        if auto is None:
+                            message = (
+                                "Auto: sampled overlap at Calculate"
+                                if kind is OutputKind.TEMPORAL_ENVELOPE
+                                else "Auto: unavailable until inputs are valid"
+                            )
+                            auto_label = ui.label(message).classes(
+                                "text-caption text-grey-7"
+                            )
+                        with ui.row().classes("w-full no-wrap gap-1"):
+                            low_box = ui.input("Min", value=shown[0]).props("dense inputmode=decimal")
+                            high_box = ui.input("Max", value=shown[1]).props("dense inputmode=decimal")
+                    widgets.extend((auto_box, low_box, high_box))
+                    range_controls.append((axis, auto_label, auto_box, low_box, high_box))
+
+                    def update_auto(
+                        event,
+                        output=kind,
+                        output_axis=axis,
+                        low=low_box,
+                        high=high_box,
+                    ):
+                        if event.value:
+                            state.set_output_auto(output, output_axis, True)
+                        else:
+                            state.set_output_range(output, output_axis, low.value, high.value)
+                        on_change("outputs", output.name)
+
+                    def update_range(
+                        _event,
+                        output=kind,
+                        output_axis=axis,
+                        low=low_box,
+                        high=high_box,
+                        auto_control=auto_box,
+                        error_label=error,
+                    ):
+                        if not auto_control.value:
+                            state.set_output_range(output, output_axis, low.value, high.value)
+                            error_label.set_text(
+                                state.errors.get(
+                                    state.error_key("outputs", f"{output.name}.{output_axis.key}.range"), ""
+                                )
+                            )
+                            on_change("outputs", output.name)
+
+                    auto_box.on_value_change(update_auto)
+                    low_box.on_value_change(update_range)
+                    high_box.on_value_change(update_range)
+
+                def refresh_ranges(output=kind, controls=range_controls):
+                    try:
+                        current_auto = state.auto_range(output)
+                    except ValueError:
+                        current_auto = None
+                    for output_axis, label, auto_control, low, high in controls:
+                        if current_auto is None:
+                            label.set_text(
+                                "Auto: sampled overlap at Calculate"
+                                if output is OutputKind.TEMPORAL_ENVELOPE
+                                else "Auto: unavailable until inputs are valid"
+                            )
+                            continue
+                        low_auto, high_auto = current_auto[output_axis]
+                        scale = display_scale(output_axis)
+                        label.set_text(
+                            f"Auto: {low_auto * scale:.6g} to {high_auto * scale:.6g} "
+                            f"{display_unit(output_axis)}"
+                        )
+                        if auto_control.value:
+                            low.value = format(low_auto * scale, ".8g")
+                            high.value = format(high_auto * scale, ".8g")
+
+                def enabled_now(output=kind, resolution_axes=range_axes, output_axes=range_axes):
+                    active = state.supports(output) and output in state.requested
+                    flags = [output is not OutputKind.TOTAL_YIELD and (state.supports(output) or output in state.requested)]
+                    flags.extend(active for _ in resolution_axes)
+                    for output_axis in output_axes:
+                        manual_axis = (output, output_axis) in state.manual_axes
+                        flags.extend((active, active and manual_axis, active and manual_axis))
+                    return flags
+
                 editor = Editor(
                     "outputs", kind.name, widgets,
-                    [recoverable, *(enabled and checked for _ in widgets[1:])],
+                    enabled_provider=enabled_now,
+                    state_refresher=refresh_ranges,
                 )
+                editor.enabled = enabled_now()
                 editors.append(editor)
 
-                def update_output(event, output=kind, boxes=widgets[1:], output_editor=editor, error_label=error):
+                def update_output(event, output=kind, boxes=resolution_boxes, error_label=error):
                     accepted = state.set_requested(output, bool(event.value), tuple(box.value for box in boxes))
                     error_label.set_text(state.errors.get(state.error_key("outputs", output.name), ""))
                     visible = accepted and bool(event.value) and state.supports(output)
                     for box in boxes:
                         box.set_visibility(visible)
                         (box.enable if visible else box.disable)()
-                    output_editor.enabled = [output is not OutputKind.TOTAL_YIELD and state.supports(output), *(visible for _ in boxes)]
                     on_change("outputs", output.name)
 
                 checkbox.on_value_change(update_output)
-                for box in widgets[1:]:
-                    def update_resolution(_event, output=kind, check=checkbox, boxes=widgets[1:], error_label=error):
+                for box in resolution_boxes:
+                    def update_resolution(_event, output=kind, check=checkbox, boxes=resolution_boxes, error_label=error):
                         state.set_requested(output, bool(check.value), tuple(item.value for item in boxes))
                         error_label.set_text(state.errors.get(state.error_key("outputs", output.name), ""))
                         on_change("outputs", output.name)
@@ -256,7 +409,11 @@ def render_target(state: InputState, on_change: ChangeCallback) -> list[Editor]:
     return editors
 
 
-def render_engine_selector(state: InputState, on_change: ChangeCallback) -> tuple[Any, list[Editor]]:
+def render_engine_selector(
+    state: InputState,
+    on_change: ChangeCallback,
+    on_save_default: Callable[[str], None] | None = None,
+) -> tuple[Any, list[Editor]]:
     """Render engine selection dropdown and return (select_widget, editors_for_selected_engine)."""
     _require_ui()
     editors: list[Editor] = []
@@ -278,6 +435,12 @@ def render_engine_selector(state: InputState, on_change: ChangeCallback) -> tupl
                 on_change("engine", "selected")
                 # Refresh will be triggered by the page
         select.on_value_change(on_engine_change)
+        if on_save_default is not None:
+            ui.button(
+                "Save engine defaults",
+                icon="save",
+                on_click=lambda: on_save_default("engine"),
+            ).props("flat dense size=sm")
     
     # Render fields for the currently selected engine
     if current and f"engine:{current}" in state.groups:

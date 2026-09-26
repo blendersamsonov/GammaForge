@@ -91,3 +91,4 @@ cross-checks this table against the files on disk.
 | RES083 | Explicit CuPy execution for xigma Stages 0 and 1 | bug-fix | implemented | implemented/bug-fix/RES083-explicit-cupy-stage01-execution.md |
 | RES084 | Production delta emission gates | testing | implemented | implemented/testing/RES084-production-delta-emission-gates.md |
 | RES085 | Validated CuPy delta emission reference | feature | implemented | implemented/feature/RES085-validated-cupy-delta-reference.md |
+| RES089 | GUI defaults are sectional and output ranges are per-axis Auto or manual | feature | implemented | implemented/feature/RES089-gui-sectional-defaults-and-output-ranges.md |

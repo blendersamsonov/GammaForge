@@ -20,7 +20,9 @@ from ..io.fields import (
     sampling_from_parameters,
 )
 from ..io.schema import FieldKind, Parameters, SchemaError
-from ..io.target import OutputKind, OutputRequest, SLICE_AXES, Target
+from ..io.plotting import display_scale
+from ..io.results import Axis
+from ..io.target import OutputKind, OutputRequest, SLICE_AXES, Target, auto_ranges
 from ..io.units import Quantity
 
 if TYPE_CHECKING:
@@ -49,6 +51,9 @@ class InputState:
     display: dict[tuple[str, str], DisplayPreference] = field(default_factory=dict)
     raw: dict[tuple[str, str], str] = field(default_factory=dict)
     output_raw: dict[OutputKind, tuple[str, ...]] = field(default_factory=dict)
+    manual_ranges: dict[OutputKind, dict[Axis, tuple[float, float]]] = field(default_factory=dict)
+    manual_axes: set[tuple[OutputKind, Axis]] = field(default_factory=set)
+    range_raw: dict[tuple[OutputKind, Axis], tuple[str, str]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.groups = {
@@ -146,7 +151,9 @@ class InputState:
             return True
         if not enabled:
             self.requested.pop(kind, None)
-            self.errors.pop(error_key, None)
+            for key in tuple(self.errors):
+                if key == error_key or key.startswith(f"outputs.{kind.name}."):
+                    self.errors.pop(key, None)
             return True
         try:
             if not self.supports(kind):
@@ -160,9 +167,84 @@ class InputState:
         except (TypeError, ValueError) as exc:
             self.errors[error_key] = str(exc)
             return False
+        ranges_valid = True
+        for output_kind, axis in tuple(self.manual_axes):
+            if output_kind is not kind:
+                continue
+            raw = self.range_raw.get((kind, axis))
+            if raw is not None:
+                ranges_valid = self.set_output_range(kind, axis, *raw) and ranges_valid
+            elif axis not in self.manual_ranges.get(kind, {}):
+                self.errors[self.error_key("outputs", f"{kind.name}.{axis.key}.range")] = (
+                    f"{kind.name}: enter finite, increasing {axis.name} limits"
+                )
+                ranges_valid = False
+        if not ranges_valid:
+            return False
         self.requested[kind] = request.resolution
         self.errors.pop(error_key, None)
         return True
+
+    def set_output_range(
+        self,
+        kind: OutputKind,
+        axis: Axis,
+        low: str | float,
+        high: str | float,
+    ) -> bool:
+        """Set one manual axis range from the GUI's display units."""
+        error_key = self.error_key("outputs", f"{kind.name}.{axis.key}.range")
+        self.manual_axes.add((kind, axis))
+        self.range_raw[(kind, axis)] = (str(low), str(high))
+        axes = SLICE_AXES[kind]
+        try:
+            if axes is None or axis not in axes:
+                raise ValueError(f"{axis.name} is not an axis of {kind.name}")
+            scale = display_scale(axis)
+            bounds = (float(low) / scale, float(high) / scale)
+            OutputRequest(kind, self.requested.get(kind, (64,) * len(axes)), {axis: bounds})
+        except (TypeError, ValueError) as exc:
+            self.errors[error_key] = str(exc)
+            return False
+        self.manual_ranges.setdefault(kind, {})[axis] = bounds
+        self.errors.pop(error_key, None)
+        return True
+
+    def set_output_auto(self, kind: OutputKind, axis: Axis, enabled: bool) -> None:
+        """Select derived or manual bounds for one output axis."""
+        if not enabled:
+            self.manual_axes.add((kind, axis))
+            return
+        self.manual_axes.discard((kind, axis))
+        ranges = self.manual_ranges.get(kind)
+        if ranges is not None:
+            ranges.pop(axis, None)
+            if not ranges:
+                self.manual_ranges.pop(kind, None)
+        self.errors.pop(self.error_key("outputs", f"{kind.name}.{axis.key}.range"), None)
+
+    def auto_range(self, kind: OutputKind) -> dict[Axis, tuple[float, float]] | None:
+        """Return current derived bounds, or ``None`` when sampling is required."""
+        axes = SLICE_AXES[kind]
+        if axes is None:
+            return {}
+        output = OutputRequest(kind, self.requested.get(kind, (64,) * len(axes)))
+        target_params = self.groups["target"]
+        target = Target(
+            Quantity(target_params.get_float("theta_x_col"), "rad"),
+            Quantity(target_params.get_float("theta_y_col"), "rad"),
+            (output,),
+        )
+        try:
+            return auto_ranges(
+                target,
+                beam_from_parameters(self.groups["beam"]),
+                laser_from_parameters(self.groups["laser"]),
+            ).get(kind, {})
+        except ValueError as exc:
+            if kind is OutputKind.TEMPORAL_ENVELOPE and "needs the bunch" in str(exc):
+                return None
+            raise
 
     def request(self):
         """Create the widget-free execution snapshot, or fail with visible draft errors."""
@@ -173,7 +255,10 @@ class InputState:
             raise ValueError(f"Selected engine does not support requested outputs: {', '.join(unsupported)}")
         if not self.selected_engine:
             raise ValueError("Select an engine for calculation.")
-        outputs = tuple(OutputRequest(kind, resolution) for kind, resolution in self.requested.items())
+        outputs = tuple(
+            OutputRequest(kind, resolution, self.manual_ranges.get(kind) or None)
+            for kind, resolution in self.requested.items()
+        )
         target_params = self.groups["target"]
         try:
             beam = beam_from_parameters(self.groups["beam"])

@@ -1,7 +1,7 @@
 # GammaForge browser UI specification
 
 Status: implementation specification, author-directed 2026-09-05.
-Authority: GRAND_PLAN.md v0.26, especially §§3–6. Physics stays in the existing shared
+Authority: GRAND_PLAN.md v0.41, especially §§3–6. Physics stays in the existing shared
 types and engines. This document specifies presentation and local execution only.
 
 ## Launch and execution boundary
@@ -11,8 +11,8 @@ types and engines. This document specifies presentation and local execution only
 - NiceGUI is an optional GUI dependency; importing the physics library must not start
   a server or require NiceGUI.
 - Each browser page owns its input state, results, and local runner. Split panes share
-  that page state. A refresh starts a fresh workspace in the initial version; say so
-  in user documentation. Changing tabs or split mode preserves the workspace.
+  that page state. A refresh starts a fresh run history and draft initialized from any
+  saved per-panel defaults. Changing tabs or split mode preserves the workspace.
 - Calculation input is an explicit snapshot of beam, LaserField, sampling, target,
   and selected engine parameters. The runner receives no widgets or browser objects.
 - The local runner samples once and calls checked engines sequentially. Sampling and
@@ -69,12 +69,21 @@ Every row below spans the available pane width.
   existing laser rotation convention; time-evolution animation is deferred.
 - Validation warnings from the beam/laser/results are visible, reflecting the
   limits reported by the current physics implementation.
+- Electrons, sampling, laser, geometry, target, requested outputs, and the selected
+  engine parameters each have an independent **Save as default** action. Saving one
+  section must not overwrite any other section. Values are stored as schema-readable
+  YAML under the user's configuration directory and validated before a later workspace
+  applies them; display-unit choices are presentation state and are not persisted.
 
 ## Target and outputs row
 
 - Collimation half-angles in x and y, with units.
 - Total yield is always requested. Checkboxes select other output kinds, with integer
-  resolution controls per axis. No manual energy/time/angular range fields.
+  resolution controls per axis. Every slice axis shows its current derived Auto bounds
+  in display units. Each axis has an Auto checkbox; turning it off enables manual Min/Max
+  entry for that axis only. Invalid, non-finite, or non-increasing bounds block Calculate.
+  The exact temporal Auto bounds depend on the sampled bunch and are labeled as computed
+  at Calculate; all deterministic Auto bounds are shown numerically before calculation.
 - Enable a requested output only when a selected calculation engine supports it;
   unavailable outputs are disabled and explained. Missing engine curves are shown as
   unavailable, not fabricated. The analytical preview is a separate always-on panel.
@@ -154,6 +163,10 @@ formulas, tuned numerical constants, unrelated derivations, or the historical re
 - Equal-height A/B/C columns at desktop width and correctly ordered full-width E/D/
   engines rows; usable narrow layout; C's four angles appear exactly once per form.
 - Unit/convention conversion preserves the physical input. Invalid values block runs.
+- Sectional defaults survive a server restart, remain independent, and reject malformed
+  data. Manual ranges round-trip through request persistence in canonical CGS units.
+- Auto bounds remain visible and update after beam, laser, or target edits; manual bounds
+  affect only their named axes.
 - Small real xigma calculation returns results; the UI responds during work. Engine
   failure and edit-during-run state have meaningful tests using controlled fake engines.
 - Analytical preview uses existing formulas and avoids macroparticle sampling.
@@ -165,4 +178,4 @@ formulas, tuned numerical constants, unrelated derivations, or the historical re
 ## Deferred
 
 LAN execution; cross-run xigma stage reuse; kascade validation-suite wiring; physics derivations;
-scans; arbitrary docking; persistence across browser refresh; multi-user deployment.
+scans; arbitrary docking; full workspace/run-history persistence; multi-user deployment.

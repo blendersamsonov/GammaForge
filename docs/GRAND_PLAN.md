@@ -1,6 +1,6 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.38 — 2026-09-14
+**Status:** draft v0.41 — 2026-09-26
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 
@@ -337,17 +337,15 @@ New first-class concept (the old "target" was scattered between GUI fields and a
 methods):
 
 - Angular collimation window `(theta_x_col, theta_y_col)` (half-angles, rad).
-- **Output requirements** — the requested observables. **Ranges are auto-derived; the
-  user never specifies them.** Each output carries only resolution (bins / sample
-  points):
+- **Output requirements** — the requested observables. Each output carries resolution
+  (bins / sample points) and optional per-axis manual bounds. Every axis is auto-derived
+  by default; a manual bound replaces only that axis and leaves all other axes on Auto:
   - `total_yield` (always)
   - `spectrum` (angle-integrated, dN/dE) — resolution; **energy range auto-calculated**
     from beam γ0 and laser photon energy (Compton-edge kinematics)
-  - `temporal_envelope` — resolution only; **no range field at all** — the time window
-    is always computed automatically (the old codebase already has this function,
-    `laser_overlap_time_window`; port it, generalize for crossing angle later)
-  - `spatial_distribution` (x,y) — resolution; **autorange** (from beam/laser sizes),
-    manual override only as an advanced option
+  - `temporal_envelope` — the automatic time window comes from the sampled interaction's
+    actual overlap. A fully manual time bound can be used without first sampling a bunch.
+  - `spatial_distribution` (x,y) — **autorange** from beam/laser sizes by default
   - xigma's temporal/spatial outputs are angle- and energy-integrated **emission-source
     overlap diagnostics**, in laboratory emission time and source position, not detector
     arrival time or independently radiating trajectory segments. Stage 0 bins its photon
@@ -357,16 +355,17 @@ methods):
     the laboratory origin as a display interval; it does not assert an emission window.
   - `angular_distribution` (θx,θy) — resolution; **autorange** (~1/γ0 window)
   - `collimated_spectrum` (= "spectrum on target") — a **3D slice in (E, θx, θy)** whose
-    **angular ranges are the target's collimation window** (user-defined, not auto;
-    energy range auto). It is a distinct output from the fully angle-integrated
+    **automatic angular ranges are the target's collimation window** and its automatic
+    energy range comes from the Compton edge. It is a distinct output from the fully angle-integrated
     `spectrum`: the 1D "spectrum on target" is a *visualization* of this 3D slice, not a
     separate computation. GUI pipeline: 2D slices at θx = 0 and θy = 0; 2D energy–angle
     distributions summed over the other angle; finally the 1D spectrum on target (summed
     over both angles within the window).
   - `macroparticle_dump` (MC engines only: final electron + photon macroparticles) —
     statistics + serialization; **not a slice** (separate entry, §3.6)
-- The GUI plots allow **zooming** (best-effort matplotlib affordance) instead of manual
-  range entry.
+- The GUI always displays the derived Auto bounds in display units beside each slice
+  axis. A per-axis Auto control exposes manual minimum/maximum entry without changing
+  unrelated axes. Plot zoom remains available as a display-only convenience.
 - **Autoranging reads descriptive laser metrics, never raw field samples.** Anywhere
   "laser size" feeds an autorange (`spatial_distribution`, `angular_distribution`, the
   Compton-edge energy range, ...), it comes from the laser's `GaussianParaxialLaser`
@@ -380,11 +379,11 @@ to a slice shape or a special entry:
 | OutputKind | Slice axes | Range policy |
 |------------|-----------|--------------|
 | `0d_yield` | `()` (0D) | implicit — always produced |
-| `spectrum` | `(E,)` | energy auto |
-| `temporal_envelope` | `(t,)` | auto; no range field |
-| `spatial_distribution` | `(x, y)` | auto (manual override advanced) |
-| `angular_distribution` | `(θx, θy)` | auto |
-| `collimated_spectrum` | `(E, θx, θy)` | angular = target window; energy auto |
+| `spectrum` | `(E,)` | energy auto; per-axis manual override |
+| `temporal_envelope` | `(t,)` | sampled-overlap auto; per-axis manual override |
+| `spatial_distribution` | `(x, y)` | size-derived auto; per-axis manual override |
+| `angular_distribution` | `(θx, θy)` | cone-derived auto; per-axis manual override |
+| `collimated_spectrum` | `(E, θx, θy)` | angular auto = target window; energy auto; per-axis manual override |
 | `macroparticle_dump` | — (not a slice; MC-only, §3.6) | — |
 
 Engines declare `supported_outputs` in this vocabulary (§4.1); the GUI enables an output
@@ -762,8 +761,13 @@ the future transport starting point, not an invitation to send arbitrary Python 
   displayed and editable**, not hidden internal state. Editing any of these, or any
   beam/laser physical parameter, resamples the bunch (§3.5 bunch resample rule).
 - Target panel: collimation window fields (which define `collimated_spectrum`'s angular
-  ranges) + **required-output checkboxes** with per-output resolution controls (ranges
-  auto-derived except the collimated window, §3.4).
+  ranges) + **required-output checkboxes** with per-output resolution and per-axis range
+  controls. Auto remains the default and its numeric bounds stay visible beside manual
+  minimum/maximum fields (§3.4).
+- Electrons, sampling, laser, geometry, target, output requests, and each engine's
+  parameters have independent **Save as default** actions. Defaults are schema-validated
+  YAML in the user's configuration directory and initialize later browser workspaces;
+  saving one section never overwrites another section.
 - Model sub-tabs (one per available engine): each tab carries a checkbox labelled
   **"Use for calculation"** (unambiguous semantics) and the engine's typed parameters
   rendered from its schema. **One Calculate button** runs exactly the engines whose
@@ -791,7 +795,7 @@ the future transport starting point, not an invitation to send arbitrary Python 
   (analytical included); distinct colors.
 - 2D colorplots: a picker list of the available 2D outputs (spatial, angular,
   spectral-angular).
-- Plot zoom (best-effort) instead of manual range entry (§3.4).
+- Plot zoom/pan in addition to the calculation-grid range controls in §3.4.
 - MC macroparticle output (when produced): statistics + "save particles" button.
 - Save plots (PNG/PDF) and Save results (HDF5, §8) buttons.
 
@@ -1072,6 +1076,9 @@ duplicated (C4).
 
 ## Changelog
 
+- **v0.41**: Add per-panel persistent GUI defaults and per-axis output range policy.
+  Auto remains the default and is always displayed; manual bounds replace only named
+  axes, including a narrower energy grid for collimated spectra (RES089).
 - **v0.38**: Specify the optional chunked CuPy delta reference, independently checked
   against extended-precision emission lines. Preserve host array boundaries, explicit
   CUDA failure and existing scientific-acceptance limits (§4.5).
