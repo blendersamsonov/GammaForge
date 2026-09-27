@@ -1,9 +1,9 @@
 """Pure-array sequential Compton event generator used by `KascadeEngine`.
 
-This is the predecessor's kascade emission chain reduced to the part Phase 5 needs:
-optical-depth inversion, Thomson/Klein--Nishina angle sampling, sequential recoil, and
-per-photon/per-electron output. Inputs are already plain SI or dimensionless arrays; the
-engine boundary owns all unit conversion and `LaserField` sampling.
+This is kascade's Phase-5 emission chain: optical-depth inversion,
+Thomson/Klein--Nishina angle sampling, sequential recoil, and per-photon/per-electron
+output. Inputs are already plain SI or dimensionless arrays; the engine boundary owns all
+unit conversion and `LaserField` sampling.
 """
 
 from __future__ import annotations
@@ -108,7 +108,7 @@ def _kn_over_thomson(u2, recoil):
 
 
 def _sample_emission_angle(gamma: np.ndarray, rng: np.random.Generator, recoil=None):
-    """Sample the predecessor's linearly-polarized angular kernel."""
+    """Sample kascade's linearly-polarized angular kernel."""
     theta_x = np.empty(gamma.size)
     theta_y = np.empty(gamma.size)
     remaining = np.arange(gamma.size)

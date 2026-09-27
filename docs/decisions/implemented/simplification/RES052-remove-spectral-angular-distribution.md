@@ -45,7 +45,7 @@ uniquely suited for.
 
 ## Consequences
 
-One latent bug surfaced while removing it: `make_references._KIND_BY_AXES` excluded
+One latent bug surfaced while removing it: *make_references._KIND_BY_AXES* excluded
 `COLLIMATED_SPECTRUM` from its axis-grouping map specifically to disambiguate it from
 *SPECTRAL_ANGULAR_DISTRIBUTION*'s identical axes. With the latter gone, that exclusion
 would have left the `(E, θx, θy)` grouping unmapped — fixed by dropping the exclusion now

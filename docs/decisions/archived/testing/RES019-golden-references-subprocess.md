@@ -2,6 +2,10 @@
 
 Status: implemented
 Class: testing
+Archived: 2026-09-21
+
+**Superseded by RES087** (2026-09-21): GammaForge retired the transitional snapshot
+bridge after its native validation legs became the maintained scientific authority.
 
 ## Problem
 

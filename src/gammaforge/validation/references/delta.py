@@ -18,10 +18,9 @@ head-on electron of Lorentz factor ``gamma`` has its Compton edge at ``s = gamma
 Angles are the small-angle observation direction ``(theta_x, theta_y)`` in rad, and
 ``dOmega = dtheta_x dtheta_y`` to the same order.
 
-**The 2 pi (§9.1) — traced, then closed.** The predecessor recorded that this method's
-angle-integrated total ran "consistently ~6.3x" its table-free spectrum, "suspiciously
-close to 2*pi, not yet explained". It is not close to ``2 pi``; it is exactly ``2 pi``,
-and the integral is elementary. For one macroparticle of weight ``L``, with
+**The 2 pi (§9.1) — traced, then closed.** This method's angle-integrated total once ran
+consistently ~6.3 times the table-free spectrum. It is not merely close to ``2 pi``; it is
+exactly ``2 pi``, and the integral is elementary. For one macroparticle of weight ``L``, with
 ``u = gamma**2 r**2``, the azimuthal average ``<a_fac> = 1 - 2u/(1 + u)**2`` and the
 paper's own prefactor of ``3``::
 
@@ -259,7 +258,7 @@ def check_normalization(
     that same total, independently. Two agreeing methods against one, and the odd one out
     was the one carrying a differential solid-angle measure — an extra ``2 pi`` is what an
     azimuthal integral counted twice looks like. This function reproduced it from a clean
-    CGS reimplementation, so the predecessor's ~6.3 was not an artefact of its coordinate
+    CGS implementation, so the measured ~6.3 was not an artefact of coordinate
     normalization.
 
     **The factor is now applied at the source, not here** (RES033). :data:`DIFFERENTIAL_PREFACTOR`

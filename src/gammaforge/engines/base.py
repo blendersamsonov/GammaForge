@@ -26,9 +26,9 @@ __all__ = ["RecomputeCost", "Engine"]
 class RecomputeCost(Enum):
     """How expensive re-Calculating is after one field changes (§5).
 
-    Generic and **engine-declared**: the predecessor's global ``ParamGroup`` enum was tied
-    to xigma's three stages and had no meaning for a single-stage Monte Carlo. Each engine
-    publishes its own ``field key -> RecomputeCost`` mapping instead.
+    Generic and **engine-declared**: each engine publishes its own
+    ``field key -> RecomputeCost`` mapping, so one pipeline's stages do not define another
+    engine's behavior.
 
     The tiers describe how cheap a re-Calculate is — **not** how live a field is. Nothing
     but the analytical estimates panel is real-time (§5), so even `QUERY_ONLY` still waits

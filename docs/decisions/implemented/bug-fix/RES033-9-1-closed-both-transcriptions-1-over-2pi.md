@@ -71,13 +71,9 @@ destroy the arbitration that settled the question in the first place.
 
 ## Consequences
 
-**A known unexercised comparison, for Phase 5/7.** `validation.metrics.compare_slices` —
-and therefore `validation.golden.compare_to_golden` on *distributions* — compares
-**absolute** values, not normalized shapes. It only runs when engines are passed to
-`run_suite`, which `main()` does not do (RES031), so nothing in the routine suite exercises
-it today. RES026 records that the predecessor's xigma adapter rescaled its angular spectrum
-by `total_yield / full_integral`, which should make its committed golden slices effectively
-self-normalized and therefore agnostic to this change — but that is an inference from the
-old repo's comments, not something measured here. Verify it when the golden slice
-comparison is first turned on, rather than discovering it as a surprise then; §11's Phase-7
-exit criterion ("3b closures integrated") is where it lands.
+**A known unexercised comparison, for Phase 5/7.**
+`validation.metrics.compare_slices` compares **absolute** values, not normalized shapes.
+The retired *validation.golden.compare_to_golden* distribution path used that metric but
+was never enabled by the routine runner. `run_suite` currently applies engine invariance
+checks when engines are supplied; the full four-method distribution comparison remains
+an explicit Phase-5/7 task.

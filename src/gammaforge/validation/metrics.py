@@ -5,8 +5,8 @@ Cross-engine legs are **tolerance-based**, and Monte-Carlo legs are compared wit
 metric load-bearing: a pointwise max-relative-error on a noisy spectrum reports the
 noisiest empty bin, not the disagreement anyone cares about.
 
-The window-integrated metric ported from the predecessor solves that. Integrate the
-density into windows of a stated reporting width, then report two numbers against a
+The window-integrated metric solves that. Integrate the density into windows of a stated
+reporting width, then report two numbers against a
 reference on the same grid:
 
 * the reference-flux-weighted L1 relative deviation — the headline number, representative

@@ -1,18 +1,16 @@
 """elegant / SDDS ``.ele`` 6D distributions (GRAND_PLAN.md §8).
 
-Ported from the predecessor's hand-rolled SDDS ASCII reader/writer, with the two changes
-the rebuild requires:
+The hand-rolled SDDS ASCII reader/writer enforces two project conventions:
 
 * **SI → CGS at the boundary** (P1). ``.ele`` files are inherently SI/GeV; positions come
   in as metres and leave as metres, while the `Bunch` in between is centimetres.
 * **Weights are normalized to the relative convention** ``1/n`` on load (§3.2). A plain
   ``.ele`` file carries no charge information at all, so the physical ``N_e`` comes from
-  the separately entered charge field and never from the file — the predecessor's
-  "``weight`` from a loaded file is not authoritative" caveat becomes structural here
-  rather than a docstring warning, since relative weights are all a `Bunch` can hold.
+  the separately entered charge field and never from the file; relative weights are all a
+  `Bunch` can hold.
 
 Longitudinal sign convention and column set (``x``, ``xp``, ``y``, ``yp``, ``z``, ``dP``)
-are unchanged from the predecessor, so files round-trip between the two.
+follow the elegant SDDS convention so files round-trip with external accelerator tools.
 """
 
 from __future__ import annotations
@@ -182,7 +180,7 @@ def save_elegant_ele(
     emit_y = sigma_y * sigma_yp
     beta_x = sigma_x**2 / emit_x if emit_x > 0 else 0.0
 
-    # Header scalars are written at 12 significant digits rather than the predecessor's 6.
+    # Header scalars are written at 12 significant digits.
     # `Energy` is not decorative: every particle's gamma is reconstructed from it as
     # `gamma0 * (1 + dP)`, so header precision sets the round-trip accuracy of the whole
     # energy distribution -- at 6 digits it was ~1e-7, which a fit would see as noise.

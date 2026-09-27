@@ -6,7 +6,7 @@
   description came from a user rather than from :func:`fit_gaussian`.
 * :class:`Bunch` — raw macroparticle arrays. ``weight`` is **relative**; the physical
   electron count ``N_e`` is a scalar on the interaction (§3.5), never recoverable from
-  the bunch, and the predecessor's ``n_electrons`` property is deliberately gone.
+  the bunch.
 
 Three things here are load-bearing and easy to break:
 
@@ -549,8 +549,7 @@ def _tilted_angle(divergence: float, alpha: float, position_deviate, angle_devia
 def overlap_time_window(bunch: Bunch, laser, threshold: float = 1e-3):
     """Per-particle time window ``(t0, t1)`` during which a particle can be in the pulse.
 
-    Generalizes the predecessor's head-on-only ``laser_overlap_time_window`` to arbitrary
-    geometry by intersecting each particle's straight-line trajectory with the laser's
+    Handles arbitrary geometry by intersecting each particle's straight-line trajectory with the laser's
     own :meth:`~gammaforge.io.laser.GaussianParaxialLaser.active_region` — so a crossing
     angle needs no special case here, it is already in the region's axis.
 
@@ -1014,7 +1013,7 @@ def propagate(bunch: Bunch, dt) -> Bunch:
 def stream(bunch: Bunch, t_grid) -> Iterator[Bunch]:
     """Yield a snapshot of ``bunch`` at each time in ``t_grid`` (s).
 
-    Each snapshot is computed from the original bunch, not from its predecessor, so the
+    Each snapshot is computed from the original bunch, not from the prior snapshot, so the
     grid need not be evenly spaced and no error accumulates.
     """
     for t in t_grid:

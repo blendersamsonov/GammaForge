@@ -1,15 +1,13 @@
 """One auto-chunk + OOM-retry utility, used by every chunked stage (GRAND_PLAN.md §4.2).
 
-The predecessor had **three** implementations of this idea — in ``particles.py``, in
-``spectrum_from_particles.py``, and a dead ``build_table_streaming`` — which is why the
-plan asks for one. What is ported here is the *algorithm and the hard-won constants*, not
-any of that code:
+One shared implementation serves every chunked stage; callers do not duplicate sizing or
+retry policy:
 
 * **proactive sizing, retry as backup.** A chunk is sized from currently free memory
   before the work starts. The halve-and-retry loop exists because that estimate cannot be
   right — other processes, driver drift — not because it is the plan.
 * **numpy is chunked too.** "Plain numpy is bounded by system RAM, so it needs no
-  chunking" was the predecessor's original assumption and it was wrong: a
+  chunking" is wrong: a
   5,000,000-particle by 1,024-point broadcast is over 100 GB in a handful of live
   temporaries. Worse than being wrong, it fails differently — Linux overcommit means an
   oversized host allocation can meet the OOM-killer instead of raising `MemoryError`, so
@@ -18,7 +16,7 @@ any of that code:
   a contained, catchable event.
 * **a hard ceiling, independent of free memory.** Sizing a chunk purely as a fraction of
   what happens to be free grows it without limit on a generous machine. Measured on the
-  predecessor's spectrum path: chunk=1 took 9.99 s, chunk=4 7.29 s, chunk=8 7.25 s,
+  the spectrum path: chunk=1 took 9.99 s, chunk=4 7.29 s, chunk=8 7.25 s,
   chunk=16 7.20 s — every doubling past ~8-16 bought nothing while a 128 GB machine
   happily sized it into the hundreds and used ~100 GB for a computation that runs just as
   fast in a few. A budget may shrink a chunk below a caller's ceiling; it may never grow

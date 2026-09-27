@@ -1,7 +1,7 @@
 """Typed parameter schema (GRAND_PLAN.md §3.1).
 
-The replacement for the predecessor's ``(label, default, key)`` triples, ``Job.extra``
-stringly dicts, and bare ``StringVar`` parsing (P5). A :class:`FieldSpec` declares one
+Replaces ad-hoc tuples, stringly dictionaries, and bare GUI parsing (P5). A
+:class:`FieldSpec` declares one
 parameter — what it means, what canonical CGS unit the core stores it in, which display
 units a GUI may offer, and what makes a value valid. A :class:`Parameters` object binds a
 set of specs to validated values and is what engines receive; the same object with

@@ -1,10 +1,9 @@
 """Minimal kascade Monte-Carlo behind GammaForge's uniform `Engine` protocol.
 
-The historical event generator is retained as a pure-array emission chain in
-`solver.py`. This wrapper is the single unit and model boundary: shared inputs arrive in
-canonical CGS, laser fields are sampled through `LaserField`, and the solver receives
-plain SI/dimensionless arrays. No predecessor `Config` object or automatic file output is
-carried into the rebuild.
+The event generator is a pure-array emission chain in `solver.py`. This wrapper is the
+single unit and model boundary: shared inputs arrive in canonical CGS, laser fields are
+sampled through `LaserField`, and the solver receives plain SI/dimensionless arrays. It
+has no mutable engine-side configuration or automatic file output.
 """
 
 from __future__ import annotations
@@ -363,7 +362,7 @@ class KascadeEngine:
             or theta_yz != 0.0
         ):
             warnings.append(
-                "kascade retains the predecessor's linear lab-x polarization kernel; "
+                "kascade uses a linear lab-x polarization kernel; "
                 "only overlap, relative velocity, and resonance energy use the configured geometry"
             )
         return Results(

@@ -3,9 +3,10 @@
 Inverse-Compton scattering simulation toolkit: computes properties of Compton
 photons produced by the interaction of an electron bunch with a laser pulse.
 
-This is a **ground-up rebuild** of the predecessor framework. The architecture and
-phase plan live in [docs/GRAND_PLAN.md](docs/GRAND_PLAN.md); the browser-workspace
-contract is in [docs/UI_SPEC.md](docs/UI_SPEC.md).
+GammaForge originated as a ground-up rebuild of ComptonSuite and is now completely
+independent: no external checkout is needed to build, test, validate, or use it. The
+architecture and phase plan live in [docs/GRAND_PLAN.md](docs/GRAND_PLAN.md); the
+browser-workspace contract is in [docs/UI_SPEC.md](docs/UI_SPEC.md).
 
 ## Status
 
@@ -28,7 +29,7 @@ python examples/crossing_angle_yield.py
 src/gammaforge/
 ├── io/            # shared CGS-Gaussian physics core (schema, beam, laser, target, results)
 ├── engines/       # xigma, analytical, and the minimal validation-only kascade port
-├── validation/    # cross-engine suite + old-repo golden references
+├── validation/    # identities, invariance, convergence, and cross-engine checks
 └── gui/           # optional local NiceGUI browser workspace
 ```
 

@@ -2,8 +2,8 @@
 
 Four of them, and each is here because it has already gone wrong somewhere:
 
-* **chunk size** — the predecessor's OOM fixes rebuilt chunking three times, and a chunked
-  reduction that drops or double-counts a boundary is invisible in every other test;
+* **chunk size** — a chunked reduction that drops or double-counts a boundary is invisible
+  in every other test;
 * **prefilter on/off** — the active-region filter is a pure optimization (§3.2), so it is
   either exactly neutral or it is a bug;
 * **backend** (numpy / cupy / numba) — to a tight *relative* tolerance, never bit-equality:

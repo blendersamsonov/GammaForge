@@ -2,15 +2,11 @@
 
 A `Scenario` is a **physics** statement — beam, laser, target, sampling — and nothing
 else. Engine numeric knobs are deliberately absent: they live in each engine's own
-`Parameters` schema (P5), so the predecessor's ``a0_max``/``theta_col_rad`` fields on the
-scenario dataclass (one xigma knob and one analytical knob riding along on a supposedly
-model-agnostic object) have no counterpart here. `runners.run_engine` takes engine
-parameters as its own argument.
+`Parameters` schema (P5); engine-specific knobs have no place on the model-agnostic
+scenario dataclass. `runners.run_engine` takes engine parameters as its own argument.
 
-The operating point is ported from the predecessor's own baseline — gamma0 = 2000,
-10 nC, 20 J at 1030 nm — i.e. the point its figures and benchmarks already used, not a
-fresh invention. It is written here in CGS with explicit units rather than transcribed as
-converted literals, which is what makes it checkable against the source numbers.
+The established operating point is gamma0 = 2000, 10 nC, and 20 J at 1030 nm. It is
+written here in CGS with explicit units rather than as converted literals.
 """
 
 from __future__ import annotations
@@ -34,10 +30,8 @@ __all__ = [
     "DEFAULT_SAMPLING",
 ]
 
-#: Sampling every scenario shares unless it says otherwise. The seed is the predecessor's
-#: (a date, ``20260721``), kept so a golden regenerated from the old repo and a new run
-#: are at least drawing from the same *nominal* configuration — the two samplers are not
-#: bit-compatible (`make_references` says why), but the record stays honest.
+#: Sampling every scenario shares unless it says otherwise. The fixed seed makes the
+#: scenario bank reproducible across validation legs.
 DEFAULT_SAMPLING = SamplingSpec(n_particles=100_000, seed=20260721, prefilter=1e-3)
 
 #: What every scenario asks for. Modest resolutions: the bank is run often and in full,
@@ -68,11 +62,10 @@ class Scenario:
 
 def _baseline() -> Scenario:
     gamma0 = 2000.0
-    # The predecessor quoted its energy spread relative to *gamma*; this schema quotes it
+    # The operating point quotes energy spread relative to *gamma*; this schema stores it
     # relative to *kinetic* energy (§3.2). The two differ by gamma0 / (gamma0 - 1), which
     # is a 0.05% effect here — converted rather than assumed equal, since assuming it is
-    # exactly the kind of silent approximation that makes a golden disagree for a reason
-    # nobody can find later.
+    # exactly the kind of silent approximation that obscures validation failures.
     sigma_gamma_over_gamma = 0.005
     kinetic_energy = (gamma0 - 1.0) * MEC2_CGS
     rel_energy_spread = sigma_gamma_over_gamma * gamma0 * MEC2_CGS / kinetic_energy

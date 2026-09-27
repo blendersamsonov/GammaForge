@@ -2,15 +2,12 @@
 
 Thin on purpose. An engine already takes exactly what a scenario already holds, so a
 runner has one job: sample the bunch once, hand the same `InteractionParameters` to the
-engine, and label what came back. Everything the predecessor's runners carried on top —
-per-model `Config` builders, a bunch-to-dict boundary conversion, a commit-hash-keyed
-pickle cache — is gone because the architecture removed the need for it, not because it
-was unhelpful there:
+engine, and label what came back. It does not add per-model configuration builders,
+boundary dictionaries, or a commit-keyed result cache:
 
 * every engine takes `InteractionParameters` (§4.1), so there is nothing per-model to build;
 * `io` samples and prefilters (§3.5), so no engine has its own sampler to keep in step;
-* results are not cached to disk. The predecessor cached because a GPU run per tier per
-  scenario was the dominant cost; here the engine facade caches its *own* intermediates by
+* results are not cached to disk. The engine facade caches its *own* intermediates by
   exact input hash (§5), which is both finer-grained and always valid. A second,
   coarser, commit-keyed cache on top would be the speculative machinery P6 warns about —
   reinstate it if and only if a real suite run is measured to be too slow.
@@ -23,12 +20,11 @@ from typing import Iterable
 
 from ..engines.base import Engine
 from ..io.interaction import InteractionParameters, SamplingSpec
-from ..io.laser import fit_gaussian_paraxial
 from ..io.results import Results
 from ..io.schema import Parameters
 from .scenarios import Scenario, build
 
-__all__ = ["Run", "run_engine", "run_bank", "derived_scalars"]
+__all__ = ["Run", "run_engine", "run_bank"]
 
 
 @dataclass(frozen=True)
@@ -78,23 +74,3 @@ def run_bank(
     params: Parameters | None = None,
 ) -> list[Run]:
     return [run_engine(engine, scenario, params) for scenario in scenarios]
-
-
-def derived_scalars(scenario: Scenario) -> dict[str, float]:
-    """Closed-form numbers `io` computes for a scenario, in canonical CGS.
-
-    These are the sharpest golden comparison available and the only one that needs no
-    engine at all: both repos compute them from the same physical inputs by independent
-    code, so they should agree to machine precision, and a disagreement localizes
-    immediately to a constant or a convention rather than to "the spectrum looks off".
-
-    The laser numbers come through `fit_gaussian_paraxial`, not off the laser object, so
-    this stays true of a scenario built on some other `LaserField` (P15).
-    """
-    metrics = fit_gaussian_paraxial(scenario.laser)
-    return {
-        "gamma0": scenario.beam.gamma0(),
-        "n_electrons": scenario.beam.n_electrons(),
-        "n_photons": metrics.n_photons(),
-        "a0_peak": metrics.a0_peak(),
-    }

@@ -3,10 +3,10 @@
 ## What this project is
 
 GammaForge computes properties of Compton photons produced by an electron-bunch /
-laser-pulse interaction. This repo is a **ground-up rebuild** of a predecessor at
-`/home/alexander/Work/Code/ComptonSuite` (also historically called "GammaForge") — kept
-around solely as a historical reference and a source of golden validation data, never
-as code to extend in place.
+laser-pulse interaction. It originated as a ground-up rebuild of ComptonSuite (also
+historically called "GammaForge") and is now completely independent: building, testing,
+validation, and development require no predecessor checkout. Historical documents retain
+that origin as design provenance.
 
 Note: `CLAUDE.md` is a symlink to this file. Edit the real file, not the symlink.
 
@@ -129,15 +129,10 @@ constraints (`GRAND_PLAN.md` §1 has the full table with provenance — P1–P15
 - **`PROGRESS.md`:** **do not append a session log.** Edit the phase table and the open
   threads in place, and delete what stopped being true — git holds the narrative. Anything
   merely *done* belongs in the code and the commit message, not here.
-- **Old repo (`ComptonSuite`):** reference only, and only through
-  `src/gammaforge/validation/make_references.py` for golden snapshots. It runs the old
-  code in a **subprocess** — both repos install a package called `gammaforge`, so they
-  cannot share a process — and needs the `OLD_REPO` / `OLD_REPO_PYTHON` environment
-  variables. Regenerating goldens is deliberate and manual; the committed snapshots under
-  `validation/references/data/` are what the suite compares against. When the plan says
-  "port," it usually means port the *algorithm and hard-won constants*, not the code
-  verbatim — e.g. the chunking utility (§4.2) explicitly replaces three inconsistent old
-  implementations with one, not a copy of any of them.
+- **Historical provenance:** decisions and older plan text may describe ComptonSuite and
+  algorithms first developed there. They are history, not a dependency or an instruction
+  to consult another checkout. Current behavior must be justified by this repository's
+  code, derivations, decisions, and validation suite.
 - **Validation:** `python -m gammaforge.validation.run` is the suite entry point (it runs
   what is runnable and says what it skipped); `gammaforge.validation.scenarios.SCENARIOS`
   is the shared bank — iterate it, don't hardcode a scenario name in a runner.

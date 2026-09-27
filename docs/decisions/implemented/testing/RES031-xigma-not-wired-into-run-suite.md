@@ -5,10 +5,11 @@ Class: testing
 
 ## Problem
 
-`run_suite(engines=[...])` already works — `invariance.engine_checks` and
-`golden.compare_to_golden` are engine-generic (Phase 2) — but wiring `XigmaEngine` into the
-routine suite needs to reckon with the cost of `run_engine` running an engine against the
-scenario's own `Target.outputs`, sized for the predecessor's GPU importance sampler.
+`run_suite(engines=[...])` already works — `invariance.engine_checks` is engine-generic,
+as was the former *golden.compare_to_golden* path in Phase 2 — but wiring `XigmaEngine`
+into the routine suite needs to reckon with the cost of `run_engine` running an engine
+against the scenario's own `Target.outputs`, sized for the predecessor's GPU importance
+sampler.
 
 ## Decision
 

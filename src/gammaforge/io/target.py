@@ -1,7 +1,6 @@
 """Target: collimation window and requested outputs (GRAND_PLAN.md §3.4).
 
-A first-class concept, where the predecessor scattered "target" between GUI fields and
-adapter methods.
+A first-class concept shared by every engine and the GUI.
 
 Ranges are auto-derived by default: Compton-edge kinematics for energy, the radiation
 cone for angles, beam and laser sizes for space, and the actual beam-laser overlap for
@@ -218,8 +217,7 @@ def auto_ranges(
 
     ``bunch`` is required only for `OutputKind.TEMPORAL_ENVELOPE`, whose window comes
     from the actual per-particle beam-laser overlap rather than an estimate — the
-    generalized replacement for the predecessor's head-on-only
-    ``laser_overlap_time_window``, correct for a crossing angle without a special case.
+    geometry-aware overlap window, correct for a crossing angle without a special case.
     """
     if hasattr(laser, "photon_energy"):
         photon_energy = laser.photon_energy()

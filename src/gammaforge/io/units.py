@@ -83,7 +83,7 @@ GAUSSIAN_CHARGE_CONTEXT = "gaussian_charge"
 # `Context.add_transformation` API. The latter registers its dimensionality keys as
 # `ParserHelper` instances, which don't compare equal to the `UnitsContainer` instances
 # `Quantity.to()` looks them up with -- a silent DimensionalityError despite the context
-# being "registered" (observed in pint 0.25 in the predecessor repo). The DSL form has no
+# being "registered" (observed in pint 0.25). The DSL form has no
 # such mismatch.
 ureg.add_context(
     pint.Context.from_lines(

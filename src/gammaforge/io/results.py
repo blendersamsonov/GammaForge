@@ -1,12 +1,12 @@
 """Results contract (GRAND_PLAN.md §3.6).
 
 One slice shape for every engine. A tabulated engine fills a `PhasespaceSlice` directly;
-a Monte-Carlo engine histograms its samples into the same shape — so the predecessor's
-Sampled-vs-Binned duck typing has nothing left to be ambiguous about.
+a Monte-Carlo engine histograms its samples into the same shape, avoiding separate
+sampled-versus-binned result protocols.
 
 **Axes are an enum with canonical CGS units.** `Axis.ENERGY` is in erg, always; the
-predecessor's unit-baked-into-the-name smell (``"E_eV"``) is gone, and display conversion
-belongs to the plotting and serialization layers alone.
+unit names are not baked into identifiers, and display conversion belongs to the plotting
+and serialization layers alone.
 
 `Results` deliberately carries **no back-reference to the configuration that produced it**
 (P9): no ``Results.cfg``, no derived properties duplicating beam or laser fields. Whoever
@@ -69,8 +69,8 @@ class Axis(Enum):
         raise ValueError(f"no Axis with key {key!r}")
 
 
-#: The closed set of axis groupings a slice may have, carried over from the predecessor's
-#: results contract. Validated rather than documented: an engine that invents a grouping
+#: The closed set of axis groupings a slice may have. Validated rather than documented:
+#: an engine that invents a grouping
 #: has made an error the GUI cannot render, and it should surface here, not there.
 ALLOWED_AXIS_GROUPINGS: frozenset[frozenset[Axis]] = frozenset(
     frozenset(group)
@@ -182,9 +182,8 @@ class PhasespaceSlice:
 class PhotonMacroparticles:
     """Per-photon arrays from a Monte-Carlo engine. CGS.
 
-    Typed separately from the final electrons: the predecessor's kascade already kept the
-    two populations apart (``ph_*`` arrays vs ``eps_f``/``thx_f``/...), and the rebuild
-    keeps that distinction in the type system rather than in a naming convention.
+    Typed separately from the final electrons so the distinction is in the type system
+    rather than only in a naming convention.
     """
 
     energy: np.ndarray  # erg

@@ -102,8 +102,9 @@ Worth keeping visible: these are places where a green suite proves less than it 
   while conserving their number, so count-based checks are blind to it: scaling `ahat` over
   an 8x range moves `run.py`'s fourth identity leg by 0.11% total. Centroid-based checks
   exist now for exactly this reason.
-- **Distribution goldens are unexercised.** `validation.metrics.compare_slices` compares
-  absolute densities, but no golden distribution comparison is switched on yet (Phase 5/7).
+- **Four-method distribution coverage is incomplete.** `validation.metrics.compare_slices`
+  compares absolute densities, but the full xigma/delta/analytical/kascade scenario-bank
+  comparison is not switched on yet (Phase 5/7).
 
 ---
 

@@ -26,11 +26,11 @@
 ## 0. Context and goals
 
 GammaForge computes properties of Compton photons produced by the interaction of an
-electron bunch with a laser pulse. The predecessor repository
-(`/home/alexander/Work/Code/ComptonSuite`, a.k.a. GammaForge) grew iteratively through
-many refactors; this project is a **ground-up rebuild** with the old repo kept solely as
-a historical reference (its commit log records what was tried and rejected) and as a
-source of golden reference data for validation.
+electron bunch with a laser pulse. It originated as a ground-up rebuild of ComptonSuite
+(also historically called GammaForge), but is now a completely independent project:
+its code, validation data, development environment, and release process require no
+predecessor checkout. Historical documents retain that origin and the lessons learned
+there because they are part of this plan's design provenance.
 
 Goals, in priority order:
 
@@ -47,9 +47,7 @@ Goals, in priority order:
 5. **Composable, cacheable pipeline stages** with engine-declared recompute-cost
    classification ("which parameters force a full rerun vs. a cheap requery").
 6. **Validation suite rebuilt from scratch**: cross-engine consistency, closed-form
-   limits, and golden snapshots cross-validated against the old repo. The old suite's
-   tests existed largely to detect broken assumptions after changes — a symptom of poor
-   design we must not reproduce.
+   limits, independent delta emission references, convergence, and invariance checks.
 7. **Resolve known physics bugs** (~2π kernel normalization) and **carry the
    architecture for the two net-new derivations** (crossing angle, ellipticity→a0)
    without letting them block engineering milestones.
@@ -872,11 +870,11 @@ assumption was broken" test zoo.
 - **~2π arbitration**: delta (built in Phase 2.5) is the independent arbiter; the paper
   formula is necessary-not-sufficient (its validation section is an unwritten
   placeholder, A1) — encode the identity tests regardless of paper agreement.
-- **Golden references from the old repo**: `validation/make_references.py` runs the old
-  repo's models (path from env/config, e.g. `OLD_REPO`) on shared scenarios and writes
-  committed snapshots under `validation/references/`. Default validation compares new vs
-  golden; goldens are regenerated deliberately on your machine only. This is the *only*
-  place the old repo is referenced (§11 note: docs should minimize old-repo references).
+- **No external implementation dependency**: validation is fully native and reproducible
+  from this checkout. Its independent legs are independent algorithms and derivations
+  (analytical overlap and spectra, CPU/extended-precision delta emission, optional CUDA
+  delta emission, and kascade's Thomson-limit anchor), not snapshots that require another
+  source tree to regenerate.
 - Scenario bank lives in `validation/scenarios.py`; runners per engine; a `run.py`
   orchestrator with pass/fail report.
 
@@ -1038,7 +1036,7 @@ formula is implemented.
 |-------|-------|---------------|
 | **0. Scaffold** | Repo, git, pyproject (Python 3.12), pytest, package skeleton, README, ADR index + **`docs/decisions/` provenance system started** (C1); `.gitignore` **explicitly covers large data formats (`.ele`, notebooks with large outputs) and sync-conflict patterns from day one** (C3) | `pytest` green; `pip install -e .` works |
 | **1. Core** | `io/`: schema, units/conventions (CGS), constants; bunch (`Bunch` + `GaussianElectronBeam`); laser (incl. `LaserField` protocol + `GaussianParaxialLaser` as its sole implementation, `fit_gaussian_paraxial`, elliptical+astigmatic model, geometry angles — §3.3/P15); target (auto-ranges + `OutputKind` vocabulary §3.4); interaction (incl. `N_e` scalar + `SamplingSpec` §3.5); sampling + prefilter (§3.2); results contract (incl. `PhotonMacroparticles` §3.6); YAML + `.ele` I/O; HDF5 results writer | Representative serialization round trips; CGS/SI and width/time-convention checks; sampling moments and mass shell; geometry and integral-preservation invariants |
-| **2. Validation harness** | scenarios, runners skeleton, `make_references.py` + first golden snapshots from old repo; invariance-test scaffolding (chunk, prefilter, backend, seed — §7) | Golden generation runs; new-vs-golden comparisons execute |
+| **2. Validation harness** | scenarios, runners skeleton, and invariance-test scaffolding (chunk, prefilter, backend, seed — §7). Transitional cross-repository snapshots used during the rebuild were retired once native independent legs covered their useful checks (RES087). | Scenario-bank identities and invariance checks execute without external repositories or generated fixtures |
 | **2.5. Stage 0 + minimal delta** | **Stage 0** (`integrate_trajectories`) and the **shared auto-chunk + OOM-retry utility** (§4.2), pulled forward from 3a because delta needs both; delta itself scoped to Stage-2 normalization arbitration, built on top of Stage 0 (§4.5) | Stage 0 tests green; chunk-invariance holds; delta produces independent spectra on baseline scenarios; identity harness (`kernel` vs `reference` vs `direct binning` vs delta) executable |
 | **3a. xigma engineering** — **landed 2026-08-08** | Stage 1/2 pure functions; Collision facade + stage cache; Engine wrapper; numpy kernel for Stages 1/2, cupy/numba gated like Stage 0 until real kernels exist (**Stage 0 and the chunking utility already built in 2.5**; RES029); geometry/a0/ellipticity parameters wired as explicit identity/no-op placeholders (P14c) | Deposition/retarget conservation, nonlinear redshift, delta agreement, and backend agreement checks green; placeholders documented |
 | **3b. Physics closure** — **§9.1 landed 2026-08-08; §9.2/§9.3 open, non-blocking** | ~2π resolution (§9.1 — **closed**: traced in 2.5, applied in 3b, RES033), crossing-angle derivation (§9.3), ellipticity→a0 (§9.2) — **runs concurrently with Phases 4 and 5, not serially** | §9.1's constant set in Stage 2 and the identity harness re-gated against 1.0 rather than 2π — **met**; §9.2/§9.3 derivations landed if author completes them in parallel (never blocking 4–6) — **outstanding, and the paper contains no formula for either**, so both stay wired as documented no-ops with `validate()` warnings (RES034) |
@@ -1049,11 +1047,7 @@ formula is implemented.
 | **8. Polish** | scans, docs, packaging, notebook examples | Release-ready |
 
 Order note: Phase 3b is explicitly parallel; Phases 4–6 must not wait on physics
-derivations (A3). **Before Phase 3a/6 kickoff, re-verify the old repo's remote
-`worktree-*` branches are merged** (audited 2026-08-06: all eight — 4 local worktree
-branches plus 4 remotes — are merged into `master`; a one-line `git branch -a` check
-suffices) so no half-finished work is
-duplicated (C4).
+derivations (A3).
 
 ---
 
@@ -1063,7 +1057,7 @@ duplicated (C4).
 |------|-----------|
 | ~2π normalization turns out to be a paper-level issue | **It did** (Phase 2.5, RES026): `eq:xsec` is missing `1/(2π)`. The mitigation worked as designed — delta arbitrated independently, the paper formula was treated as necessary-not-sufficient, and the constant was isolated to one location, so applying it in Phase 3b was the one-line change it was meant to be (RES033). Residual: the manuscript is annotated, not corrected, so the repo and the typeset equation knowingly differ |
 | Crossing-angle and ellipticity→a0 have **no existing derivation** in the paper (confirmed by audit, not just undocumented) | Open-ended research tasks, not consult-and-implement: parameters are first-class in schema/architecture now; physics wired as explicit identity/no-op until derivations land; derivation runs in parallel (P14c, §9.2/§9.3); never blocks Phases 3a–6 |
-| Old-repo golden data encodes bugs | Goldens are transitional; closed-form identities + delta reference are the real anchors; goldens regenerated deliberately |
+| Validation implementations share inputs or formulas | Every comparison states which stages it shares; closed-form identities, independent delta emission, convergence, and observable-sensitive distribution checks cover distinct failure modes |
 | Chunking regressions (OOM class) | Chunk-invariance property tests from Phase 2 on; single shared auto-chunk + OOM-retry utility (porting algorithm + constants, not the old triplicated code) |
 | Collimated 3D-slice cost: a deliberate Calculate with the collimated (E,θx,θy) output is inherently slow at high resolution (measured 27 s @ 64 energy bins on CPU in the old repo; linear in n_energy) | **Expected, not a defect** — no live auto-requery exists (engines are Calculate-gated, §5), so the old CPU-pegging mechanism is structurally impossible; the analytical panel stays real-time; per-engine progress indication; cache reuse (`QUERY_ONLY`/`REUSE_INTERMEDIATES`) minimizes repeated cost |
 | pint friction with CGS | pint confined to schema/serialization; kernels never see it; EM conversions hand-coded with tests vs known values |
@@ -1085,6 +1079,10 @@ duplicated (C4).
 - **v0.41**: Add per-panel persistent GUI defaults and per-axis output range policy.
   Auto remains the default and is always displayed; manual bounds replace only named
   axes, including a narrower energy grid for collimated spectra (RES089).
+- **v0.39**: Make GammaForge operationally independent of ComptonSuite. Retire the
+  transitional subprocess bridge and committed snapshots; validation now relies on the
+  native analytical, delta, xigma, and kascade legs, closed-form identities, convergence,
+  and invariance checks (RES087). Historical plan and decision text remain provenance.
 - **v0.38**: Specify the optional chunked CuPy delta reference, independently checked
   against extended-precision emission lines. Preserve host array boundaries, explicit
   CUDA failure and existing scientific-acceptance limits (§4.5).

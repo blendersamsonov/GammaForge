@@ -172,6 +172,9 @@ search_knowledge_base("cupy")
 # - `gammaforge.validation.scenarios.SCENARIOS`: A curated bank of physical scenarios (`BASELINE`, `LOW_A0`, `NEAR_A0_MAX`).
 # - A `Scenario` contains **physics only**: beam, laser, target.
 # - Engine parameters live in the engine's schema, never on the scenario (`Principle P5`).
+# - Every maintained validation leg is reproducible from this checkout: closed-form
+#   identities, analytical/xigma comparisons, independent CPU/CUDA delta emission,
+#   convergence, and invariance checks (RES087).
 # 
 # Let's load the `BASELINE` scenario and run both `XigmaEngine` and `AnalyticalEngine` on it with a fast toy sampling!
 

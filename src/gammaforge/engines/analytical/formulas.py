@@ -1,14 +1,8 @@
 """Closed-form Compton-source physics: total yield, spectrum-width breakdown, and an
 angle-integrated spectrum (GRAND_PLAN.md §4.3). No per-particle Monte Carlo — every
-function here costs `O(1)` or `O(n_quad)`, never `O(n_particles)` (the predecessor's
-``angle_integrated_spectrum`` used to sum over real macroparticle ``gamma`` samples and
-caused a 76.3 GiB allocation at 5,000,000 particles x 2048 energy bins; this module has no
-macroparticle argument anywhere, by construction).
-
-Ported (algorithm and constants, not code) from the predecessor's
-``ComptonSuite/src/gammaforge/models/analytical.py`` — SI/pint ``CollisionParams``
-throughout there, CGS-Gaussian ``GaussianElectronBeam``/``GaussianParaxialLaser`` here
-(P1).
+function here costs `O(1)` or `O(n_quad)`, never `O(n_particles)`. This module has no
+macroparticle argument anywhere, by construction, so its memory use cannot scale as a
+particle-by-energy broadcast.
 
 **Yield evaluation.** :func:`overlap_yield` evaluates the general
 Gaussian luminosity overlap integral: non-round beams, per-axis focusing, displaced and
@@ -518,8 +512,7 @@ def overlap_yield(
 ) -> float:
     """Total photon yield from the **general** Gaussian luminosity overlap integral.
 
-    Supersedes the predecessor's round-beam closed form: it drops the round-beam
-    and aligned-foci approximations and keeps the collision geometry exactly as
+    Drops the round-beam and aligned-foci approximations and keeps the collision geometry exactly as
     `gammaforge.io` already describes it — per-axis bunch sizes and emittances, per-axis
     Twiss ``alpha`` (electron waist displacement), per-axis laser waists and Rayleigh
     ranges, astigmatic ``z_fx``/``z_fy`` focal offsets, the ``psi_focus`` rotation between
@@ -747,11 +740,11 @@ NONLINEAR_BROADENING_RANGE = (0.06, 1.12)
 class SpectrumWidthBreakdown:
     """The collimated-spectrum FWHM estimate (units of the Compton edge, dimensionless),
     as four independently-reported components (§4.3: "GUI shows a component table; total
-    in quadrature") rather than the predecessor's single summed float.
+    in quadrature") rather than a single summed float.
 
-    Each field already carries the predecessor's ``0.5 * 2.355`` FWHM-from-sigma prefactor
+    Each field already carries the ``0.5 * 2.355`` FWHM-from-sigma prefactor
     applied to its own term, so :attr:`total` — `math.hypot` of the four fields — squares
-    and re-sums them, exactly reproducing the predecessor's single
+    and re-sums them, exactly reproducing the original single
     ``0.5 * 2.355 * sqrt(term1 + term2 + term3 + term4)`` formula. The leading ``0.5`` is
     carried unexplained, as it was in the ported source — not retrofitted with a
     justification the original never had.
@@ -760,7 +753,7 @@ class SpectrumWidthBreakdown:
     collimation: float  #: from angular collimation, ``(gamma * theta_col)^2``
     emittance: float  #: from angular divergence, ``(gamma * sqrt(div_x * div_y))^2``
     energy_spread: float  #: from beam energy spread, ``sigma_gamma / gamma``
-    nonlinearity: float  #: ponderomotive, at the predecessor's implicit ``std = mean``
+    nonlinearity: float  #: ponderomotive, using the historical implicit ``std = mean``
     #: The nonlinear term is the one quantity here that cannot be pinned exactly — it is
     #: set by the *spread* of ``ahat`` across the beam, not analytically available (RES049),
     #: and is bracketed instead by :data:`NONLINEAR_BROADENING_RANGE`. ``nonlinearity``
@@ -799,15 +792,14 @@ def estimate_spectrum_width(
     module already uses for the laser waist (``sigma_lr0``) and the emittance term below.
 
     ``laser`` is the fitted `GaussianParaxialLaser` (see `gammaforge.io.laser.fit_gaussian_paraxial`);
-    ``laser.a0_peak()`` stands in for the predecessor's ``pulse.a0_interaction`` — the
-    pulse's own maximum a0, not the a0 at the electron bunch's actual position.
+    ``laser.a0_peak()`` is the pulse's own maximum a0, not the a0 at the electron bunch's
+    actual position.
 
     ``a0_sq`` is the mean square a0 the bunch actually samples. Pass
     :func:`overlap_mean_a0_sq` (RES042), the luminosity-weighted average, rather than the
     pulse's own peak. It **defaults to** ``laser.a0_peak()**2`` deliberately: this
-    function's other job is reproducing the predecessor's worked example, and changing the
-    default would break the `_PREDECESSOR_WIDTH_TOTAL` pin that exists to detect exactly
-    that. `AnalyticalEngine` passes the overlap-weighted value explicitly.
+    function also preserves the established peak-a0 estimate, while `AnalyticalEngine`
+    passes the overlap-weighted value explicitly.
     """
     gamma0 = beam.gamma0()
     sigma_gamma = beam.sigma_gamma()

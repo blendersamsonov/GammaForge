@@ -24,7 +24,7 @@ cross-checks this table against the files on disk.
 | RES016 | `beam.py` renamed to `bunch.py`; the "canonical bunch" phrasing dropped | architecture | implemented | archived/architecture/RES016-beam-py-renamed-to-bunch-py.md |
 | RES017 | Dimensioned fields are converted to canonical CGS on construction, not stored in the unit given | architecture | implemented | archived/architecture/RES017-canonical-cgs-on-construction.md |
 | RES018 | `engines/base.py` lands in Phase 2, with the `Engine` protocol but no registry | architecture | implemented | implemented/architecture/RES018-engine-protocol-lands-phase2.md |
-| RES019 | Golden references are generated in a subprocess, and committed as ordinary results files | testing | implemented | implemented/testing/RES019-golden-references-subprocess.md |
+| RES019 | Golden references are generated in a subprocess, and committed as ordinary results files | testing | implemented | archived/testing/RES019-golden-references-subprocess.md |
 | RES020 | The validation runners have no result cache | testing | implemented | archived/testing/RES020-validation-runners-no-cache.md |
 | RES021 | The laser's active region is a cone, not a cylinder | bug-fix | implemented | archived/bug-fix/RES021-active-region-cone-not-cylinder.md |
 | RES022 | The active-region cone is evaluated at the flying-focus coordinate | bug-fix | implemented | archived/bug-fix/RES022-active-region-flying-focus-coordinate.md |
@@ -91,4 +91,5 @@ cross-checks this table against the files on disk.
 | RES083 | Explicit CuPy execution for xigma Stages 0 and 1 | bug-fix | implemented | implemented/bug-fix/RES083-explicit-cupy-stage01-execution.md |
 | RES084 | Production delta emission gates | testing | implemented | implemented/testing/RES084-production-delta-emission-gates.md |
 | RES085 | Validated CuPy delta emission reference | feature | implemented | implemented/feature/RES085-validated-cupy-delta-reference.md |
+| RES087 | Retire the predecessor validation bridge | simplification | implemented | implemented/simplification/RES087-retire-predecessor-validation-bridge.md |
 | RES089 | GUI defaults are sectional and output ranges are per-axis Auto or manual | feature | implemented | implemented/feature/RES089-gui-sectional-defaults-and-output-ranges.md |

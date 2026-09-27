@@ -28,21 +28,13 @@ venv/
 *.swp
 *~
 
-# Large data formats (C3: the predecessor accumulated multi-MB .ele/notebook artifacts
-# at repo root — keep them out from day one)
+# Large generated data formats stay out of the repository (C3).
 *.ele
 *.bun
 *.h5
 *.hdf5
 
-# ...except the golden reference snapshots, which ARE committed by design (§7): they are
-# the record of what another implementation answered, and a validation suite whose
-# references have to be regenerated before it can run is not a validation suite. Tens of
-# kB each, deliberately — see validation/make_references.py.
-!src/gammaforge/validation/references/data/**/*.h5
-
-# Sync-conflict variants (predecessor had .sync-conflict-*.ele duplicates from unsynced
-# cloud-client edits)
+# Sync-conflict variants from cloud-client edits.
 *.sync-conflict-*
 *sync-conflict*
 
