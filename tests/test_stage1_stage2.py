@@ -26,6 +26,7 @@ pytestmark = [pytest.mark.tier2]
 
 from gammaforge.engines.xigma import stages
 from gammaforge.engines.xigma.stages import (
+    SpectralMoments,
     Table,
     TrajectorySamples,
     _ahat_target_edges,
@@ -34,7 +35,9 @@ from gammaforge.engines.xigma.stages import (
     angular_spectrum_from_table,
     deposit_shape_table,
     integrate_trajectories,
+    nonuniform_derivative,
     query_spectral_moments,
+    reconstruct_second_order,
     retarget_ahat,
     spectrum_from_table,
     spectrum_in_angular_range,
@@ -426,6 +429,61 @@ def test_raw_spectral_moment_channels_match_the_closed_form_weights():
         _single_cell_moment_table(var_a, var_chirp, 0.0), 0.0, 0.0, s
     )
     assert moments.rho2[0] < uncorrelated.rho2[0]
+
+
+def test_nonuniform_derivative_is_exact_for_its_local_polynomial_order():
+    x = np.array([0.2, 0.31, 0.57, 0.9, 1.4, 2.1, 3.0, 4.4])
+    values = 2.0 - 3.0 * x + 0.7 * x**2 + 0.2 * x**3 - 0.04 * x**4
+    expected_first = -3.0 + 1.4 * x + 0.6 * x**2 - 0.16 * x**3
+    expected_second = 1.4 + 1.2 * x - 0.48 * x**2
+    np.testing.assert_allclose(
+        nonuniform_derivative(x, values, 1), expected_first, rtol=2e-11, atol=2e-11
+    )
+    np.testing.assert_allclose(
+        nonuniform_derivative(x, values, 2), expected_second, rtol=2e-10, atol=2e-10
+    )
+
+
+def test_second_order_reconstruction_matches_the_settled_formula_without_clipping():
+    s = np.array([0.5, 0.73, 1.1, 1.8, 2.7, 4.0])
+    p1 = 0.2 + 0.3 * s - 0.1 * s**2 + 0.02 * s**3
+    p2 = 0.4 - 0.2 * s + 0.05 * s**2 + 0.01 * s**4
+    rho0 = 1.5 + 0.1 * s
+    moments = SpectralMoments(s=s, rho0=rho0, rho1=p1 / s, rho2=p2 / s)
+    expected = rho0 - (0.3 - 0.2 * s + 0.06 * s**2) / s
+    expected += 0.5 * (0.1 + 0.12 * s**2) / s
+    np.testing.assert_allclose(reconstruct_second_order(moments), expected, rtol=2e-11)
+
+    negative = SpectralMoments(s=s, rho0=np.ones_like(s), rho1=s, rho2=np.zeros_like(s))
+    np.testing.assert_allclose(reconstruct_second_order(negative), -np.ones_like(s), atol=2e-13)
+
+
+def test_nonuniform_second_order_reconstruction_converges():
+    def evaluate(n_points):
+        unit = np.linspace(0.0, 1.0, n_points)
+        s = 0.5 + 1.5 * unit**1.4
+        moments = SpectralMoments(
+            s=s,
+            rho0=np.exp(-s),
+            rho1=np.sin(s) / s,
+            rho2=np.exp(s) / s,
+        )
+        expected = np.exp(-s) - np.cos(s) / s + 0.5 * np.exp(s) / s
+        return np.max(np.abs(reconstruct_second_order(moments) - expected))
+
+    assert evaluate(33) < evaluate(17) / 5.0
+
+
+def test_line_model_switch_is_explicit_and_delta_compatible():
+    table = _single_cell_moment_table()
+    s = np.array([6500.0, 6800.0, 7100.0, 7400.0, 7700.0])
+    delta = spectrum_from_table(table, 0.0, 0.0, s, line_model="delta")
+    moment2 = spectrum_from_table(table, 0.0, 0.0, s, line_model="moment2")
+    np.testing.assert_allclose(moment2, delta)
+    with pytest.raises(ValueError, match="at least three"):
+        spectrum_from_table(table, 0.0, 0.0, 7000.0, line_model="moment2")
+    with pytest.raises(ValueError, match="line_model"):
+        spectrum_from_table(table, 0.0, 0.0, s, line_model="unknown")
 
 
 def test_the_kernel_and_delta_agree_on_where_the_redshift_puts_the_photons():

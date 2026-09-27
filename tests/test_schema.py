@@ -71,3 +71,9 @@ def test_xigma_reduced_dimension_axes_accept_one_bin():
     assert params.get_int("n_bins_a0_shape") == 1
     assert params.get_int("n_bins_chirp") == 1
     assert params.get_int("n_bins_ahat") == 1
+
+
+def test_xigma_line_model_is_an_explicit_choice():
+    params = xigma_parameters()
+    assert params.get_choice("line_model") == "delta"
+    assert params.with_values(line_model="moment2").get_choice("line_model") == "moment2"

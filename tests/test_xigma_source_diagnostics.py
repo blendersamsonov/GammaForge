@@ -94,6 +94,13 @@ def test_outputs_use_requested_grid_and_explicit_measure(interaction):
     assert result.scaled(2).photon_slices[OutputKind.TEMPORAL_ENVELOPE].integrate() == pytest.approx(2*total)
 
 
+def test_results_record_line_model_and_chirp_treatment(interaction):
+    params = XigmaEngine.schema.with_values(n_steps=32, line_model="moment2")
+    result = Collision(interaction, params).run(requests())
+    assert result.model_specific["line_model"] == "moment2"
+    assert result.model_specific["chirp_treatment"] == "trajectory_mean_and_second_moments"
+
+
 def test_clipping_is_reported_without_renormalization(interaction):
     collision = Collision(interaction, XigmaEngine.schema.with_values(n_steps=32))
     full = collision.run(requests())

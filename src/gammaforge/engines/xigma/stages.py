@@ -83,6 +83,8 @@ __all__ = [
     "deposit_shape_table",
     "retarget_ahat",
     "query_spectral_moments",
+    "nonuniform_derivative",
+    "reconstruct_second_order",
     "spectrum_from_table",
     "angular_spectrum_from_table",
     "spectrum_in_angular_range",
@@ -1764,6 +1766,66 @@ class SpectralMoments:
             raise ValueError("SpectralMoments arrays must have the same shape")
 
 
+def nonuniform_derivative(
+    x,
+    values,
+    derivative_order: int,
+    *,
+    stencil_size: int = 5,
+) -> np.ndarray:
+    """Differentiate one sampled channel on a strictly increasing nonuniform grid.
+
+    Each point uses a local polynomial stencil, including one-sided stencils at the
+    boundaries. With the default five-point stencil the weights are exact for
+    polynomials through degree four. Shorter inputs use every available point.
+    """
+    coordinates = np.asarray(x, dtype=float)
+    channel = np.asarray(values, dtype=float)
+    if coordinates.ndim != 1 or channel.ndim != 1 or coordinates.shape != channel.shape:
+        raise ValueError("x and values must be same-shaped one-dimensional arrays")
+    if not np.all(np.isfinite(coordinates)) or not np.all(np.isfinite(channel)):
+        raise ValueError("x and values must be finite")
+    if derivative_order not in (1, 2):
+        raise ValueError("derivative_order must be 1 or 2")
+    if coordinates.size < derivative_order + 1:
+        raise ValueError(
+            f"derivative order {derivative_order} requires at least "
+            f"{derivative_order + 1} points"
+        )
+    if not isinstance(stencil_size, int) or stencil_size < derivative_order + 1:
+        raise ValueError("stencil_size must be an integer larger than derivative_order")
+    if np.any(np.diff(coordinates) <= 0.0):
+        raise ValueError("x must be strictly increasing")
+
+    width = min(stencil_size, coordinates.size)
+    result = np.empty_like(channel)
+    target = np.zeros(width)
+    target[derivative_order] = math.factorial(derivative_order)
+    for index, coordinate in enumerate(coordinates):
+        start = min(max(index - width // 2, 0), coordinates.size - width)
+        offsets = coordinates[start:start + width] - coordinate
+        scale = np.max(np.abs(offsets))
+        normalized = offsets / scale
+        weights = np.linalg.solve(
+            np.vstack([normalized**power for power in range(width)]),
+            target,
+        ) / scale**derivative_order
+        result[index] = weights @ channel[start:start + width]
+    return result
+
+
+def reconstruct_second_order(moments: SpectralMoments) -> np.ndarray:
+    """Apply the settled second-order finite-line reconstruction on ``moments.s``."""
+    s = np.asarray(moments.s, dtype=float)
+    if s.size < 3:
+        raise ValueError("second-order reconstruction requires at least three spectral points")
+    if np.any(s <= 0.0):
+        raise ValueError("second-order reconstruction requires positive spectral points")
+    first = nonuniform_derivative(s, s * moments.rho1, 1)
+    second = nonuniform_derivative(s, s * moments.rho2, 2)
+    return moments.rho0 - first / s + 0.5 * second / s
+
+
 def _inverse_resonance_gamma_sq(A, K, r_sq, s):
     """Analytical inverse ``Gamma**2 = A / (K/s - r**2)`` and its support."""
     xp = _get_array_module(A, K, r_sq)
@@ -1927,9 +1989,11 @@ def spectrum_from_table(
     ellipticity: float = 0.0,
     theta_xz: float = 0.0,
     theta_yz: float = 0.0,
+    line_model: str = "delta",
 ):
-    """Delta-line Stage-2 spectrum; raw finite-line moments use
-    :func:`query_spectral_moments`."""
+    """Stage-2 spectrum using either the delta or second-order line model."""
+    if line_model not in ("delta", "moment2"):
+        raise ValueError("line_model must be 'delta' or 'moment2'")
     moments = query_spectral_moments(
         table, theta_x, theta_y, s,
         psi_pol=psi_pol,
@@ -1937,6 +2001,8 @@ def spectrum_from_table(
         theta_xz=theta_xz,
         theta_yz=theta_yz,
     )
+    if line_model == "moment2":
+        return reconstruct_second_order(moments)
     return moments.rho0[0] if np.ndim(s) == 0 else moments.rho0
 
 
@@ -1953,6 +2019,7 @@ def angular_spectrum_from_table(
     backend: str = "numpy",
     rings: int = 32,
     subsampling: int = 32,
+    line_model: str = "delta",
 ) -> np.ndarray:
     """Stage 2: :func:`spectrum_from_table` evaluated over a grid of observation points.
 
@@ -1969,10 +2036,16 @@ def angular_spectrum_from_table(
         raise ValueError("Stage-2 psi_pol must be a real scalar") from exc
     if not math.isfinite(psi_pol):
         raise ValueError("Stage-2 psi_pol must be finite")
+    if line_model not in ("delta", "moment2"):
+        raise ValueError("line_model must be 'delta' or 'moment2'")
     selected_backend = stage2_backend(
         backend, ellipticity=ellipticity, theta_xz=theta_xz, theta_yz=theta_yz,
     )
     if selected_backend == "cupy":
+        if line_model == "moment2":
+            raise NotImplementedError(
+                "line_model='moment2' requires the NumPy Stage-2 backend until Step F"
+            )
         from .spectrum_sampler import calculate_angular_spectrum_gpu
         return calculate_angular_spectrum_gpu(
             table, theta_x_grid, theta_y_grid, s,
@@ -1991,7 +2064,8 @@ def angular_spectrum_from_table(
             out[i, j, :] = spectrum_from_table(
                 table, float(x), float(y), s_arr,
                 psi_pol=psi_pol, ellipticity=ellipticity,
-                theta_xz=theta_xz, theta_yz=theta_yz
+                theta_xz=theta_xz, theta_yz=theta_yz,
+                line_model=line_model,
             )
     return out
 
@@ -2098,6 +2172,7 @@ def spectrum_in_angular_range(
     backend: str = "numpy",
     rings: int = 32,
     subsampling: int = 32,
+    line_model: str = "delta",
 ) -> tuple[np.ndarray, np.ndarray, float]:
     """Stage 2: the windowed on-demand query the `Collision` facade wraps.
 
@@ -2116,7 +2191,7 @@ def spectrum_in_angular_range(
         psi_pol=psi_pol, ellipticity=ellipticity,
         theta_xz=theta_xz, theta_yz=theta_yz,
         backend=backend, subsampling=subsampling,
-        rings=rings,
+        rings=rings, line_model=line_model,
     )
     dN_ds = np.trapezoid(np.trapezoid(cube, ty, axis=1), tx, axis=0)
     n_photons = float(np.trapezoid(dN_ds, s_centers))

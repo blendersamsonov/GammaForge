@@ -118,6 +118,14 @@ XIGMA_SPECS: tuple[FieldSpec, ...] = (
         value_range=(0.1, 12.0),
     ),
     FieldSpec(
+        key="line_model",
+        label="Single-electron line model",
+        kind=FieldKind.CHOICE,
+        unit=DIMENSIONLESS,
+        default="delta",
+        choices=("delta", "moment2"),
+    ),
+    FieldSpec(
         key="backend",
         label="Compute backend",
         kind=FieldKind.CHOICE,

@@ -191,9 +191,11 @@ class Collision:
         backend: str | None = None,
         rings: int | None = None,
         subsampling: int | None = None,
+        line_model: str | None = None,
     ) -> np.ndarray:
         """Stage 2, at the pulse's own peak a0: ``d3N / (ds dtheta_x dtheta_y)``."""
         b = backend or (self.params.get_choice("backend") if "backend" in self.params else "cupy")
+        model = line_model or self.params.get_choice("line_model")
         return angular_spectrum_from_table(
             self._table(), theta_x, theta_y, s,
             psi_pol=psi_pol, ellipticity=ellipticity,
@@ -201,6 +203,7 @@ class Collision:
             backend=b,
             rings=rings if rings is not None else self.params.get_int("sampler_rings"),
             subsampling=subsampling if subsampling is not None else self.params.get_int("sampler_subsampling"),
+            line_model=model,
         )
 
     def spectrum_in_angular_range(
@@ -217,9 +220,11 @@ class Collision:
         backend: str | None = None,
         rings: int | None = None,
         subsampling: int | None = None,
+        line_model: str | None = None,
     ):
         """The windowed on-demand query (§4.2) — cheap once `build_overlap`/`_table` ran."""
         b = backend or (self.params.get_choice("backend") if "backend" in self.params else "cupy")
+        model = line_model or self.params.get_choice("line_model")
         return _spectrum_in_angular_range(
             self._table(),
             theta_x_range, theta_y_range, s_edges,
@@ -229,6 +234,7 @@ class Collision:
             backend=b,
             rings=rings if rings is not None else self.params.get_int("sampler_rings"),
             subsampling=subsampling if subsampling is not None else self.params.get_int("sampler_subsampling"),
+            line_model=model,
         )
 
     def _laser_polarization_geometry(self) -> dict[str, float]:
@@ -364,11 +370,19 @@ class Collision:
         if OutputKind.SPECTRUM in slices:
             warnings = (
                 "SPECTRUM uses xigma's table-free linear-Compton shape and omits the "
-                "nonlinear redshift carried by the tabulated angular kernel.",
+                "nonlinear redshift, carrier-rate shift, and finite-line corrections "
+                "carried by the tabulated angular kernel.",
             )
+        line_model = self.params.get_choice("line_model")
         model_specific: dict[str, object] = {
             "warnings": warnings,
             "doppler": {"convention": "direction", "beta": 1.0},
+            "line_model": line_model,
+            "chirp_treatment": (
+                "trajectory_mean_and_second_moments"
+                if line_model == "moment2"
+                else "trajectory_mean"
+            ),
         }
         model_specific["stage0_backend"] = self._overlap_backend
         if self._shape_table is not None:
@@ -487,4 +501,7 @@ class Collision:
         doppler = direction_doppler_factor(samples.theta_x, samples.theta_y,
                                            geom["theta_xz"], geom["theta_yz"])
         edge = float(np.max(doppler * samples.gamma**2))
+        if self.params.get_choice("line_model") == "moment2":
+            edges = np.linspace(0.0, 1.2 * edge, n + 1)
+            return 0.5 * (edges[:-1] + edges[1:])
         return np.linspace(0.0, 1.2 * edge, n)

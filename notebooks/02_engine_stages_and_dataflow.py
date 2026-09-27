@@ -135,7 +135,7 @@ print(f"Engine 2: '{analytical.name}', outputs: {[o.name for o in analytical.sup
 # ┌─────────────────────────────────────────────────────────────┐
 # │ Stage 2: angle_integrated_spectrum() -> Results             │
 # │ CPU pull query returns raw rho0, rho1, rho2 channels.       │
-# │ The current public spectrum remains the rho0 delta line.    │
+# │ line_model selects the delta line or moment2 reconstruction.│
 # └─────────────────────────────────────────────────────────────┘
 # ```
 
@@ -143,7 +143,7 @@ print(f"Engine 2: '{analytical.name}', outputs: {[o.name for o in analytical.sup
 from gammaforge.engines.xigma.collision import Collision
 
 # Instantiate a Collision object
-notebook_xigma_params = xigma.schema.with_values(backend="numpy")
+notebook_xigma_params = xigma.schema.with_values(backend="numpy", line_model="moment2")
 collision = Collision(interaction=interaction, params=notebook_xigma_params)
 
 # The schema backend selects Stage 0/1 as well as Stage 2 (RES083).
@@ -181,8 +181,10 @@ assert table.H.shape[-1] == 1
 # Stage 2's CPU primitive evaluates all five table axes and returns the unbroadened
 # spectrum rho0 plus the first two raw finite-line moment channels. The moment-density
 # tables are already luminosity-weighted, so the query consumes them directly; it never
-# divides by H. Spectral reconstruction from these channels is the next pipeline step.
-from gammaforge.engines.xigma.stages import query_spectral_moments
+# divides by H. Reconstruction needs a positive, strictly increasing stencil of at least
+# three points; a scalar query therefore returns raw moments only and never silently falls
+# back to the delta line.
+from gammaforge.engines.xigma.stages import query_spectral_moments, reconstruct_second_order
 
 s_probe = np.linspace(0.75, 1.05, 32) * samples.gamma.mean() ** 2
 raw_moments = query_spectral_moments(
@@ -197,6 +199,8 @@ print(f"  Raw spectral channels: {raw_moments.rho0.shape}")
 print(f"  rho0 peak: {raw_moments.rho0.max():.4e}")
 print(f"  rho1/rho2 finite: {np.isfinite(raw_moments.rho1).all()}, "
       f"{np.isfinite(raw_moments.rho2).all()}")
+corrected_spectrum = reconstruct_second_order(raw_moments)
+print(f"  moment2 spectrum finite: {np.isfinite(corrected_spectrum).all()}")
 
 # Stokes parameters in smooth laboratory observer basis (DER007, RES073)
 stokes = collision.stokes_parameters(theta_x=0.0, theta_y=0.0)
