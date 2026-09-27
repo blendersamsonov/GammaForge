@@ -133,6 +133,10 @@ constraints (`GRAND_PLAN.md` §1 has the full table with provenance — P1–P15
   algorithms first developed there. They are history, not a dependency or an instruction
   to consult another checkout. Current behavior must be justified by this repository's
   code, derivations, decisions, and validation suite.
+- **No legacy code:** this is a single-user project and API changes are acceptable. When
+  an implementation or interface is superseded, delete the obsolete code, aliases, shims,
+  compatibility branches, and dead tests instead of retaining them for history or backward
+  compatibility. Git and the archived decision record preserve history.
 - **Validation:** `python -m gammaforge.validation.run` is the suite entry point (it runs
   what is runnable and says what it skipped); `gammaforge.validation.scenarios.SCENARIOS`
   is the shared bank — iterate it, don't hardcode a scenario name in a runner.
