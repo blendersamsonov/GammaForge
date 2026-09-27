@@ -31,9 +31,9 @@ def emission_lines(samples: TrajectorySamples, theta_x: float, theta_y: float, *
     ``photon_energy`` is the incident laser photon energy in CGS erg. ``nominal``
     uses the historical nominal-axis factor; ``particle`` uses exact finite speed;
     ``direction`` uses each electron's direction at beta=1, matching xigma (RES082).
-    In every mode the coefficient multiplying ``ahat`` uses that beta=1 electron
-    direction (DER014, RES088). All three intentionally share Stage-0 luminosity weights
-    so this remains a bounded emission-reference check.
+    In every mode the coefficient multiplying ``ahat`` is the exact observer-dependent
+    ratio ``(1 - n dot n0) / (1 - e dot n0)``. All three intentionally share Stage-0
+    luminosity weights so this remains a bounded emission-reference check.
     """
     _ld_guard()
     if doppler not in ("nominal", "particle", "direction"):
@@ -78,9 +78,11 @@ def emission_lines(samples: TrajectorySamples, theta_x: float, theta_y: float, *
         encounter = direction_factor
     else:
         encounter = 1-np.sum(v*n0, axis=1)
-    # The diagnostic numerator mode does not change the author-selected beta=1
-    # beaming-cone coefficient multiplying ahat (DER014, RES088).
-    den = 1 + 0.5*direction_factor*ahat + gamma**2*r2
+    observer_encounter = 1 - np.dot(n, n0)
+    if np.any(direction_factor <= np.longdouble(64) * np.finfo(float).eps):
+        raise ValueError("electron-laser encounter factor is too small for the nonlinear resonance")
+    q_incidence = observer_encounter / direction_factor
+    den = 1 + q_incidence*ahat + gamma**2*r2
     energies = 2*np.longdouble(photon_energy)*encounter*gamma**2/den
     weights = (3/(2*np.pi))*lum*pol*gamma**2/(1+gamma**2*r2)**2
     if np.any(~np.isfinite(energies)) or np.any(~np.isfinite(weights)):

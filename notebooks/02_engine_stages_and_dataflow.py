@@ -118,16 +118,15 @@ print(f"Engine 2: '{analytical.name}', outputs: {[o.name for o in analytical.sup
 #                                ▼
 # ┌─────────────────────────────────────────────────────────────┐
 # │ Stage 1: deposit_shape_table() -> ShapeTable                │
-# │ Bins (gamma, thx, thy, P*a0_shape), with                    │
-# │ P=(1-e·n0)/2 evaluated for every trajectory.                │
-# │ The coordinate remains peak-intensity-agnostic.             │
+# │ Bins (gamma, thx, thy, a0_shape). The raw nonlinear shape   │
+# │ remains peak-intensity- and observation-agnostic.           │
 # └──────────────────────────────┬──────────────────────────────┘
 #                                │
 #                                ▼
 # ┌─────────────────────────────────────────────────────────────┐
 # │ Stage 1.5: retarget_ahat() -> Table                         │
-# │ Scales the shape to the physical P*ahat coordinate.         │
-# │ Stage 2 consumes it directly; it does not reapply P.        │
+# │ Scales the shape to the physical raw ahat coordinate.       │
+# │ Stage 2 evaluates Q=(1-n·n0)/(1-e·n0) per query.           │
 # └──────────────────────────────┬──────────────────────────────┘
 #                                │
 #                                ▼

@@ -1,9 +1,9 @@
 """xigma's pipeline as composable pure functions (GRAND_PLAN.md §4.2).
 
 Stage 0 (:func:`integrate_trajectories`), Stage 1 (:func:`deposit_shape_table`, onto the
-peak-intensity-independent ``P*a0_shape`` axis), the retarget step
+peak-intensity-independent raw ``a0_shape`` axis), the retarget step
 (:func:`retarget_ahat`, a conservative regrid onto the physical, non-uniform
-``P*ahat`` axis for one specific peak intensity — RES032, RES088) and Stage 2
+``ahat`` axis for one specific peak intensity — RES032) and Stage 2
 (:func:`spectrum_from_table`,
 :func:`angular_spectrum_from_table`, :func:`spectrum_in_angular_range`) all live here.
 
@@ -103,7 +103,7 @@ __all__ = [
     "relative_velocity",
     "doppler_factor_per_particle",
     "direction_doppler_factor",
-    "ponderomotive_incidence_factor",
+    "observer_ponderomotive_factor",
 ]
 
 #: Relative-velocity factor for the near-backscattering geometry: electron and photon
@@ -162,14 +162,54 @@ def direction_doppler_factor(theta_x, theta_y, theta_xz=0.0, theta_yz=0.0, *, k_
     return xp.maximum(0.0, encounter) / nominal
 
 
+def observer_ponderomotive_factor(
+    theta_e_x,
+    theta_e_y,
+    theta_x,
+    theta_y,
+    theta_xz=0.0,
+    theta_yz=0.0,
+    *,
+    k_hat=None,
+):
+    """Exact coefficient ``(1 - n dot n0) / (1 - e dot n0)`` multiplying ``ahat``.
+
+    ``e`` is the normalized electron direction represented by ``theta_e_x`` and
+    ``theta_e_y``; ``n`` is the normalized observation direction represented by
+    ``theta_x`` and ``theta_y``. All slope inputs broadcast under NumPy or CuPy. The
+    co-propagating denominator is outside xigma's validity domain and is rejected rather
+    than clipped.
+    """
+    n0 = _incident_axis(theta_xz, theta_yz) if k_hat is None else np.asarray(k_hat, dtype=float)
+    if n0.shape != (3,) or not np.all(np.isfinite(n0)) or not np.isclose(np.dot(n0, n0), 1.0):
+        raise ValueError("laser propagation direction must be a finite unit vector")
+
+    xp = _get_array_module(theta_e_x, theta_e_y, theta_x, theta_y)
+    te_x = xp.asarray(theta_e_x)
+    te_y = xp.asarray(theta_e_y)
+    tn_x = xp.asarray(theta_x)
+    tn_y = xp.asarray(theta_y)
+    electron_encounter = 1.0 - (
+        n0[0] * te_x + n0[1] * te_y + n0[2]
+    ) / xp.sqrt(1.0 + te_x**2 + te_y**2)
+    singular_tolerance = 64.0 * np.finfo(float).eps
+    if xp.any(electron_encounter <= singular_tolerance):
+        raise ValueError(
+            "electron-laser encounter factor is too small; co-propagation is outside xigma's regime"
+        )
+    observer_encounter = 1.0 - (
+        n0[0] * tn_x + n0[1] * tn_y + n0[2]
+    ) / xp.sqrt(1.0 + tn_x**2 + tn_y**2)
+    return observer_encounter / electron_encounter
+
+
 def ponderomotive_incidence_factor(
     theta_x, theta_y, theta_xz=0.0, theta_yz=0.0, *, k_hat=None
 ):
-    """Coefficient ``(1 - e dot n0) / 2`` multiplying ``ahat`` (DER014, RES088).
+    """Legacy RES088 coefficient, retained only as a historical documentation resolver.
 
-    Production uses the same beta=1 electron direction as
-    :func:`direction_doppler_factor`. The observation direction is approximated by that
-    electron direction because its radiation is confined to the beaming cone.
+    Production physics uses :func:`observer_ponderomotive_factor`; this helper is neither
+    exported nor called by any production path.
     """
     n0 = _incident_axis(theta_xz, theta_yz) if k_hat is None else np.asarray(k_hat, dtype=float)
     nominal = 1.0 - n0[2]
@@ -1052,7 +1092,7 @@ def integrate_trajectories(
 
 
 #: Default bin counts for :func:`deposit_shape_table`'s four axes, in ``(gamma, theta_x,
-#: theta_y, P*a0_shape)`` order. The effective-shape axis is deliberately fine — it is
+#: theta_y, a0_shape)`` order. The raw-shape axis is deliberately fine — it is
 #: bounded and peak-intensity-independent, so there is no dynamic-range reason to keep it
 #: small the way the old direct-onto-``ahat`` deposit's fourth axis had to be.
 DEFAULT_SHAPE_BINS = (48, 48, 48, 96)
@@ -1099,10 +1139,8 @@ def _validate_edges_and_shape(edges, H, name: str) -> None:
 @dataclass(frozen=True)
 class ShapeTable:
     """Stage 1's output: a 4D photon-weight density over ``(gamma, theta_x, theta_y,
-    P*a0_shape)``. Here ``P = (1 - e dot n0) / 2`` is evaluated per trajectory before
-    deposition (DER014, RES088), so the axis already carries the incidence correction.
-    It remains pulse-strength-agnostic because both factors are independent of peak
-    intensity.
+    a0_shape)``. The nonlinear incidence coefficient is observer-dependent and therefore
+    is not part of this deposited coordinate.
 
     Not agnostic in *mass*: ``H`` is deposited with ``samples.luminosity`` at
     ``source_intensity_peak`` (the pulse Stage 0 actually ran), and luminosity scales
@@ -1148,11 +1186,11 @@ class ShapeTable:
 @dataclass(frozen=True)
 class Table:
     """Stage 2's input: a 4D photon-weight density over ``(gamma, theta_x, theta_y,
-    P*ahat)``, for one specific peak intensity.
+    ahat)``, for one specific peak intensity.
 
-    Public field names retain ``ahat`` for continuity, but the incidence factor is already
-    included by Stage 1 and must not be reapplied by Stage 2. ``H`` is a **density**
-    (weight per unit cell volume). Unlike `ShapeTable`, the ``ahat`` axis is generally
+    The axis stores raw ``ahat``; Stage 2 evaluates the observer-dependent nonlinear
+    coefficient at query time. ``H`` is a **density** (weight per unit cell volume).
+    Unlike `ShapeTable`, the ``ahat`` axis is generally
     **non-uniform** — :func:`retarget_ahat` builds it dense near
     ``ahat_max`` and coarse toward ``ahat_min`` (RES032), so there is no
     single scalar cell volume; :attr:`ahat_widths` and :attr:`gamma_theta_cell_area` are
@@ -1284,13 +1322,10 @@ def deposit_shape_table(
     backend: str = "numpy",
     chunk: int | None = None,
 ) -> ShapeTable:
-    """Stage 1: bin samples into the 4D ``P*a0_shape`` table ``H``.
+    """Stage 1: bin samples into the 4D raw ``a0_shape`` table ``H``.
 
-    The per-trajectory incidence factor ``P = (1 - e dot n0) / 2`` is multiplied into
-    ``samples.a0_shape`` before binning. This preserves its correlation with electron
-    direction instead of reconstructing it from angular cell centres in Stage 2. The
-    product remains independent of peak intensity, so one deposit serves every strength a
-    caller might later request via :func:`retarget_ahat` (DER014, RES088).
+    Incidence and observation geometry are deliberately absent from the nonlinear axis;
+    Stage 2 evaluates the exact observer-dependent coefficient for each query.
 
     ``scheme`` is ``"nearest"`` (one cell per sample) or ``"cic"`` (cloud-in-cell, 16
     neighbours per sample) — both conserve total weight exactly; CIC trades a discretized
@@ -1307,14 +1342,7 @@ def deposit_shape_table(
     xp = cp if backend == "cupy" else np
     to_host = cp.asnumpy if backend == "cupy" else np.asarray
 
-    incident_axis = (
-        np.array([0.0, 0.0, -1.0])
-        if samples.incident_axis is None
-        else np.asarray(samples.incident_axis, dtype=float)
-    )
-    redshift_shape = np.asarray(samples.a0_shape) * ponderomotive_incidence_factor(
-        samples.theta_x, samples.theta_y, k_hat=incident_axis
-    )
+    redshift_shape = np.asarray(samples.a0_shape)
     gamma_edges = _uniform_edges(samples.gamma, n_bins[0], margin)
     theta_x_edges = _uniform_edges(samples.theta_x, n_bins[1], margin)
     theta_y_edges = _uniform_edges(samples.theta_y, n_bins[2], margin)
@@ -1400,11 +1428,10 @@ def retarget_ahat(
     n_bins: int = DEFAULT_RETARGET_BINS,
     decades: float = DEFAULT_AHAT_DECADES,
 ) -> Table:
-    """Stage 1.5: conservative regrid of a `ShapeTable`'s ``P*a0_shape`` axis.
+    """Stage 1.5: conservative regrid of a `ShapeTable`'s raw ``a0_shape`` axis.
 
-    The fixed, non-uniform target coordinate is therefore ``P*ahat``, the complete
-    nonlinear term Stage 2 queries, for one
-    specific peak cycle-averaged intensity ``<a^2>`` (RES032, supersedes
+    The fixed, non-uniform target coordinate is raw ``ahat`` for one specific peak
+    cycle-averaged intensity ``<a^2>`` (RES032, supersedes
     RES028; RES054 for why the parameter is an intensity rather than an amplitude).
 
     Cheap and independent of ``n_particles`` — a ``shape_table.redshift_shape_edges.size x
@@ -1436,7 +1463,7 @@ def retarget_ahat(
         shape_table.redshift_shape_edges, shape_table.H
     )
 
-    # Exact: P*a0_shape is strength-independent, so the axis transform is a pure scale.
+    # Exact: a0_shape is strength-independent, so the axis transform is a pure scale.
     source_edges = ahat_from_shape(shape_table.redshift_shape_edges, intensity_peak)
     target_edges = _ahat_target_edges(ahat_min, ahat_max, n_bins, decades)
 
@@ -1477,7 +1504,7 @@ def retarget_ahat(
     # W[i, j]: fraction of source bin i's mass assigned to target bin j.
     W = overlap / xp.clip(src_width, 1e-300, None)[:, None]
 
-    # The source (P*a0_shape) axis stays uniform in this design — deposit_shape_table only
+    # The source a0_shape axis stays uniform in this design — deposit_shape_table only
     # ever builds it via _uniform_edges — so a single scalar width is exact here, unlike
     # a scalar width is safe only because the source is uniform; it is not a general
     # non-uniform-axis operation.
@@ -1581,9 +1608,9 @@ def spectrum_from_table(
     at that gamma (:func:`_interp_gamma`).
 
     ``g``/``prefac`` are recomputed inside the ahat loop implicitly — this function never
-    factors ahat out of the resonance condition. The table's ``ahat`` coordinate already
-    means ``P * ahat`` because Stage 1 deposits the per-trajectory incidence factor
-    (DER014, RES088); applying ``P`` again here would double-count it.
+    factors ahat out of the resonance condition. The table stores raw ``ahat`` and the
+    exact observer-dependent coefficient is evaluated from the same electron and laser
+    geometry as the direction Doppler factor.
 
     The polarization factor now includes ellipticity and crossing angle effects per DER006,
     replacing the head-on linear factor ``cos^2 psi``.
@@ -1603,7 +1630,10 @@ def spectrum_from_table(
 
     # Direction-dependent resonance and Jacobian at beta=1 (DER013, RES082).
     D_rel = direction_doppler_factor(tx_c, ty_c, theta_xz, theta_yz)
-    A = 1.0 + a_c
+    Q = observer_ponderomotive_factor(
+        tx_c, ty_c, theta_x, theta_y, theta_xz, theta_yz
+    )
+    A = 1.0 + Q * a_c
 
     out = xp.zeros(s_arr.shape[0])
     for k, s_val in enumerate(s_arr):

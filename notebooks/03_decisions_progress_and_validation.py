@@ -156,11 +156,10 @@ search_knowledge_base("cupy")
 # ## 4. The Validation Scenario Bank in Action
 # The matched-bin delta pilot now explicitly uses the direction-Doppler mode (beta=1).
 # Its historical nominal and exact finite-speed modes remain diagnostics. DER013 is
-# author-verified (2026-09-13). DER014/RES088 additionally multiply each electron's
-# unchanged `ahat` by the beaming-cone incidence coefficient
-# `P = (1 - e dot n0) / 2`; this coefficient remains tied to the electron direction even
-# when a diagnostic selects a different resonance numerator. Broader independent
-# arbitrary-angle acceptance remains open.
+# author-verified (2026-09-13). The current nonlinear resonance stores raw `ahat` and
+# evaluates the observer-dependent coefficient
+# `Q = (1 - n dot n0) / (1 - e dot n0)` at query time. Broader independent arbitrary-angle
+# acceptance remains open.
 # 
 # The Stage-0/1 CUDA agreement gate is `scripts/validate_cupy_stages01.py` (RES083).
 # It iterates the shared scenario bank and reports agreement separately from warm

@@ -67,7 +67,7 @@ def test_tilted_particle_doppler_uses_explicit_laser_axis(tx):
     np.testing.assert_allclose(particle[0] / nominal[0], expected, rtol=1e-12, atol=1e-15)
 
 
-def test_nonlinear_redshift_uses_electron_incidence_not_view_direction():
+def test_nonlinear_redshift_uses_exact_observer_incidence_ratio():
     gamma, tx, ty, ahat = 2000., .12, -.08, .7
     theta_xz, theta_yz = .6, -.25
     observer_x, observer_y = .121, -.079
@@ -88,9 +88,12 @@ def test_nonlinear_redshift_uses_electron_incidence_not_view_direction():
         dtype=np.longdouble,
     )
     encounter = 1 - electron @ n0
+    observer = np.array([observer_x, observer_y, 1.], dtype=np.longdouble)
+    observer /= np.linalg.norm(observer)
+    q_incidence = (1 - observer @ n0) / encounter
     r2 = (np.longdouble(tx)-observer_x)**2 + (np.longdouble(ty)-observer_y)**2
     expected = 4*np.longdouble(1.)*encounter*gamma**2 / (
-        1 + 0.5*encounter*ahat + gamma**2*r2
+        1 + q_incidence*ahat + gamma**2*r2
     )
     np.testing.assert_allclose(energies[0], expected, rtol=1e-14)
 
@@ -105,7 +108,7 @@ def test_nonlinear_redshift_uses_electron_incidence_not_view_direction():
     )
     nominal_encounter = 1 + np.cos(theta_xz)*np.cos(theta_yz)
     expected_nominal = 4*np.longdouble(1.)*nominal_encounter*gamma**2 / (
-        1 + 0.5*encounter*ahat + gamma**2*r2
+        1 + q_incidence*ahat + gamma**2*r2
     )
     np.testing.assert_allclose(nominal[0], expected_nominal, rtol=1e-14)
 

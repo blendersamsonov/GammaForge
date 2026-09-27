@@ -93,7 +93,7 @@ def test_deposit_conserves_total_weight_cic():
     assert table.total_weight == pytest.approx(samples.total_yield(), rel=1e-9)
 
 
-def test_deposit_applies_ponderomotive_incidence_per_trajectory():
+def test_deposit_uses_raw_shape_independent_of_observation_geometry():
     samples = TrajectorySamples(
         gamma=np.full(3, 2000.0),
         theta_x=np.array([-.4, 0.0, .5]),
@@ -105,14 +105,19 @@ def test_deposit_applies_ponderomotive_incidence_per_trajectory():
         incident_axis=np.array([-.5, .25, -np.sqrt(.6875)]),
     )
     table = deposit_shape_table(samples, n_bins=(2, 3, 3, 6), margin=.02)
-    expected = samples.a0_shape * stages.ponderomotive_incidence_factor(
-        samples.theta_x, samples.theta_y, k_hat=samples.incident_axis
-    )
 
     np.testing.assert_allclose(
         table.redshift_shape_edges,
-        stages._uniform_edges(expected, 6, .02, floor_zero=True),
+        stages._uniform_edges(samples.a0_shape, 6, .02, floor_zero=True),
     )
+    q_left = stages.observer_ponderomotive_factor(
+        samples.theta_x, samples.theta_y, -.2, .1, k_hat=samples.incident_axis
+    )
+    q_right = stages.observer_ponderomotive_factor(
+        samples.theta_x, samples.theta_y, .3, -.15, k_hat=samples.incident_axis
+    )
+    assert not np.allclose(q_left, q_right)
+    np.testing.assert_array_equal(samples.a0_shape, np.array([.6, 1.0, 1.4]))
 
 
 def test_deposit_handles_a_monoenergetic_zero_divergence_beam():

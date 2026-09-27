@@ -30,40 +30,60 @@ def test_direction_factor_is_unit_speed_and_broadcasts():
     assert stages.direction_doppler_factor(0., 0.) == 1
 
 
-def test_ponderomotive_incidence_uses_each_electron_direction():
-    tx, ty = np.array([-.2, .0, .3]), np.array([.1, -.2, .05])
+def test_observer_ponderomotive_factor_matches_dot_products_and_dq_invariant():
+    tx, ty = np.array([-.2, .0, .3])[:, None], np.array([.1, -.2, .05])[:, None]
+    obs_x, obs_y = np.array([-.15, .04])[None, :], np.array([.07, -.11])[None, :]
     n0 = laser_axis(.7, -.3)
-    vectors = np.stack((tx, ty, np.ones_like(tx)), axis=-1)
-    vectors /= np.linalg.norm(vectors, axis=-1)[:, None]
-    expected = 0.5 * (1 - vectors @ n0)
+    ex, ey = np.broadcast_arrays(tx, ty)
+    electron = np.stack((ex, ey, np.ones_like(ex)), axis=-1)
+    electron /= np.linalg.norm(electron, axis=-1)[..., None]
+    nx, ny = np.broadcast_arrays(obs_x, obs_y)
+    observer = np.stack((nx, ny, np.ones_like(nx)), axis=-1)
+    observer /= np.linalg.norm(observer, axis=-1)[..., None]
+    expected = (1 - observer @ n0) / (1 - electron @ n0)
+    actual = stages.observer_ponderomotive_factor(tx, ty, obs_x, obs_y, k_hat=n0)
+    np.testing.assert_allclose(actual, expected, rtol=1e-14)
+
+    doppler = stages.direction_doppler_factor(tx, ty, k_hat=n0)
+    nominal = 1 - n0[2]
     np.testing.assert_allclose(
-        stages.ponderomotive_incidence_factor(tx, ty, k_hat=n0), expected, rtol=1e-14
-    )
-    assert stages.ponderomotive_incidence_factor(0., 0.) == 1
-
-
-def test_stage2_does_not_reapply_incidence_to_corrected_table(monkeypatch):
-    table = Table(
-        np.array([900., 1000., 1100.]),
-        np.array([-.01, 0., .01]),
-        np.array([-.01, 0., .01]),
-        np.array([.04, .06]),
-        np.ones((2, 2, 2, 1)),
-        1.,
-        "incidence-already-deposited",
-        _ahat_eval_points=np.array([.05]),
-    )
-    monkeypatch.setattr(
-        stages,
-        "ponderomotive_incidence_factor",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("Stage 2 reapplied the deposited incidence factor")
-        ),
+        doppler * actual,
+        np.broadcast_to((1 - observer @ n0) / nominal, actual.shape),
+        rtol=1e-14,
     )
 
-    value = stages.spectrum_from_table(table, 0., 0., 1000.**2/1.05, theta_xz=.6)
 
-    assert np.isfinite(value)
+def test_observer_ponderomotive_factor_limits_and_singularity():
+    assert stages.observer_ponderomotive_factor(0., 0., 0., 0.) == pytest.approx(1.)
+
+    tx = np.array([-.2, .0, .3])
+    ty = np.array([.1, -.2, .05])
+    np.testing.assert_allclose(
+        stages.observer_ponderomotive_factor(tx, ty, tx, ty, .7, -.3),
+        1.0,
+        rtol=1e-14,
+    )
+    with pytest.raises(ValueError, match="co-propagation"):
+        stages.observer_ponderomotive_factor(0., 0., 0., 0., k_hat=np.array([0., 0., 1.]))
+
+
+def test_observer_ponderomotive_factor_broadcasts_on_cupy():
+    cp = pytest.importorskip("cupy")
+    try:
+        device_count = cp.cuda.runtime.getDeviceCount()
+    except cp.cuda.runtime.CUDARuntimeError:
+        device_count = 0
+    if device_count < 1:
+        pytest.skip("CuPy or CUDA GPU not available on host")
+    tx = cp.asarray([-.2, .0, .3])[:, None]
+    ty = cp.asarray([.1, -.2, .05])[:, None]
+    obs_x = cp.asarray([-.15, .04])[None, :]
+    obs_y = cp.asarray([.07, -.11])[None, :]
+    expected = stages.observer_ponderomotive_factor(
+        cp.asnumpy(tx), cp.asnumpy(ty), cp.asnumpy(obs_x), cp.asnumpy(obs_y), .7, -.3
+    )
+    actual = stages.observer_ponderomotive_factor(tx, ty, obs_x, obs_y, .7, -.3)
+    np.testing.assert_allclose(cp.asnumpy(actual), expected, rtol=1e-14)
 
 
 def test_stage0_flux_uses_each_direction_without_changing_ballistic_window():
@@ -101,11 +121,8 @@ def test_table_jacobian_preserves_independent_line_mass_and_centroid(crossing):
     centers = (gamma_edges[:-1] + gamma_edges[1:])/2
     n0 = laser_axis(*crossing)
     unit_v = np.array([tx, ty, 1.]); unit_v /= np.linalg.norm(unit_v)
-    P = 0.5*(1-unit_v@n0)
-    effective_ahat = P*ahat
-    ahat_edges = np.array([0., 2*effective_ahat])
-    # The Table coordinate already contains P*ahat from Stage-1 deposition.
-    ahat_eval_points = np.array([effective_ahat])
+    ahat_edges = np.array([0., 2*ahat])
+    ahat_eval_points = np.array([ahat])
     table = Table(gamma_edges, np.array([tx-1e-5, tx+1e-5]),
                   np.array([ty-1e-5, ty+1e-5]), ahat_edges,
                   (1 + (centers/1000)**2)[:, None, None, None], 1., 'doppler-check',
@@ -117,13 +134,14 @@ def test_table_jacobian_preserves_independent_line_mass_and_centroid(crossing):
     density = np.interp(g, centers, table.H[:, 0, 0, 0])
     area = 4e-10
     samples = TrajectorySamples(g, np.full_like(g, tx), np.full_like(g, ty),
-                                np.full_like(g, ahat), density*wg*area*(2*effective_ahat), 1., 1)
+                                np.full_like(g, ahat), density*wg*area*(2*ahat), 1., 1)
     photon_scale = 2*(1-n0[2])  # E_laser=1 erg, same normalized s as production
     energies, weights = emission_lines(samples, tx, ty, photon_energy=1.,
         theta_xz=crossing[0], theta_yz=crossing[1], ellipticity=.4, doppler='direction')
     # Break energy quadrature at mapped table interpolation knots, independently from the kernel.
     D = (1-unit_v@n0)/(1-n0[2])
-    knots = D*centers**2/(1+effective_ahat)
+    # Observation equals the electron direction here, so exact Q is one at every knot.
+    knots = D*centers**2/(1+ahat)
     energy = ((knots[:-1, None]+knots[1:, None])/2 + np.diff(knots)[:, None]*nodes/2).ravel()
     ws = (np.diff(knots)[:, None]*quad/2).ravel()
     spectrum = stages.spectrum_from_table(table, tx, ty, energy,
