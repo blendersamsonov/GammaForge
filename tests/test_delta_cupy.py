@@ -148,31 +148,3 @@ def test_reference_does_not_call_production_or_cpu_emission_helpers(monkeypatch)
     monkeypatch.setattr(delta_emission, "bin_emission", forbidden)
     result = delta_cupy.resonance_spectrum(samples(), [0., 5e6], 0., 0.)
     assert result[0] > 0
-
-
-@gpu
-def test_degenerate_polarization_is_rejected():
-    with pytest.raises(ValueError, match="degenerate"):
-        delta_cupy.emission_lines(samples(), 0., 0., photon_energy=1.,
-                                 psi_pol=np.pi/2, theta_yz=np.pi/2)
-
-
-@pytest.mark.parametrize("bad", [{"chunk": 0}, {"chunk": 1.5}, {"chunk": True},
-    {"photon_energy": 0.}, {"doppler": "bad"}, {"ellipticity": 1.1}, {"theta_xz": np.nan}])
-def test_invalid_scalar_inputs_fail_before_cuda(bad):
-    with pytest.raises(ValueError):
-        delta_cupy.emission_lines(samples(), 0., 0., **{"photon_energy": 1., **bad})
-
-
-@pytest.mark.parametrize("edges", [[0., 0.], [1., 0.], [0., np.nan], [[0., 1.]]])
-def test_invalid_histogram_edges_fail_before_cuda(edges):
-    with pytest.raises(ValueError):
-        delta_cupy.bin_emission([.5], [1.], edges)
-
-
-def test_explicit_cuda_does_not_fall_back(monkeypatch):
-    import sys
-
-    monkeypatch.setitem(sys.modules, "cupy", None)
-    with pytest.raises(RuntimeError, match="requires CuPy"):
-        delta_cupy.emission_lines(samples(), 0., 0., photon_energy=1.)

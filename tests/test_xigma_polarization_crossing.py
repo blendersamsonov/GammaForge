@@ -16,7 +16,6 @@ import pytest
 
 from gammaforge.engines.xigma.engine import XigmaEngine
 from gammaforge.engines.xigma.stages import (
-    KERNEL_NORMALIZATION_CONSTANT,
     physical_transverse_axes,
     polarization_factor_vectorized,
 )
@@ -25,7 +24,7 @@ from gammaforge.io.interaction import SamplingSpec, build_interaction
 from gammaforge.io.laser import GaussianParaxialLaser
 from gammaforge.io.results import Axis
 from gammaforge.io.target import OutputKind, OutputRequest, Target
-from gammaforge.io.units import EV_CGS, ureg
+from gammaforge.io.units import ureg
 
 
 @pytest.mark.fast

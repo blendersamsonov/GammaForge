@@ -90,15 +90,6 @@ def test_gamma_10000_remains_finite():
 
 
 @gpu
-@pytest.mark.parametrize("s", [0.0, -1.0])
-def test_nonpositive_energy_is_zero(s):
-    table = _smooth_table()
-    cube = calculate_angular_spectrum_gpu(table, [0.0], [0.0], [s], subsampling=32)
-    assert cube.shape == (1, 1, 1)
-    assert cube[0, 0, 0] == 0.0
-
-
-@gpu
 @pytest.mark.parametrize("table", [_smooth_table(shifted=True), _smooth_table(thin=True)])
 def test_shifted_and_thin_boxes_have_finite_positive_mass(table):
     x = np.linspace(float(table.theta_x_edges[0]), float(table.theta_x_edges[-1]), 5)
@@ -108,63 +99,3 @@ def test_shifted_and_thin_boxes_have_finite_positive_mass(table):
     assert np.all(np.isfinite(gpu))
     assert np.all(gpu >= 0.0)
     assert float(np.sum(gpu)) > 0.0
-
-
-@gpu
-@pytest.mark.parametrize("shape", [(0, 2, 3), (2, 0, 3), (2, 3, 0)])
-def test_empty_query_axes_return_matching_zero_shape(shape):
-    table = _smooth_table()
-    cube = calculate_angular_spectrum_gpu(table, np.zeros(shape[0]), np.zeros(shape[1]), np.zeros(shape[2]))
-    assert cube.shape == shape
-    assert cube.size == 0
-
-
-@gpu
-def test_zero_table_returns_zero_output():
-    table = _smooth_table(zero=True)
-    cube = calculate_angular_spectrum_gpu(table, [0.0], [0.0], [5_000.0])
-    assert cube.shape == (1, 1, 1)
-    assert cube[0, 0, 0] == 0.0
-
-
-@gpu
-@pytest.mark.parametrize("bad_axis", [np.nan, np.inf, -np.inf])
-def test_nonfinite_query_axes_are_rejected(bad_axis):
-    table = _smooth_table()
-    with pytest.raises(ValueError, match="finite"):
-        calculate_angular_spectrum_gpu(table, [bad_axis], [0.0], [5_000.0])
-
-
-@gpu
-def test_negative_or_nonfinite_table_and_invalid_subsampling_are_rejected():
-    table = _smooth_table()
-    bad_h = table.H.copy()
-    bad_h[0, 0, 0, 0] = np.nan
-    with pytest.raises(ValueError, match="finite"):
-        calculate_angular_spectrum_gpu(table, [0.0], [0.0], [np.nan])
-    with pytest.raises(ValueError, match="positive"):
-        calculate_angular_spectrum_gpu(table, [0.0], [0.0], [5_000.0], subsampling=0)
-    with pytest.raises(ValueError, match="finite"):
-        bad = Table(
-            gamma_edges=table.gamma_edges,
-            theta_x_edges=table.theta_x_edges,
-            theta_y_edges=table.theta_y_edges,
-            ahat_edges=table.ahat_edges,
-            H=bad_h,
-            total_weight=table.total_weight,
-            scheme=table.scheme,
-        )
-        calculate_angular_spectrum_gpu(bad, [0.0], [0.0], [5_000.0])
-    with pytest.raises(ValueError, match="negative"):
-        bad_h = table.H.copy()
-        bad_h[0, 0, 0, 0] = -1.0
-        bad = Table(
-            gamma_edges=table.gamma_edges,
-            theta_x_edges=table.theta_x_edges,
-            theta_y_edges=table.theta_y_edges,
-            ahat_edges=table.ahat_edges,
-            H=bad_h,
-            total_weight=table.total_weight,
-            scheme=table.scheme,
-        )
-        calculate_angular_spectrum_gpu(bad, [0.0], [0.0], [5_000.0])

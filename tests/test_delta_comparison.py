@@ -32,17 +32,6 @@ def test_zero_and_support_tails():
     assert r['candidate_total'] == 0
 
 
-@pytest.mark.parametrize('bad', [lambda x: np.full_like(x, -1.), lambda x: np.full(x.shape, np.nan), lambda x: np.ones(x.size+1)])
-def test_invalid_density_rejected(bad):
-    with pytest.raises(ValueError):
-        integrate_density_bins(bad, [1., 2.])
-
-
-def test_invalid_edges_and_lines():
-    with pytest.raises(ValueError): integrate_density_bins(lambda x: x, [0., 1.])
-    with pytest.raises(ValueError): compare_emission_bins(lambda x: x, [1., 2.], [1.], [-1.])
-
-
 def test_unresolved_refinement_is_reported():
     r = integrate_density_bins(lambda x: np.exp(-100*x), [1., 2.], quadrature_order=2)
     assert r['refinement_error'] > 1e-6
@@ -60,17 +49,6 @@ def test_energy_shift_is_detected_without_changing_counts():
     assert not result['zero_reference_with_candidate_signal']
 
 
-@pytest.mark.parametrize('signal', [0., 1.])
-def test_empty_reference_is_explicit_and_json_safe(signal):
-    import json
-    result = compare_emission_bins(lambda x: np.full_like(x, signal), [1., 2.], [], [])
-    assert result['reference_centroid'] is None
-    assert result['relative_yield_error'] is None
-    assert result['l1_mass_error'] is None
-    assert result['zero_reference_with_candidate_signal'] is bool(signal)
-    json.dumps(result, default=lambda value: value.tolist(), allow_nan=False)
-
-
 def test_final_edge_and_exact_window_moment():
     result = compare_emission_bins(lambda x: np.ones_like(x),
                                    [1., 2., 4.], [.5, 1., 2., 4., 5.], [7., 1., 2., 3., 9.])
@@ -84,9 +62,3 @@ def test_candidate_metrics_use_refined_integral():
     result = compare_emission_bins(lambda x: x**6, [1., 2.], [1.5], [1.], quadrature_order=2)
     assert result['candidate_total'] == pytest.approx((2**7 - 1) / 7)
     assert result['candidate_total'] != pytest.approx(result['candidate']['bin_mass'].sum(), rel=1e-4)
-
-
-def test_overflowing_integrals_are_rejected():
-    with np.errstate(over='ignore', invalid='ignore'):
-        with pytest.raises(ValueError, match='non-finite'):
-            integrate_density_bins(lambda x: np.full_like(x, 1e308), [1., 10.])

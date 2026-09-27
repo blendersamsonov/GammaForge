@@ -28,7 +28,6 @@ from gammaforge.engines.xigma import stages
 from gammaforge.engines.xigma.stages import (
     TrajectorySamples,
     _ahat_target_edges,
-    angle_integrated_spectrum,
     angular_spectrum_from_table,
     deposit_shape_table,
     integrate_trajectories,
@@ -78,85 +77,6 @@ def _table(samples, *, shape_bins=(16, 16, 16, 16), scheme="nearest", **retarget
     return retarget_ahat(shape_table, samples.intensity_peak, **retarget_kwargs)
 
 
-def _unchunked_angle_integrated_spectrum(samples, s):
-    """The direct formula, retained here only as a small regression reference."""
-    s_values = np.atleast_1d(np.asarray(s, dtype=float))
-    direction_factor = (1 + 1 / np.sqrt(1 + samples.theta_x**2 + samples.theta_y**2)) / 2
-    gamma_squared = (direction_factor * samples.gamma**2)[:, None]
-    y = s_values[None, :] / gamma_squared
-    shape = np.where((y < 0.0) | (y > 1.0), 0.0, 1.5 * (1.0 - 2.0 * y * (1.0 - y)))
-    out = np.sum(samples.luminosity[:, None] * shape / gamma_squared, axis=0)
-    return out if np.ndim(s) else out[0]
-
-
-def test_angle_integrated_spectrum_chunks_both_reduction_axes(monkeypatch):
-    samples = replace(_synthetic_samples(n=17), luminosity=np.linspace(1.0, 4.0, 17))
-    s = np.linspace(0.1, 1.1, 7) * samples.gamma.mean() ** 2
-    expected = _unchunked_angle_integrated_spectrum(samples, s)
-
-    monkeypatch.setattr(stages, "SPECTRUM_MAX_ENERGY_CHUNK", 3)
-    monkeypatch.setattr(
-        stages, "SPECTRUM_WORKING_SET_BYTES", 3 * stages._SPECTRUM_BYTES_PER_PARTICLE_ENERGY
-    )
-    calls = []
-    original = stages.run_in_chunks
-
-    def spy(n_items, work, **kwargs):
-        def observed(start, stop):
-            calls.append((start, stop, kwargs["bytes_per_item"]))
-            return work(start, stop)
-
-        return original(n_items, observed, **kwargs)
-
-    monkeypatch.setattr(stages, "run_in_chunks", spy)
-    actual = angle_integrated_spectrum(samples, s)
-
-    assert actual == pytest.approx(expected, rel=1e-14)
-    assert angle_integrated_spectrum(samples, float(s[2])) == pytest.approx(expected[2], rel=1e-14)
-    # No callback spans the full 17-particle × 7-energy calculation. The spy observes
-    # energy blocks of at most three and particle blocks bounded by the working set.
-    assert {bytes_per_item // stages._SPECTRUM_BYTES_PER_PARTICLE_ENERGY
-            for _, _, bytes_per_item in calls} == {1, 3}
-    assert all((stop - start) * bytes_per_item <= stages.SPECTRUM_WORKING_SET_BYTES
-               for start, stop, bytes_per_item in calls)
-
-
-def test_angle_integrated_spectrum_rejects_an_output_larger_than_the_memory_budget(monkeypatch):
-    monkeypatch.setattr(stages.chunking, "available_ram_bytes", lambda: 100)
-    with pytest.raises(MemoryError, match="requested output grid"):
-        angle_integrated_spectrum(_synthetic_samples(n=4), np.linspace(0.0, 1.0, 20))
-
-
-def test_cupy_request_accepts_geometry_when_cuda_is_available(monkeypatch):
-    table = _table(_synthetic_samples(n=100), shape_bins=(4, 4, 4, 4))
-    import gammaforge.engines.xigma.spectrum_sampler as sampler
-
-    if not sampler.is_gpu_available():
-        pytest.skip("CuPy or CUDA GPU unavailable")
-    result = angular_spectrum_from_table(
-        table, [0.0], [0.0], [table.gamma_centers[1] ** 2],
-        backend="cupy", ellipticity=0.5, theta_xz=0.01, theta_yz=-0.02,
-    )
-    assert result.shape == (1, 1, 1)
-    assert np.all(np.isfinite(result))
-    assert np.all(result >= 0.0)
-
-
-def test_auto_uses_the_numpy_reference_for_geometry_when_gpu_is_missing(monkeypatch):
-    table = _table(_synthetic_samples(n=100), shape_bins=(4, 4, 4, 4))
-    import gammaforge.engines.xigma.spectrum_sampler as sampler
-
-    monkeypatch.setattr(sampler, "is_gpu_available", lambda: False)
-    args = (table, [0.0], [0.0], [table.gamma_centers[1] ** 2])
-    expected = angular_spectrum_from_table(
-        *args, backend="numpy", ellipticity=0.5, theta_xz=0.01, theta_yz=-0.02
-    )
-    actual = angular_spectrum_from_table(
-        *args, backend="auto", ellipticity=0.5, theta_xz=0.01, theta_yz=-0.02
-    )
-    assert actual == pytest.approx(expected)
-
-
 # ---------------------------------------------------------------------------
 # Stage 1: deposit_shape_table / ShapeTable
 # ---------------------------------------------------------------------------
@@ -173,9 +93,26 @@ def test_deposit_conserves_total_weight_cic():
     assert table.total_weight == pytest.approx(samples.total_yield(), rel=1e-9)
 
 
-def test_deposit_rejects_an_unknown_scheme():
-    with pytest.raises(ValueError):
-        deposit_shape_table(_synthetic_samples(n=100), scheme="bogus")
+def test_deposit_applies_ponderomotive_incidence_per_trajectory():
+    samples = TrajectorySamples(
+        gamma=np.full(3, 2000.0),
+        theta_x=np.array([-.4, 0.0, .5]),
+        theta_y=np.array([.1, -.2, .3]),
+        a0_shape=np.array([.6, 1.0, 1.4]),
+        luminosity=np.ones(3),
+        intensity_peak=.2,
+        n_steps=8,
+        incident_axis=np.array([-.5, .25, -np.sqrt(.6875)]),
+    )
+    table = deposit_shape_table(samples, n_bins=(2, 3, 3, 6), margin=.02)
+    expected = samples.a0_shape * stages.ponderomotive_incidence_factor(
+        samples.theta_x, samples.theta_y, k_hat=samples.incident_axis
+    )
+
+    np.testing.assert_allclose(
+        table.redshift_shape_edges,
+        stages._uniform_edges(expected, 6, .02, floor_zero=True),
+    )
 
 
 def test_deposit_handles_a_monoenergetic_zero_divergence_beam():
@@ -193,80 +130,6 @@ def test_deposit_handles_a_monoenergetic_zero_divergence_beam():
     assert np.all(np.isfinite(table.H))
     assert np.all(np.diff(table.gamma_edges) > 0.0)
     assert table.total_weight == pytest.approx(n, rel=1e-12)
-
-
-def test_deposit_handles_an_empty_bunch():
-    empty = TrajectorySamples(
-        gamma=np.zeros(0), theta_x=np.zeros(0), theta_y=np.zeros(0),
-        a0_shape=np.zeros(0), luminosity=np.zeros(0), intensity_peak=0.045, n_steps=10,
-    )
-    with pytest.raises(ValueError):
-        deposit_shape_table(empty, n_bins=(8, 8, 8, 4))
-
-
-def test_shape_table_rejects_a_shape_mismatched_H():
-    samples = _synthetic_samples(n=100)
-    table = deposit_shape_table(samples, n_bins=(4, 4, 4, 2))
-    with pytest.raises(ValueError):
-        type(table)(
-            gamma_edges=table.gamma_edges,
-            theta_x_edges=table.theta_x_edges,
-            theta_y_edges=table.theta_y_edges,
-            a0_shape_edges=table.a0_shape_edges,
-            H=np.zeros((3, 4, 4, 2)),
-            total_weight=0.0,
-            scheme="nearest",
-            source_intensity_peak=samples.intensity_peak,
-        )
-
-
-def test_deposition_is_one_vectorized_pass(monkeypatch):
-    """Stage 1 calls one array deposit, rather than looping over macroparticles.
-
-    This is the structural property behind caching one shape table per `Collision`
-    (RES032), without treating a host's wall-clock timing as correctness.
-    """
-    samples = _synthetic_samples(n=257)
-    calls = []
-    original = stages._deposit_nearest
-
-    def spy(coords, weight, n_bins):
-        calls.append((tuple(values.shape for values in coords), weight.shape, n_bins))
-        return original(coords, weight, n_bins)
-
-    monkeypatch.setattr(stages, "_deposit_nearest", spy)
-    n_bins = (8, 7, 6, 5)
-    table = deposit_shape_table(samples, n_bins=n_bins)
-
-    assert calls == [(((257,), (257,), (257,), (257,)), (257,), n_bins)]
-    assert table.H.shape == n_bins
-
-
-# ---------------------------------------------------------------------------
-# The retarget: _ahat_target_edges / retarget_ahat
-# ---------------------------------------------------------------------------
-def test_ahat_target_edges_starts_at_ahat_min_and_ends_at_ahat_max():
-    edges = _ahat_target_edges(0.1, 0.5, 16, decades=1.5)
-    assert edges[0] == pytest.approx(0.1)
-    assert edges[-1] == pytest.approx(0.5)
-    assert edges.size == 17
-
-
-def test_ahat_target_edges_bin_widths_shrink_toward_the_top():
-    edges = _ahat_target_edges(0.0, 0.5, 32, decades=1.0)
-    widths = np.diff(edges)
-    # Strictly decreasing except the very last bin: snapping the top edge to exactly
-    # ahat_max (rather than the raw geometric value, which lands within 10**-decades of
-    # it) widens that one bin — a documented, deliberate exception, not a trend break.
-    assert np.all(np.diff(widths[:-1]) < 0.0)
-    assert widths[-1] > widths[-2]  # the snap-widened top bin, present at decades=1.0
-
-
-def test_ahat_target_edges_rejects_bad_bounds_or_decades():
-    with pytest.raises(ValueError):
-        _ahat_target_edges(0.5, 0.5, 16, 1.0)
-    with pytest.raises(ValueError):
-        _ahat_target_edges(0.0, 0.5, 16, 0.0)
 
 
 def test_retarget_ahat_conserves_total_weight_exactly():

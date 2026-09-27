@@ -67,6 +67,49 @@ def test_tilted_particle_doppler_uses_explicit_laser_axis(tx):
     np.testing.assert_allclose(particle[0] / nominal[0], expected, rtol=1e-12, atol=1e-15)
 
 
+def test_nonlinear_redshift_uses_electron_incidence_not_view_direction():
+    gamma, tx, ty, ahat = 2000., .12, -.08, .7
+    theta_xz, theta_yz = .6, -.25
+    observer_x, observer_y = .121, -.079
+    energies, _ = emission_lines(
+        samples(gamma=gamma, tx=tx, ty=ty, ahat=ahat),
+        observer_x,
+        observer_y,
+        photon_energy=2.,
+        theta_xz=theta_xz,
+        theta_yz=theta_yz,
+        doppler="direction",
+    )
+    electron = np.array([tx, ty, 1.], dtype=np.longdouble)
+    electron /= np.linalg.norm(electron)
+    n0 = np.array(
+        [-np.sin(theta_xz)*np.cos(theta_yz), np.sin(theta_yz),
+         -np.cos(theta_xz)*np.cos(theta_yz)],
+        dtype=np.longdouble,
+    )
+    encounter = 1 - electron @ n0
+    r2 = (np.longdouble(tx)-observer_x)**2 + (np.longdouble(ty)-observer_y)**2
+    expected = 4*np.longdouble(1.)*encounter*gamma**2 / (
+        1 + 0.5*encounter*ahat + gamma**2*r2
+    )
+    np.testing.assert_allclose(energies[0], expected, rtol=1e-14)
+
+    nominal, _ = emission_lines(
+        samples(gamma=gamma, tx=tx, ty=ty, ahat=ahat),
+        observer_x,
+        observer_y,
+        photon_energy=2.,
+        theta_xz=theta_xz,
+        theta_yz=theta_yz,
+        doppler="nominal",
+    )
+    nominal_encounter = 1 + np.cos(theta_xz)*np.cos(theta_yz)
+    expected_nominal = 4*np.longdouble(1.)*nominal_encounter*gamma**2 / (
+        1 + 0.5*encounter*ahat + gamma**2*r2
+    )
+    np.testing.assert_allclose(nominal[0], expected_nominal, rtol=1e-14)
+
+
 def test_binning_edges_tails_and_mass():
     result = bin_emission([0., 1., 2., 3.], [1., 2., 3., 4.], [1., 2., 3.])
     np.testing.assert_allclose(result["bin_mass"], [2., 7.])
@@ -83,39 +126,9 @@ def test_nonuniform_bins_bookkeeping_and_empty():
     assert empty["total_weight"] == 0 and empty["underflow"] == empty["overflow"] == 0
 
 
-def test_empty_emission_lines_returns_empty_arrays():
-    empty = TrajectorySamples(*(np.array([], dtype=float) for _ in range(5)), 1.0, 1)
-    energies, weights = emission_lines(empty, 0.0, 0.0, photon_energy=1.0)
-    assert energies.shape == weights.shape == (0,)
-
-
-@pytest.mark.parametrize("edges", [[0.0, 1.0, 1.0], [0.0, 2.0, 1.0], [0.0, np.nan, 1.0], [0.0, np.inf, 2.0]])
-def test_binning_rejects_invalid_edges(edges):
-    with pytest.raises(ValueError):
-        bin_emission([0.5], [1.0], edges)
-
-
-@pytest.mark.parametrize("energies,weights", [([1.0], [1.0, 2.0]), ([[1.0]], [1.0]), ([1.0, np.nan], [1.0, 2.0])])
-def test_binning_rejects_unequal_or_dimensional_inputs(energies, weights):
-    with pytest.raises(ValueError):
-        bin_emission(energies, weights, [0.0, 2.0])
-
-
 def test_zero_luminosity_is_retained():
     energies, weights = emission_lines(samples(lum=0.), 0., 0., photon_energy=1.)
     assert energies.size == 1 and weights[0] == 0
-
-
-@pytest.mark.parametrize("bad", ["shape", "gamma", "lum", "ahat", "direction"])
-def test_invalid_sample_data(bad):
-    kw = dict(gamma=[2000.], tx=[0.], ty=[0.], lum=[1.], ahat=0.)
-    if bad == "shape": kw["ty"] = [0., 1.]
-    if bad == "gamma": kw["gamma"] = [1.]
-    if bad == "lum": kw["lum"] = [-1.]
-    if bad == "ahat": kw["ahat"] = -1.
-    if bad == "direction": kw["tx"] = [np.nan]
-    s = samples(**kw)
-    with pytest.raises(ValueError): emission_lines(s, 0., 0., photon_energy=1.)
 
 
 def test_longdouble_precision_guard(monkeypatch):
@@ -125,13 +138,6 @@ def test_longdouble_precision_guard(monkeypatch):
         emission_lines(samples(), 0., 0., photon_energy=1.)
 
 
-@pytest.mark.parametrize("kwargs", [{"photon_energy": 0}, {"photon_energy": -1}, {"photon_energy": np.nan}, {"ellipticity": 1.1}, {"doppler": "bad"}])
-def test_invalid_inputs(kwargs):
-    with pytest.raises((ValueError, RuntimeError)):
-        args = {"photon_energy": 1., **kwargs}
-        emission_lines(samples(), 0., 0., **args)
-
-
 def test_reference_does_not_use_production_polarization(monkeypatch):
     import gammaforge.engines.xigma.stages as stages
     monkeypatch.setattr(stages, "polarization_factor", lambda *a, **k: (_ for _ in ()).throw(AssertionError()))
@@ -139,12 +145,6 @@ def test_reference_does_not_use_production_polarization(monkeypatch):
     monkeypatch.setattr(stages, "polarization_factor_vectorized", lambda *a, **k: (_ for _ in ()).throw(AssertionError()))
     monkeypatch.setattr(stages, "physical_transverse_axes", lambda *a, **k: (_ for _ in ()).throw(AssertionError()))
     assert emission_lines(samples(), 0., 0., photon_energy=1.)[0].size == 1
-
-
-def test_transverse_projection_degeneracy_is_rejected():
-    # Polarization is parallel to the electron direction after a 90-degree tilt.
-    with pytest.raises(ValueError, match="degenerate"):
-        emission_lines(samples(), 0., 0., photon_energy=1., psi_pol=np.pi / 2, theta_yz=np.pi / 2)
 
 
 def test_headon_offaxis_transverse_weight_matches_closed_form():

@@ -90,16 +90,22 @@ constraints (`GRAND_PLAN.md` §1 has the full table with provenance — P1–P15
 - **Tests:** `pytest` from the repo root (or `source .venv/bin/activate && pytest`).
   Keep `pytest` green — Phase exit criteria in `GRAND_PLAN.md` §11 are the actual
   definition of "done" for a phase, not just "tests pass."
+  New tests should primarily protect scientific equations, physical invariants, numerical
+  conservation or convergence, independent implementation/reference agreement, or a
+  previously observed bug that could silently corrupt scientific output. Do not routinely
+  add tests for trivial validation branches, private implementation details, defaults,
+  getters, documentation structure, or obvious Python/framework behavior. Prefer a small
+  number of strong invariant and end-to-end tests over exhaustive micro-tests.
   The test suite is structured into execution tiers (RES075):
   - `pytest -m fast` (or `pytest --tier=fast`): **~20s fast agentic loop** running Tier 0
-    (contracts, schemas, units, formats, doc linters) and Tier 1 (fast component physics,
+    (contracts, schemas, units, formats, persistence) and Tier 1 (fast component physics,
     optics, runner, GPU logic). Default to this during iterative coding.
   - `pytest --tier=tier0`: **~5s ultra-fast check** of contracts, schema, CGS units,
-    formats, and doc/decision guards.
-  - `pytest`: **~1.2m default check** running Tier 0, Tier 1, and Tier 2 (numerical integration,
+    formats, and persistence.
+  - `pytest`: **~1.1m default check** running Tier 0, Tier 1, and Tier 2 (numerical integration,
     trajectory tracking, validation harness). Heavy Tier 3 tests (>30s) are automatically
     deselected on broad sweeps.
-  - `pytest --run-heavy` (or `pytest --tier=all`): **~11m full run** including heavy Tier 3
+  - `pytest --run-heavy` (or `pytest --tier=all`): **~6m full run** including heavy Tier 3
     Monte Carlo validations, 16× quadrature refinement, and external SymPy proofs. Run before
     phase exits or major commits.
   - Specific files or tests run directly without flags (e.g. `pytest tests/test_analytical.py`).

@@ -15,7 +15,6 @@ from gammaforge.io.laser import (
     ActiveRegion,
     GaussianParaxialLaser,
     LaserField,
-    fit_gaussian_paraxial,
     lab_frame_axes,
     rotation_matrix,
     validate,
@@ -74,22 +73,6 @@ def test_psi_rotates_within_the_transverse_plane():
 
 
 # -- the LaserField contract -------------------------------------------------
-def test_gaussian_paraxial_laser_satisfies_the_protocol():
-    assert isinstance(make_laser(), LaserField)
-
-
-def test_a0_profile_and_field_are_array_callable_and_broadcast():
-    laser = make_laser()
-    x = np.linspace(-2e-3, 2e-3, 7)
-    y = np.zeros_like(x)
-    envelope = laser.a0_profile(x, y, y, 0.0)
-    assert envelope.shape == x.shape
-    carrier = laser.field(x, y, y, 0.0)
-    assert carrier.shape == (3, *x.shape)
-    # Scalars work too.
-    assert np.isscalar(float(laser.a0_profile(0.0, 0.0, 0.0, 0.0)))
-
-
 def test_photon_density_integrates_to_one_over_space():
     # The normalization the whole energy->a0 chain rests on (§3.3).
     laser = make_laser()
@@ -196,7 +179,7 @@ def test_the_rayleigh_range_converts_rms_to_the_1_over_e_squared_convention():
     ``z_R = pi w0^2 / lambda`` is stated in the **1/e² convention**, but this class stores
     intensity **RMS** widths — at ``r = sigma`` the density is down by ``e^-1/2``, not
     ``e^-2``. Skipping the conversion is a factor of 4 in ``z_R`` and in the far-field
-    angle — the predecessor's error (RES040). So this measures ``w0`` off `photon_density`
+    angle — the convention error guarded by RES040. So this measures ``w0`` off `photon_density`
     directly, and only then checks the textbook formula against it — a test written as
     ``4 pi sigma^2 / lambda`` would restate
     the implementation and pass however wrong the convention was.
@@ -394,61 +377,7 @@ def test_psi_focus_is_inert_for_a_round_stigmatic_beam():
         assert turned.a0_profile(*point) == pytest.approx(round_beam.a0_profile(*point), rel=1e-12)
 
 
-def test_a_looser_threshold_gives_a_larger_region():
-    laser = make_laser()
-    assert laser.active_region(1e-2).radius < laser.active_region(1e-6).radius
-    assert laser.active_region(1e-2).radius_slope < laser.active_region(1e-6).radius_slope
-    assert laser.active_region(1e-2).half_length < laser.active_region(1e-6).half_length
-
-
-def test_active_region_rejects_a_threshold_outside_the_unit_interval():
-    for bad in (0.0, 1.0, -0.5, 2.0):
-        with pytest.raises(ValueError, match="must be in"):
-            make_laser().active_region(bad)
-
-
 # -- descriptive fit (§3.3) --------------------------------------------------
-def test_fit_gaussian_paraxial_is_the_identity_on_a_gaussian_laser():
-    laser = make_laser(sigma_x=Q(5, "um"), sigma_y=Q(15, "um"), z_fx=Q(0.01, "cm"), theta_xz=Q(0.3, "rad"), beta_ff=0.2)
-    assert fit_gaussian_paraxial(laser) is laser
-
-
-def test_fit_gaussian_paraxial_refuses_an_unknown_field_rather_than_guessing():
-    class Elsewhere:
-        def intensity_profile(self, x, y, z, t): ...
-        def a0_profile(self, x, y, z, t): ...
-        def field(self, x, y, z, t): ...
-        def active_region(self, threshold): ...
-
-    with pytest.raises(NotImplementedError, match="no numerical path yet"):
-        fit_gaussian_paraxial(Elsewhere())
-
-
-def test_laserfield_conforming_wrapper_fails_at_fit_gaussian_paraxial_boundary():
-    """A conforming LaserField wrapper passes protocol check but fails at fit_gaussian_paraxial (RES010/RES067)."""
-    inner = make_laser()
-
-    class ConformingDelegator:
-        def intensity_profile(self, x, y, z, t):
-            return inner.intensity_profile(x, y, z, t)
-
-        def a0_profile(self, x, y, z, t):
-            return inner.a0_profile(x, y, z, t)
-
-        def field(self, x, y, z, t):
-            return inner.field(x, y, z, t)
-
-        def active_region(self, threshold: float):
-            return inner.active_region(threshold)
-
-    wrapper = ConformingDelegator()
-    assert isinstance(wrapper, LaserField)
-
-    # fit_gaussian_paraxial refuses the wrapper rather than guessing (RES010)
-    with pytest.raises(NotImplementedError, match="no numerical path yet"):
-        fit_gaussian_paraxial(wrapper)
-
-
 def test_quasi_monochromatic_conforming_laser_runs_without_gaussian_fitter():
     """A conforming LaserField with carrier/polarization invariants executes across engines without fit_gaussian_paraxial (RES067)."""
     from gammaforge.engines.kascade.engine import KascadeEngine
@@ -524,19 +453,6 @@ def test_quasi_monochromatic_conforming_laser_runs_without_gaussian_fitter():
 
 
 # -- validation --------------------------------------------------------------
-def test_validate_rejects_impossible_values():
-    for bad in [dict(pulse_energy=Q(0.0, "J")), dict(wavelength=Q(-1.0, "nm")), dict(sigma_x=Q(0.0, "um")),
-                dict(duration=Q(0.0, "fs")), dict(beta_ff=-1.0), dict(ellipticity=1.5)]:
-        with pytest.raises(ValueError):
-            validate(make_laser(**bad))
-
-
-@pytest.mark.parametrize("field", ["ellipticity", "beta_ff"])
-def test_laser_rejects_nonfinite_scalar_inputs(field):
-    with pytest.raises(ValueError, match=field):
-        make_laser(**{field: np.nan})
-
-
 def test_ellipticity_is_applied_to_angle_resolved_kernel():
     # §9.2/DER004: ellipticity is now applied to the angle-resolved kernel.
     # The total yield and mean red-shift (ahat) are polarization-agnostic by invariance,

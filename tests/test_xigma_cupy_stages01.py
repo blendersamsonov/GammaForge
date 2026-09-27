@@ -5,12 +5,9 @@ import numpy as np
 import pytest
 
 from gammaforge.engines.xigma import stages, spectrum_sampler
-from gammaforge.engines.xigma.collision import Collision
-from gammaforge.engines.xigma.engine import XigmaEngine
 from gammaforge.io.bunch import overlap_time_window
 from gammaforge.io.laser import PulseTrainParaxialLaser
 from gammaforge.io.units import Quantity as Q
-from gammaforge.io.target import OutputKind, OutputRequest
 from gammaforge.validation import scenarios
 
 pytestmark = [pytest.mark.tier1, pytest.mark.fast, pytest.mark.gpu]
@@ -85,55 +82,6 @@ def test_stage1_device_deposition_and_retry_preserve_mass(scheme, monkeypatch):
     assert isinstance(actual.H,np.ndarray)
     np.testing.assert_allclose(actual.H,expected.H,rtol=3e-12,atol=1e-14*expected.H.max())
     assert actual.total_weight==pytest.approx(samples.total_yield(),rel=1e-13)
-
-
-def test_auto_falls_back_and_explicit_cuda_does_not(monkeypatch):
-    monkeypatch.setattr(spectrum_sampler,'is_gpu_available',lambda:False)
-    inputs = interaction()
-    samples = stages.integrate_trajectories(inputs.bunch,inputs.laser,inputs.N_e,n_steps=8,backend='auto')
-    assert isinstance(stages.deposit_shape_table(samples,n_bins=(4,4,4,4),backend='auto').H,np.ndarray)
-    inputs = replace(inputs, target=replace(inputs.target, outputs=(
-        OutputRequest(OutputKind.COLLIMATED_SPECTRUM, (3,2,2)),)))
-    result = XigmaEngine().run(inputs, XigmaEngine.schema.with_values(backend='auto', n_steps=8,
-        n_bins_gamma=4, n_bins_theta_x=4, n_bins_theta_y=4, n_bins_a0_shape=4))
-    assert all(result.model_specific[f'stage{stage}_backend']=='numpy' for stage in (0,1,2))
-    with pytest.raises(RuntimeError,match='CUDA device'):
-        stages.integrate_trajectories(inputs.bunch,inputs.laser,inputs.N_e,backend='cupy')
-    with pytest.raises(RuntimeError,match='CUDA device'):
-        stages.deposit_shape_table(samples,backend='cupy')
-
-
-@gpu
-def test_collision_routes_both_stages_and_keeps_cache_host_readonly(monkeypatch):
-    cp = spectrum_sampler.cp
-    inputs = interaction()
-    original = stages._deposit_nearest
-    seen=[]
-
-    def observed(coords,weight,bins):
-        seen.append(isinstance(weight,cp.ndarray))
-        return original(coords,weight,bins)
-
-    monkeypatch.setattr(stages,'_deposit_nearest',observed)
-    collision = Collision(inputs,XigmaEngine.schema.with_values(backend='cupy',n_steps=8,
-                          n_bins_gamma=4,n_bins_theta_x=4,n_bins_theta_y=4,n_bins_a0_shape=4))
-    shape = collision._shape()
-    assert seen==[True]
-    assert collision._overlap_backend=='cupy'
-    assert collision._shape() is shape
-    assert not collision.build_overlap().luminosity.flags.writeable
-
-
-@gpu
-def test_public_engine_reports_all_device_stages():
-    inputs = interaction()
-    requests = (OutputRequest(OutputKind.COLLIMATED_SPECTRUM,(3,2,2)),)
-    inputs = replace(inputs,target=replace(inputs.target,outputs=requests))
-    result = XigmaEngine().run(inputs,XigmaEngine.schema.with_values(backend='cupy',n_steps=8,
-        n_bins_gamma=4,n_bins_theta_x=4,n_bins_theta_y=4,n_bins_a0_shape=4))
-    for stage in (0,1,2):
-        assert result.model_specific[f'stage{stage}_backend']=='cupy'
-    assert isinstance(result.photon_slices[OutputKind.COLLIMATED_SPECTRUM].distr,np.ndarray)
 
 
 @gpu

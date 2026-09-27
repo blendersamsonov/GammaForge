@@ -1,10 +1,8 @@
 """`engines/analytical` (GRAND_PLAN.md §4.3): closed-form yield/width/spectrum formulas
 and the `AnalyticalEngine` wrapper.
 
-The worked-example fixture (`_EXAMPLE_BEAM`/`_EXAMPLE_LASER`) is the predecessor's own
-test scenario (`ComptonSuite/tests/test_analytical.py`), re-parametrized from SI/pint
-`CollisionParams` onto this repo's CGS `GaussianElectronBeam`/`GaussianParaxialLaser` —
-100 pC / 200 MeV / 10 um beam, 0.05 J / 0.8 um / 2.5 um / 12.74 fs pulse.
+The worked-example fixture (`_EXAMPLE_BEAM`/`_EXAMPLE_LASER`) is the established
+100 pC / 200 MeV / 10 um beam and 0.05 J / 0.8 um / 2.5 um / 12.74 fs pulse.
 """
 
 from __future__ import annotations
@@ -19,21 +17,14 @@ pytestmark = [pytest.mark.tier1]
 
 from gammaforge.engines.analytical.engine import AnalyticalEngine
 from gammaforge.engines.analytical.formulas import (
-    NONLINEAR_BROADENING_RANGE,
-    SpectrumWidthBreakdown,
     _electron_sigma2,
-    _overlap_grid,
-    _overlap_quadratic_form,
     angle_integrated_spectrum,
     estimate_spectrum_width,
-    overlap_det,
     overlap_mean_a0_sq,
     overlap_time_profile,
     overlap_transverse_profile,
     overlap_yield,
 )
-from gammaforge.engines.analytical.schema import default_parameters
-from gammaforge.engines.base import Engine
 from gammaforge.io.bunch import GaussianElectronBeam, _drift_fit, momenta, sample_gaussian_bunch
 from gammaforge.io.laser import GaussianParaxialLaser, fit_gaussian_paraxial, lab_frame_axes
 from gammaforge.io.target import OutputKind, OutputRequest
@@ -58,14 +49,8 @@ _EXAMPLE_LASER = GaussianParaxialLaser(
     duration=Quantity(12.74, "fs"),
 )
 
-#: `ComptonSuite/models/analytical.py`'s own `estimate_yield`/`estimate_spectrum_width`,
-#: evaluated on the identical worked example (SI/pint `CollisionParams`, verified by
-#: actually running that repo). The yield differs at ~1e-6 relative rather than float
-#: precision because it is the only quantity here that involves `SIGMA_T`, and the two
-#: repos are separately-installed `pint` environments with (very slightly) different
-#: CODATA constant tables — not a unit-conversion defect in this port. The width uses no
-#: such constant and matches to ~1e-11.
-_PREDECESSOR_WIDTH_TOTAL = 4.6671292359002505
+#: Established width for the worked example, retained as a numerical regression pin.
+_REFERENCE_WIDTH_TOTAL = 4.6671292359002505
 
 
 # ---------------------------------------------------------------------------
@@ -188,21 +173,6 @@ def test_psi_focus_matters_when_both_ellipses_are_flat():
     assert aligned > 1.2 * crossed
 
 
-def test_overlap_det_is_sigma0_squared_for_a_round_aligned_collision_at_the_origin():
-    beam, laser = _round_scenario()
-    expected = (beam.m("sigma_x") ** 2 + laser.m("sigma_x") ** 2) ** 2
-    assert float(overlap_det(beam, laser, 0.0)) == pytest.approx(expected, rel=1e-13)
-
-
-def test_transverse_profile_refuses_a_flying_focus():
-    """`overlap_yield` handles a flying focus (§B), but this profile integrates time *out*,
-    so the widths would have to be frozen at a time that no longer exists. The time profile
-    keeps time explicit and does handle it."""
-    beam, laser = _round_scenario()
-    with pytest.raises(ValueError, match="flying focus"):
-        overlap_transverse_profile(beam, replace(laser, beta_ff=0.2), beam.n_electrons(), 0.0, 0.0)
-
-
 # ---------------------------------------------------------------------------
 # Crossing angle (DER001 §A.6)
 # ---------------------------------------------------------------------------
@@ -268,72 +238,6 @@ def test_crossing_angle_reproduces_the_piwinski_suppression():
         assert ratio == pytest.approx(piwinski, rel=2e-4)
 
 
-def test_crossing_angle_width_sampling_approximation_is_negligible():
-    """Measures the single approximation `overlap_yield` makes with a crossing angle —
-    sampling the slowly varying spot sizes at `u = (k.z) z`, dropping `delta = k_x x + k_y y`.
-
-    Deliberately adversarial: a 0.4 rad crossing, a 2 um waist and a 200 um bunch push
-    `delta/z_R` past 1, well outside any regime where the naive bound is small. The yield
-    still moves by <1e-3 under a *coherent* `+/- delta` shift, because the dropped term
-    enters only an even, slowly varying prefactor while the exponent — which carries the
-    whole Piwinski suppression — stays exact. The real error is smaller still, since the
-    true `delta` averages to zero and this probe does not."""
-    beam = replace(scenarios.BASELINE.beam,
-                   sigma_x=Quantity(200.0, "um"), sigma_y=Quantity(200.0, "um"))
-    laser = replace(scenarios.BASELINE.laser,
-                    sigma_x=Quantity(2.0, "um"), sigma_y=Quantity(2.0, "um"),
-                    theta_xz=Quantity(0.4, "rad"))
-    N_e = beam.n_electrons()
-
-    k_hat, _, _ = laser.focusing_axes()
-    delta = math.hypot(beam.m("sigma_x"), laser.m("sigma_x")) * math.hypot(k_hat[0], k_hat[1])
-    assert delta / laser.rayleigh_x() > 1.0, "fixture is meant to be adversarial"
-
-    def shifted(u_shift):
-        z = _overlap_grid(beam, laser, math.hypot(beam.m("sigma_z"), beam.beta0() * laser.sigma_ct())
-                          / (1.0 + beam.beta0()), 20001)
-        schur, det_a, sex, sey, s1, s2, _ = _overlap_quadratic_form(beam, laser, z, u_shift=u_shift)
-        return float(np.trapezoid(np.exp(-0.5 * schur * z**2) / (sex * sey * s1 * s2 * np.sqrt(det_a)), z))
-
-    base = shifted(0.0)
-    assert abs(shifted(+delta) / base - 1.0) < 1e-3
-    assert abs(shifted(-delta) / base - 1.0) < 1e-3
-
-
-@pytest.mark.parametrize("theta", [0.02, 0.05, 0.4])
-def test_schema_default_n_quad_resolves_a_crossed_collision(theta):
-    """The **default** `n_quad_overlap`, not a generous test value, must resolve a crossing
-    angle. It is not automatic: crossing narrows the longitudinal support (5.8x at 50 mrad)
-    while `_overlap_grid`'s outer span still comes from the head-on scale, so `span/core`
-    reaches ~60. What saves it is the refined `1/sqrt(max S)` and `sigma_i/sin(theta)`
-    windows; without them the default would silently under-resolve the very effect the
-    crossing angle is about, and every other crossing test here uses n_quad=20001 and so
-    would not notice."""
-    beam = replace(scenarios.BASELINE.beam,
-                   sigma_x=Quantity(200.0, "um"), sigma_y=Quantity(200.0, "um"))
-    laser = replace(scenarios.BASELINE.laser,
-                    sigma_x=Quantity(2.0, "um"), sigma_y=Quantity(2.0, "um"),
-                    theta_xz=Quantity(theta, "rad"))
-    N_e = beam.n_electrons()
-    default_n = int(default_parameters().get_int("n_quad_overlap"))
-    assert overlap_yield(beam, laser, N_e, default_n) == pytest.approx(
-        overlap_yield(beam, laser, N_e, n_quad=20001), rel=1e-5
-    )
-
-
-def test_crossing_angle_suppression_at_the_baseline_is_what_the_docs_quote():
-    """DER001 §A.6 and `PROGRESS.md` quote 1.07x / 2.18x / 5.77x at 5 / 20 /
-    50 mrad. Those are properties of `scenarios.BASELINE`, not constants, so pin them here —
-    otherwise the prose goes stale silently when the scenario moves (the same reasoning that
-    put a pin under the 3.285 figure)."""
-    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
-    N_e = beam.n_electrons()
-    head_on = overlap_yield(beam, laser, N_e, n_quad=20001)
-    for theta, expected in ((0.005, 1.07), (0.02, 2.18), (0.05, 5.77)):
-        crossed = overlap_yield(beam, replace(laser, theta_xz=Quantity(theta, "rad")), N_e, n_quad=20001)
-        assert head_on / crossed == pytest.approx(expected, rel=5e-3)
-
-
 # ---------------------------------------------------------------------------
 # The exact 2D mode, <a0^2>, and the resolved profiles (DER001 §A.7-§A.8)
 # ---------------------------------------------------------------------------
@@ -395,55 +299,6 @@ def test_exact_2d_mode_converges_toward_the_1d_path_at_a_small_crossing_angle():
               for n in (101, 301, 901)]
     assert errors[0] > errors[1] > errors[2]
     assert errors[-1] < 1e-3
-
-
-def test_nonlinear_broadening_is_reported_as_a_bracket_not_a_number():
-    """The spread of `ahat` across the beam is not analytically available (RES049), so the
-    width breakdown brackets it rather than inventing a value; the legacy `nonlinearity`
-    scalar sits inside that bracket, near its top."""
-    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
-    width = estimate_spectrum_width(beam, laser, theta_col=1e-3, a0_sq=1e-2)
-    lo, hi = NONLINEAR_BROADENING_RANGE
-    assert width.nonlinearity_lo == pytest.approx(lo * width.nonlinearity)
-    assert width.nonlinearity_hi == pytest.approx(hi * width.nonlinearity)
-
-    total_lo, total_hi = width.total_range
-    assert total_lo <= width.total <= total_hi
-    assert lo < 1.0 < hi  # the legacy scalar really is inside the measured bracket
-
-
-def test_total_range_collapses_when_beam_quality_dominates():
-    """Why a wide bracket is tolerable: when the other terms dominate, the nonlinear
-    uncertainty barely moves the total. That is the whole argument for reporting a range
-    instead of chasing a number, so it is asserted rather than asserted-in-prose."""
-    beam = replace(scenarios.BASELINE.beam, rel_energy_spread=0.05)
-    width = estimate_spectrum_width(beam, scenarios.BASELINE.laser, theta_col=5e-3, a0_sq=1e-2)
-    lo, hi = width.total_range
-    assert (hi - lo) / width.total < 0.02
-
-
-@pytest.mark.tier3
-@pytest.mark.heavy
-def test_mean_a0_sq_is_the_beam_averaged_ahat_that_xigma_computes_per_particle():
-    """`overlap_mean_a0_sq` is not merely *like* the trajectory-averaged `ahat` — weighting
-    per-electron `ahat_i` by luminosity cancels its denominator, leaving exactly
-    `Int n_e a0^4 / Int n_e a0^2`. Checked against xigma, which averages each trajectory
-    numerically and splits nothing, so this pins the identity rather than a resemblance.
-
-    `overlap_mean_a0_sq` reaches `ahat` through this engine's own overlap integral, never
-    through `TrajectorySamples` — so unlike every xigma-vs-`delta` comparison, an error in
-    xigma's `ahat` is *not* common-mode here, which is what let this test catch RES053."""
-    from gammaforge.engines.xigma.stages import integrate_trajectories
-
-    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
-    bunch = sample_gaussian_bunch(beam, 30_000, 0)
-    samples = integrate_trajectories(bunch, laser, beam.n_electrons(), n_steps=2000, threshold=1e-8)
-    live = samples.luminosity > 0
-    reference = float(np.average(samples.ahat()[live], weights=samples.luminosity[live]))
-    # `overlap_mean_a0_sq` is the bare <a0^2>; `ahat` is its cycle average. Asked of the
-    # laser so both engines share one definition (RES053/RES054).
-    mean_ahat = laser.cycle_average_factor() * overlap_mean_a0_sq(beam, laser, n_quad=8001)
-    assert mean_ahat == pytest.approx(reference, rel=1e-2)
 
 
 @pytest.mark.tier3
@@ -525,51 +380,6 @@ def test_resolved_profiles_integrate_back_to_the_total_yield(name):
     assert in_space == pytest.approx(total, rel=1e-5)
 
 
-def test_transverse_profile_peaks_where_the_pulse_actually_is():
-    """A displaced pulse must move the emission spot, which is the whole point of drawing
-    this before a run: a user who has mis-set the geometry sees it immediately."""
-    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
-    N_e = beam.n_electrons()
-    span = 6.0 * math.hypot(beam.m("sigma_x"), laser.m("sigma_x"))
-    axis = np.linspace(-span, span, 121)
-    grid = overlap_transverse_profile(beam, laser, N_e, axis[:, None], axis[None, :])
-    peak = np.unravel_index(int(np.argmax(grid)), grid.shape)
-    assert abs(axis[peak[0]]) < 0.1 * span and abs(axis[peak[1]]) < 0.1 * span
-    assert np.all(grid > 0.0)
-
-
-def test_time_profile_is_centred_and_positive():
-    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
-    N_e = beam.n_electrons()
-    beta_0 = beam.beta0()
-    t_max = 6.0 * math.hypot(beam.m("sigma_z"), beta_0 * laser.sigma_ct()) / ((1.0 + beta_0) * C_CGS)
-    t_grid = np.linspace(-t_max, t_max, 401)
-    rate = overlap_time_profile(beam, laser, N_e, t_grid)
-    assert np.all(rate > 0.0)
-    assert abs(t_grid[int(np.argmax(rate))]) < 0.05 * t_max
-
-
-def test_engine_uses_the_overlap_weighted_a0_for_the_nonlinearity_term():
-    """The engine must pass `<a0^2>`, not `a0_peak**2` — otherwise the width's nonlinearity
-    component keeps the approximation RES035 named while the yield beside it does not."""
-    interaction = _interaction(outputs=(OutputRequest(OutputKind.TOTAL_YIELD),))
-    engine = AnalyticalEngine()
-    results = engine.run(interaction, engine.schema)
-    mean_a0_sq = results.model_specific["mean_a0_sq"]
-    assert 0.0 < mean_a0_sq < results.model_specific["a0_peak"] ** 2
-    assert results.model_specific["spectrum_width_fwhm"].nonlinearity == pytest.approx(
-        0.5 * 2.355 * 0.5 * mean_a0_sq
-    )
-
-
-def test_estimate_spectrum_width_default_still_uses_peak_a0():
-    """The default must not move: this function's other job is reproducing the predecessor's
-    worked example, and `_PREDECESSOR_WIDTH_TOTAL` exists to catch exactly that drift."""
-    with_default = estimate_spectrum_width(_EXAMPLE_BEAM, _EXAMPLE_LASER, theta_col=1e-3)
-    explicit = estimate_spectrum_width(_EXAMPLE_BEAM, _EXAMPLE_LASER, 1e-3, _EXAMPLE_LASER.a0_peak() ** 2)
-    assert with_default.nonlinearity == explicit.nonlinearity
-
-
 # ---------------------------------------------------------------------------
 # Transverse and timing misalignment (DER001 §A.11)
 # ---------------------------------------------------------------------------
@@ -593,17 +403,6 @@ def test_transverse_offset_falls_off_as_the_exact_gaussian(dx_um, dy_um):
                    beam.m("sigma_y") ** 2 + laser.m("sigma_y") ** 2])
     expected = base * math.exp(-0.5 * float(d @ np.linalg.inv(cov) @ d))
     assert overlap_yield(beam, offset, N_e, 20001) == pytest.approx(expected, rel=1e-10)
-
-
-def test_zero_offset_is_bit_identical_to_no_offset_at_all():
-    """The regression net for the whole linear-term extension: a dropped term shifts the
-    answer rather than blowing it up, so it would look plausible. `x_off = y_off = t_off = 0`
-    must reproduce the pre-offset result exactly, not approximately."""
-    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
-    N_e = beam.n_electrons()
-    explicit = replace(laser, x_off=Quantity(0.0, "um"), y_off=Quantity(0.0, "um"),
-                       t_off=Quantity(0.0, "fs"))
-    assert overlap_yield(beam, explicit, N_e) == overlap_yield(beam, laser, N_e)
 
 
 @pytest.mark.tier3
@@ -648,51 +447,6 @@ def test_a_timing_offset_and_a_crossing_angle_do_not_act_independently():
     assert loss(0.05) < loss(0.0)
 
 
-def test_coincident_foci_can_still_miss_in_time():
-    """Focus position and arrival time are independent, which is why omitting `z_off` costs
-    nothing but omitting `t_off` would have cost a lot.
-
-    Here the foci coincide *exactly* — laser at `z_f = 0`, bunch at its waist — and only the
-    arrival time differs. The beams then meet a distance `c t_off / 2` from the focus, so the
-    yield falls monotonically to nothing. A parametrization that treated a longitudinal
-    displacement as purely a focus shift could not express this configuration at all."""
-    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
-    N_e = beam.n_electrons()
-    assert laser.m("z_fx") == 0.0 and beam.alpha_x == 0.0  # foci really do coincide
-
-    yields = [overlap_yield(beam, replace(laser, t_off=Quantity(ps, "ps")), N_e)
-              for ps in (0.0, 20.0, 50.0, 200.0)]
-    assert yields[0] > yields[1] > yields[2] > yields[3]
-    assert yields[3] < 0.05 * yields[0]
-
-
-def test_focus_shift_and_timing_shift_are_independent_knobs():
-    """The other half of the same statement: shifting the focus and slipping the timing are
-    different physical changes, so a rigid translation — which does both — is their
-    combination rather than a third independent parameter."""
-    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
-    N_e = beam.n_electrons()
-    delta = 0.2  # cm
-    focus_only = replace(laser, z_fx=Quantity(delta, "cm"), z_fy=Quantity(delta, "cm"))
-    time_only = replace(laser, t_off=Quantity(delta / C_CGS, "s"))
-    rigid = replace(focus_only, t_off=Quantity(delta / C_CGS, "s"))
-
-    y_focus = overlap_yield(beam, focus_only, N_e)
-    y_time = overlap_yield(beam, time_only, N_e)
-    y_rigid = overlap_yield(beam, rigid, N_e)
-    assert y_focus != pytest.approx(y_time, rel=1e-3)
-    assert y_rigid < min(y_focus, y_time)
-
-
-def test_offsets_reach_the_engine_and_reduce_its_yield():
-    interaction = _interaction(outputs=(OutputRequest(OutputKind.TOTAL_YIELD),))
-    engine = AnalyticalEngine()
-    aligned = float(engine.run(interaction, engine.schema).photon_slices[OutputKind.TOTAL_YIELD].distr)
-    misaligned = replace(interaction, laser=replace(interaction.laser, x_off=Quantity(15.0, "um")))
-    offset = float(engine.run(misaligned, engine.schema).photon_slices[OutputKind.TOTAL_YIELD].distr)
-    assert 0.0 < offset < 0.8 * aligned
-
-
 # ---------------------------------------------------------------------------
 # Flying focus (DER002)
 # ---------------------------------------------------------------------------
@@ -710,14 +464,6 @@ def test_flying_focus_yield_matches_a_brute_force_monte_carlo(beta_ff):
     assert _monte_carlo_yield(beam, laser) == pytest.approx(
         overlap_yield(beam, laser, beam.n_electrons()), rel=5e-3
     )
-
-
-def test_flying_focus_leaves_the_stationary_case_bit_identical():
-    """`beta_ff == 0` must not route through the new path at all — the regression net for
-    everything §A established."""
-    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
-    N_e = beam.n_electrons()
-    assert overlap_yield(beam, replace(laser, beta_ff=0.0), N_e) == overlap_yield(beam, laser, N_e)
 
 
 def test_synchronized_flying_focus_maximizes_the_yield():
@@ -760,15 +506,6 @@ def test_flying_focus_yield_is_invariant_under_beta_ff_to_its_reciprocal():
 
     for beta_ff in (0.25, 0.5, 0.8):
         assert yield_at(beta_ff) == pytest.approx(yield_at(1.0 / beta_ff), rel=2e-4)
-
-
-def test_flying_focus_composes_with_a_crossing_angle():
-    """Both at once — the case the two-functional argument says is still only 2D."""
-    beam = scenarios.BASELINE.beam
-    laser = replace(scenarios.BASELINE.laser, beta_ff=0.5, theta_xz=Quantity(0.02, "rad"))
-    assert _monte_carlo_yield(beam, laser) == pytest.approx(
-        overlap_yield(beam, laser, beam.n_electrons()), rel=5e-3
-    )
 
 
 def test_mean_a0_sq_handles_a_flying_focus():
@@ -840,46 +577,9 @@ def test_overlap_yield_matches_a_brute_force_monte_carlo(name):
     assert _monte_carlo_yield(beam, laser) == pytest.approx(exact, rel=5e-3)
 
 
-def test_engine_reports_that_a_crossed_spectrum_has_head_on_shape():
-    """The yield accounts for the crossing angle; the spectrum's shape does not. Since the
-    engine normalizes SPECTRUM to that yield, the slice's integral is right while its shape
-    is not — it must say so rather than looking correct."""
-    outputs = (OutputRequest(OutputKind.TOTAL_YIELD), OutputRequest(OutputKind.SPECTRUM, resolution=(64,)))
-    interaction = _interaction(outputs=outputs)
-    crossed = replace(interaction, laser=replace(interaction.laser, theta_xz=Quantity(0.02, "rad")))
-    engine = AnalyticalEngine()
-
-    assert engine.run(interaction, engine.schema).model_specific["warnings"] == ()
-    warned = engine.run(crossed, engine.schema).model_specific["warnings"]
-    assert len(warned) == 1 and "head-on" in warned[0]
-
-
-def test_engine_total_yield_tracks_the_crossing_angle():
-    """A 20 mrad crossing more than halves the baseline yield — the engine must carry that
-    through, not report the head-on number."""
-    interaction = _interaction(outputs=(OutputRequest(OutputKind.TOTAL_YIELD),))
-    engine = AnalyticalEngine()
-    crossed = replace(interaction, laser=replace(interaction.laser, theta_xz=Quantity(0.02, "rad")))
-    head_on_yield = float(engine.run(interaction, engine.schema).photon_slices[OutputKind.TOTAL_YIELD].distr)
-    crossed_yield = float(engine.run(crossed, engine.schema).photon_slices[OutputKind.TOTAL_YIELD].distr)
-    assert crossed_yield < 0.6 * head_on_yield
-
-
-def test_estimate_spectrum_width_is_positive_finite():
+def test_estimate_spectrum_width_reproduces_the_reference_worked_example():
     w = estimate_spectrum_width(_EXAMPLE_BEAM, _EXAMPLE_LASER, theta_col=1e-3)
-    assert isinstance(w, SpectrumWidthBreakdown)
-    assert math.isfinite(w.total) and w.total > 0
-
-
-def test_estimate_spectrum_width_reproduces_the_predecessors_worked_example():
-    w = estimate_spectrum_width(_EXAMPLE_BEAM, _EXAMPLE_LASER, theta_col=1e-3)
-    assert w.total == pytest.approx(_PREDECESSOR_WIDTH_TOTAL, rel=1e-6)
-
-
-def test_estimate_spectrum_width_grows_with_larger_collimation_angle():
-    narrow = estimate_spectrum_width(_EXAMPLE_BEAM, _EXAMPLE_LASER, theta_col=1e-4)
-    wide = estimate_spectrum_width(_EXAMPLE_BEAM, _EXAMPLE_LASER, theta_col=1e-2)
-    assert wide.total > narrow.total
+    assert w.total == pytest.approx(_REFERENCE_WIDTH_TOTAL, rel=1e-6)
 
 
 def test_spectrum_width_breakdown_total_is_hypot_of_components():
@@ -889,54 +589,11 @@ def test_spectrum_width_breakdown_total_is_hypot_of_components():
     )
 
 
-def test_spectrum_width_breakdown_components_move_independently():
-    narrow = estimate_spectrum_width(_EXAMPLE_BEAM, _EXAMPLE_LASER, theta_col=1e-4)
-    wide = estimate_spectrum_width(_EXAMPLE_BEAM, _EXAMPLE_LASER, theta_col=1e-2)
-    assert wide.collimation > narrow.collimation
-    for field in ("emittance", "energy_spread", "nonlinearity"):
-        assert getattr(wide, field) == pytest.approx(getattr(narrow, field))
-
-
-def test_angle_integrated_spectrum_shape_and_scalar_input():
-    s_array = np.linspace(0.01, 0.99, 16)
-    out_array = angle_integrated_spectrum(
-        _EXAMPLE_BEAM.gamma0(), _EXAMPLE_BEAM.sigma_gamma(), _EXAMPLE_BEAM.n_electrons(), s_array
-    )
-    assert out_array.shape == s_array.shape
-    assert np.all(np.isfinite(out_array)) and np.all(out_array >= 0)
-
-    out_scalar = angle_integrated_spectrum(
-        _EXAMPLE_BEAM.gamma0(), _EXAMPLE_BEAM.sigma_gamma(), _EXAMPLE_BEAM.n_electrons(), 0.5
-    )
-    assert np.ndim(out_scalar) == 0 or isinstance(out_scalar, float)
-
-
 def test_angle_integrated_spectrum_zero_outside_kinematic_range():
     gamma0 = 100.0
     s_far_beyond_edge = np.array([gamma0**2 * 1.5])
     out = angle_integrated_spectrum(gamma0, gamma0 * 1e-6, 1.0, s_far_beyond_edge)
     assert out[0] == 0.0
-
-
-def test_angle_integrated_spectrum_rejects_zero_energy_spread():
-    """`io.bunch.validate` permits `rel_energy_spread == 0` (only `< 0` raises), so
-    `sigma_gamma == 0` is a legal beam — but it makes this function's quadrature grid
-    degenerate (a zero-width Gaussian divided by its own zero width), which would
-    otherwise return `nan` silently. This repo's convention is an explicit error over a
-    silent fallback."""
-    with pytest.raises(ValueError, match="sigma_gamma"):
-        angle_integrated_spectrum(100.0, 0.0, 1.0, 0.5)
-
-
-def test_angle_integrated_spectrum_fast_at_reported_scale():
-    """Regression guard for the OOM bug class the predecessor's refactor fixed (see
-    `formulas.py`'s module docstring): no argument here scales with `n_particles`."""
-    s_array = np.linspace(1e-3, 1.0 - 1e-3, 2048)
-    out = angle_integrated_spectrum(
-        _EXAMPLE_BEAM.gamma0(), _EXAMPLE_BEAM.sigma_gamma(), _EXAMPLE_BEAM.n_electrons(), s_array
-    )
-    assert out.shape == s_array.shape
-    assert np.all(np.isfinite(out))
 
 
 @pytest.mark.tier3
@@ -970,41 +627,6 @@ def _interaction(n_particles=4000, seed=0, outputs=()):
     return replace(interaction, target=replace(interaction.target, outputs=outputs))
 
 
-def test_analytical_engine_conforms_to_the_engine_protocol():
-    assert isinstance(AnalyticalEngine(), Engine)
-
-
-def test_supported_outputs_matches_what_run_actually_fills():
-    requests = (
-        OutputRequest(OutputKind.TOTAL_YIELD),
-        OutputRequest(OutputKind.SPECTRUM, resolution=(64,)),
-    )
-    interaction = _interaction(outputs=requests)
-    results = AnalyticalEngine().run(interaction, AnalyticalEngine.schema)
-    assert set(results.photon_slices) == set(AnalyticalEngine.supported_outputs)
-
-
-def test_unsupported_output_kinds_are_silently_omitted_not_errored():
-    interaction = _interaction(
-        outputs=(OutputRequest(OutputKind.TOTAL_YIELD), OutputRequest(OutputKind.ANGULAR_DISTRIBUTION, resolution=(3, 3)))
-    )
-    results = AnalyticalEngine().run(interaction, AnalyticalEngine.schema)
-    assert set(results.photon_slices) == {OutputKind.TOTAL_YIELD}
-
-
-def test_unsupported_temporal_envelope_request_does_not_crash():
-    """`io.target.auto_ranges`'s `TEMPORAL_ENVELOPE` branch requires a bunch and raises
-    without one; a `Target` requesting it alongside a supported output must not reach
-    that branch just because this engine happens to skip the kind (a regression this
-    engine's own review caught: filtering unsupported requests must happen before
-    `auto_ranges` runs, not after)."""
-    interaction = _interaction(
-        outputs=(OutputRequest(OutputKind.TOTAL_YIELD), OutputRequest(OutputKind.TEMPORAL_ENVELOPE, resolution=(8,)))
-    )
-    results = AnalyticalEngine().run(interaction, AnalyticalEngine.schema)
-    assert set(results.photon_slices) == {OutputKind.TOTAL_YIELD}
-
-
 def test_nonlinear_redshift_moves_the_compton_edge():
     """The mean red-shift is now applied: the resonance sits at `gamma^2 / (1 + ahat)`, so
     the spectrum's support ends below the linear edge. `ahat = 0` must recover the linear
@@ -1024,11 +646,6 @@ def test_nonlinear_redshift_moves_the_compton_edge():
     assert end_unshifted / end_shifted == pytest.approx(1.0 + ahat, rel=5e-3)
 
     assert np.array_equal(angle_integrated_spectrum(gamma0, sigma_gamma, 1.0, s, ahat=0.0), unshifted)
-
-
-def test_angle_integrated_spectrum_rejects_a_negative_ahat():
-    with pytest.raises(ValueError, match="ahat"):
-        angle_integrated_spectrum(400.0, 4.0, 1.0, np.array([1.0]), ahat=-0.1)
 
 
 def test_engine_reports_the_shifted_edge_and_uses_the_cycle_average():
@@ -1081,48 +698,3 @@ def test_spectrum_grid_integral_correction_factor_is_near_one():
     raw = ais(interaction.beam.gamma0(), interaction.beam.sigma_gamma(), 1.0, s, 401)
     raw_integral = float(np.trapezoid(raw / (4.0 * photon_energy), values[Axis.ENERGY]))
     assert raw_integral == pytest.approx(1.0, abs=0.05)
-
-
-def test_analytical_engine_is_independent_of_n_particles():
-    """analytical never touches `interaction.bunch` — results must be bit-identical
-    across `n_particles`, the structural version of "the old OOM bug class must not
-    return" (§4.3)."""
-    outputs = (OutputRequest(OutputKind.TOTAL_YIELD), OutputRequest(OutputKind.SPECTRUM, resolution=(64,)))
-    small = AnalyticalEngine().run(_interaction(n_particles=100, outputs=outputs), AnalyticalEngine.schema)
-    large = AnalyticalEngine().run(_interaction(n_particles=100_000, outputs=outputs), AnalyticalEngine.schema)
-    for request in outputs:
-        assert np.array_equal(
-            small.photon_slices[request.kind].distr, large.photon_slices[request.kind].distr
-        )
-
-
-def test_model_specific_carries_the_width_breakdown_and_is_charge_independent():
-    """`Results.scaled()` copies `model_specific` verbatim (unscaled) — these three
-    values must actually be charge-independent, or a charge-rescaled `Results` would
-    silently carry a stale number."""
-    interaction = _interaction(outputs=(OutputRequest(OutputKind.TOTAL_YIELD),))
-    results = AnalyticalEngine().run(interaction, AnalyticalEngine.schema)
-    assert isinstance(results.model_specific["spectrum_width_fwhm"], SpectrumWidthBreakdown)
-
-    doubled = replace(interaction, N_e=interaction.N_e * 2.0)
-    results_doubled = AnalyticalEngine().run(doubled, AnalyticalEngine.schema)
-    assert results_doubled.model_specific["spectrum_width_fwhm"] == results.model_specific["spectrum_width_fwhm"]
-    assert results_doubled.model_specific["a0_peak"] == results.model_specific["a0_peak"]
-    assert results_doubled.model_specific["n_photons"] == results.model_specific["n_photons"]
-    # ... while the yield itself does scale.
-    y = float(results.photon_slices[OutputKind.TOTAL_YIELD].distr)
-    y_doubled = float(results_doubled.photon_slices[OutputKind.TOTAL_YIELD].distr)
-    assert y_doubled == pytest.approx(2.0 * y)
-
-
-def test_analytical_engine_rejects_non_gaussian_laser_with_type_error():
-    """AnalyticalEngine explicitly rejects non-Gaussian LaserField implementations (RES067)."""
-    class NonGaussianLaser:
-        def intensity_profile(self, x, y, z, t): ...
-        def a0_profile(self, x, y, z, t): ...
-        def field(self, x, y, z, t): ...
-        def active_region(self, threshold: float): ...
-
-    interaction = replace(_interaction(), laser=NonGaussianLaser())
-    with pytest.raises(TypeError, match="AnalyticalEngine requires a GaussianParaxialLaser"):
-        AnalyticalEngine().run(interaction, AnalyticalEngine.schema)

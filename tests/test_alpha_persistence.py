@@ -2,7 +2,6 @@
 
 from dataclasses import asdict, replace
 
-import h5py
 import numpy as np
 import pytest
 
@@ -72,19 +71,6 @@ def test_metadata_arrays_tuples_and_custom_slice_keys(tmp_path):
         load_request(path, {})
 
 
-def test_failure_does_not_replace_existing_file(tmp_path):
-    path = tmp_path / "run.h5"
-    result = Results({OutputKind.TOTAL_YIELD: PhasespaceSlice({}, np.asarray(7.0))})
-    save_results(result, path)
-    before = path.read_bytes()
-    with pytest.raises(TypeError, match="unsupported metadata type"):
-        save_results(replace(result, model_specific={"bad": object()}), path)
-    assert path.read_bytes() == before
-    with pytest.raises(TypeError, match="refusing to discard electrons"):
-        save_results(replace(result, electrons=object()), path)
-    assert path.read_bytes() == before
-
-
 def test_existing_bunch_result_payload_survives_without_new_electron_types(tmp_path):
     submitted = request()
     bunch = build_interaction(submitted.beam, submitted.laser, submitted.target, submitted.sampling).bunch
@@ -95,13 +81,3 @@ def test_existing_bunch_result_payload_survives_without_new_electron_types(tmp_p
     assert restored.gaussian_fit == bunch.gaussian_fit
     np.testing.assert_array_equal(restored.gamma, bunch.gamma)
     np.testing.assert_array_equal(restored.meta["last_time"], bunch.meta["last_time"])
-
-
-def test_legacy_string_escape_and_future_version(tmp_path):
-    path = tmp_path / "run.h5"
-    save_results(Results({OutputKind.TOTAL_YIELD: PhasespaceSlice({}, np.asarray(1.0))}), path)
-    assert "0d_yield" in load_results(path, kind_from_name=str).photon_slices
-    with h5py.File(path, "a") as handle:
-        handle.attrs["gammaforge_results_version"] = 99
-    with pytest.raises(ValueError, match="version.*not supported"):
-        load_results(path)

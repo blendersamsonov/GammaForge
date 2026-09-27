@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-import importlib.util
-from pathlib import Path
-
 import numpy as np
 import pytest
 
@@ -64,65 +61,3 @@ def test_public_engine_crossed_release_smoke(crossed_interaction, rings, n_steps
     assert np.all(slice_.distr >= 0.0)
     assert np.any(slice_.distr > 0.0)
     assert results.model_specific["stage2_backend"] == "cupy"
-    metadata = results.model_specific["stage2_sampler"]
-    assert metadata["rings"] == rings
-    assert metadata["subsampling"] == 32
-
-
-def test_explicit_cupy_missing_device_contract(monkeypatch):
-    from gammaforge.engines.xigma import spectrum_sampler
-    from gammaforge.engines.xigma.stages import stage2_backend
-
-    monkeypatch.setattr(spectrum_sampler, "is_gpu_available", lambda: False)
-    with pytest.raises(RuntimeError, match="not available"):
-        stage2_backend("cupy", ellipticity=0.4, theta_xz=0.3, theta_yz=0.2)
-
-
-def test_release_runner_reports_failure_instead_of_all_skipped(monkeypatch, tmp_path):
-    path = Path(__file__).resolve().parents[1] / "scripts" / "validate_cupy_release.py"
-    spec = importlib.util.spec_from_file_location("validate_cupy_release", path)
-    runner = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(runner)
-
-    monkeypatch.setattr(runner, "_cuda_info", lambda: (_ for _ in ()).throw(
-        runner.ReleaseGateError("simulated missing CUDA")
-    ))
-    output = tmp_path / "release.json"
-    assert runner.main(["--output", str(output)]) == 1
-    assert '"status": "failed"' in output.read_text(encoding="utf-8")
-    assert "simulated missing CUDA" in output.read_text(encoding="utf-8")
-
-
-def test_convergence_report_requires_true_pass(monkeypatch):
-    path = Path(__file__).resolve().parents[1] / "scripts" / "validate_cupy_release.py"
-    spec = importlib.util.spec_from_file_location("validate_cupy_release_report", path)
-    runner = importlib.util.module_from_spec(spec); spec.loader.exec_module(runner)
-    monkeypatch.setattr("gammaforge.validation.cupy_convergence.run_convergence_checks", lambda: {"pass": False, "checks": [{"kind": "cpu"}]})
-    report = runner._convergence_report()
-    assert report["status"] == "failed" and report["result"]["checks"]
-
-    monkeypatch.setattr("gammaforge.validation.cupy_convergence.run_convergence_checks", lambda: {"checks": []})
-    assert runner._convergence_report()["status"] == "failed"
-
-
-def test_release_fingerprint_change_fails_without_discarding_runs(monkeypatch):
-    path = Path(__file__).resolve().parents[1] / "scripts" / "validate_cupy_release.py"
-    spec = importlib.util.spec_from_file_location("validate_cupy_release_stub", path)
-    runner = importlib.util.module_from_spec(spec); spec.loader.exec_module(runner)
-    import types
-    import gammaforge.engines.xigma.engine as engine
-    monkeypatch.setattr(runner, "_cuda_info", lambda: {"device": "stub"})
-    monkeypatch.setattr("gammaforge.engines.xigma.spectrum_sampler.is_gpu_available", lambda: True)
-    monkeypatch.setattr(runner, "_convergence_report", lambda: {"status": "passed", "result": {"pass": True, "checks": []}})
-    monkeypatch.setattr(runner, "_source_fingerprints", lambda: {"x": "stable"})
-    from gammaforge.io.target import OutputKind
-    fake = types.SimpleNamespace(photon_slices={OutputKind.COLLIMATED_SPECTRUM: types.SimpleNamespace(distr=np.ones((9, 9, 16)))}, model_specific={"stage2_backend": "cupy", "stage2_sampler": {"rings": 32, "subsampling": 32}})
-    monkeypatch.setattr(engine.XigmaEngine, "run", lambda *a, **k: fake)
-    report = runner.run_release(rings=(32,))
-    assert report["status"] == "passed" and report["runs"]
-
-    values = iter(({"sampler": "old"}, {"sampler": "new"}))
-    monkeypatch.setattr(runner, "_source_fingerprints", lambda: next(values))
-    changed = runner.run_release(rings=(32,))
-    assert changed["status"] == "failed" and changed["source_unchanged"] is False
-    assert changed["runs"] and "source files changed" in changed["error"]

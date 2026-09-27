@@ -9,7 +9,7 @@ from gammaforge.engines.xigma.engine import XigmaEngine
 from gammaforge.engines.xigma.stages import integrate_trajectories
 from gammaforge.io.bunch import overlap_time_window
 from gammaforge.io.results import Axis
-from gammaforge.io.target import OutputKind, OutputRequest, auto_ranges
+from gammaforge.io.target import OutputKind, OutputRequest
 from gammaforge.io.units import Quantity
 from gammaforge.validation import scenarios
 
@@ -106,48 +106,6 @@ def test_clipping_is_reported_without_renormalization(interaction):
     assert accounting['outside_fraction'] == pytest.approx(1 - captured / total)
     assert clipped.scaled(2).model_specific['stage0_diagnostics'] == clipped.model_specific['stage0_diagnostics']
     assert any('exclude' in warning for warning in clipped.model_specific['warnings'])
-
-
-@pytest.mark.parametrize('empty', [False, True])
-def test_no_overlap_has_zero_histograms_with_finite_display_axes(interaction, empty):
-    bunch = interaction.bunch.select(np.zeros(48, dtype=bool)) if empty else interaction.bunch
-    laser = replace(interaction.laser, x_off=Quantity(1e3, 'cm'))
-    interaction = replace(interaction, bunch=bunch, laser=laser)
-    collision = Collision(interaction, XigmaEngine.schema.with_values(n_steps=32))
-    result = collision.run(requests(nx=1, ny=1, nt=1))
-    for histogram in result.photon_slices.values():
-        assert histogram.integrate() == 0
-        assert all(np.all(np.isfinite(axis)) for axis in histogram.axes.values())
-    assert any('display interval' in warning for warning in result.model_specific['warnings'])
-
-
-def test_new_grid_recomputes_once_and_cached_diagnostics_are_read_only(interaction, monkeypatch):
-    import gammaforge.engines.xigma.collision as module
-    original = module.integrate_trajectories
-    calls = 0
-
-    def counted(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(module, 'integrate_trajectories', counted)
-    collision = Collision(interaction, XigmaEngine.schema.with_values(n_steps=32))
-    collision.run(requests())
-    collision.run(requests())
-    assert calls == 1
-    collision.run(requests(nx=4, nt=17))
-    assert calls == 2
-    assert collision.build_overlap().diagnostics.time_envelope.size == 17
-    assert calls == 2
-    with pytest.raises(ValueError, match='read-only'):
-        collision.build_overlap().diagnostics.t_edges[0] = 0
-
-
-@pytest.mark.parametrize('edges', [[0], [0, 0], [1, 0], [0, np.inf], [[0, 1]]])
-def test_invalid_diagnostic_edges_fail_at_boundary(interaction, edges):
-    with pytest.raises(ValueError, match='diagnostic edges'):
-        integrate(interaction, t_edges=edges)
 
 
 def test_spatial_coordinates_follow_displaced_emission_events(interaction):

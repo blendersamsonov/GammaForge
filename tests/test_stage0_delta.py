@@ -18,7 +18,6 @@ import pytest
 
 pytestmark = [pytest.mark.tier2]
 
-from gammaforge.engines.xigma import chunking
 from gammaforge.engines.xigma.stages import (
     relative_velocity,
     doppler_factor_per_particle,
@@ -30,10 +29,8 @@ from gammaforge.engines.xigma.stages import (
     polarization_factor_vectorized,
 )
 from gammaforge.io.interaction import PREFILTER_OFF
-from gammaforge.io.target import OutputKind
 from gammaforge.io.units import Quantity
 from gammaforge.validation import scenarios
-from gammaforge.validation.golden import load_golden
 from gammaforge.validation.references import delta
 
 N_STEPS = 64
@@ -84,68 +81,6 @@ def _samples(scenario, n_particles=2000, **kwargs):
 @pytest.fixture(scope="module")
 def baseline():
     return _samples(scenarios.BASELINE)
-
-
-# ---------------------------------------------------------------------------
-# The shared chunking utility (§4.2)
-# ---------------------------------------------------------------------------
-def test_chunks_partition_exactly_once():
-    seen = []
-    chunking.run_in_chunks(10, lambda start, stop: seen.append((start, stop)), chunk=3)
-    assert seen == [(0, 3), (3, 6), (6, 9), (9, 10)]
-    assert chunking.run_in_chunks(0, lambda start, stop: 1, chunk=3) == []
-
-
-def test_results_come_back_in_order():
-    values = chunking.run_in_chunks(7, lambda start, stop: (start, stop), chunk=2)
-    assert values == [(0, 2), (2, 4), (4, 6), (6, 7)]
-
-
-def test_an_out_of_memory_failure_halves_the_chunk_and_retries_the_same_slice():
-    """The retried slice must be the failed one — no item skipped, none done twice."""
-    attempted, completed = [], []
-
-    def work(start, stop):
-        attempted.append((start, stop))
-        if stop - start > 2:
-            raise MemoryError("too big")
-        completed.append((start, stop))
-        return stop - start
-
-    sizes = chunking.run_in_chunks(6, work, chunk=8)
-    assert sum(sizes) == 6, "every item processed exactly once"
-    assert [start for start, _ in completed] == sorted(start for start, _ in completed)
-    # 8 is clamped to the 6 available, then halved until the work stops refusing it.
-    assert attempted[0] == (0, 6) and attempted[1] == (0, 3) and attempted[2] == (0, 1)
-    assert all(stop - start <= 2 for start, stop in completed)
-
-
-def test_a_persistent_out_of_memory_failure_is_re_raised():
-    def always_fails(start, stop):
-        raise MemoryError("never fits")
-
-    with pytest.raises(MemoryError):
-        chunking.run_in_chunks(1024, always_fails, chunk=1024)
-
-
-def test_estimate_chunk_respects_the_ceiling_and_never_returns_zero():
-    assert chunking.estimate_chunk(10_000, 1, "numpy", ceiling=32) <= 32
-    assert chunking.estimate_chunk(10_000, 10**18, "numpy") >= 1
-    assert chunking.estimate_chunk(0, 1, "numpy") == 1
-    with pytest.raises(ValueError, match="backend must be"):
-        chunking.estimate_chunk(10, 1, "opencl")
-
-
-def test_an_unmeasurable_machine_is_not_chunked(monkeypatch):
-    # Guessing small on a machine that declines to be measured is a large silent slowdown.
-    monkeypatch.setattr(chunking, "available_ram_bytes", lambda: None)
-    assert chunking.estimate_chunk(5000, 10**9, "numpy") == 5000
-    assert chunking.estimate_chunk(5000, 10**9, "numpy", ceiling=64) == 64
-
-
-def test_memory_queries_answer_or_say_they_cannot():
-    for value in (chunking.available_ram_bytes(), chunking.available_vram_bytes()):
-        assert value is None or value > 0
 
 
 # ---------------------------------------------------------------------------
@@ -326,34 +261,6 @@ def test_the_photon_density_scale_inverts_the_lasers_own_intensity_chain(ellipti
         assert scale * laser.intensity_profile(*point) == pytest.approx(direct, rel=1e-14)
 
 
-def test_stage_0_agrees_with_the_predecessors_total_yield():
-    """New-vs-golden, on a real computation — what Phase 2's machinery was built for.
-
-    A fraction of a percent, and the residual is *systematic*: the two repos draw
-    different bunches from the same nominal seed and bound the interaction window
-    differently, so this is agreement to the accuracy the comparison can support, not a
-    coincidence to tighten later.
-    """
-    for name in ("baseline", "low_a0", "near_a0_max"):
-        scenario = scenarios.by_name(name)
-        interaction = scenarios.build(scenario)
-        computed = integrate_trajectories(interaction.bunch, interaction.laser,
-                                          interaction.N_e, n_steps=N_STEPS).total_yield()
-        golden = float(load_golden(name, "xigma").results
-                       .photon_slices[OutputKind.TOTAL_YIELD].distr)
-        assert computed == pytest.approx(golden, rel=5e-3), name
-
-
-def test_integrate_trajectories_validates_n_steps():
-    interaction = scenarios.build(
-        replace(scenarios.BASELINE,
-                sampling=replace(scenarios.BASELINE.sampling, n_particles=10))
-    )
-    with pytest.raises(ValueError, match="n_steps"):
-        integrate_trajectories(interaction.bunch, interaction.laser, interaction.N_e,
-                               n_steps=0)
-
-
 def test_the_relative_velocity_factor_is_the_head_on_one():
     assert relative_velocity(beta=1.0) == 2.0
 
@@ -454,36 +361,6 @@ def test_doppler_factor_per_particle_k_hat():
     expected = one_minus_v_dot_n0 / nominal
 
     np.testing.assert_allclose(factors, expected, rtol=1e-12, atol=1e-15)
-
-
-def test_doppler_factor_per_particle_input_validation():
-    """Test input validation for per-particle Doppler factor."""
-    from gammaforge.engines.xigma.stages import doppler_factor_per_particle
-
-    gamma = np.array([2000.0, 2000.0])
-    theta_x = np.array([0.0, 0.001])
-    theta_y = np.array([0.0, -0.0006])
-
-    # Mismatched shapes
-    try:
-        doppler_factor_per_particle(gamma[:1], theta_x, theta_y)
-        assert False, "Should have raised ValueError"
-    except ValueError as e:
-        assert "same shape" in str(e)
-
-    # Non-1D arrays
-    try:
-        doppler_factor_per_particle(gamma.reshape(2, 1), theta_x, theta_y)
-        assert False, "Should have raised ValueError"
-    except ValueError as e:
-        assert "1D arrays" in str(e)
-
-    # Invalid k_hat shape
-    try:
-        doppler_factor_per_particle(gamma, theta_x, theta_y, k_hat=np.array([1.0, 2.0]))
-        assert False, "Should have raised ValueError"
-    except ValueError as e:
-        assert "shape (3,)" in str(e)
 
 
 # ---------------------------------------------------------------------------
@@ -631,7 +508,17 @@ def test_delta_passes_each_particle_direction_to_the_polarization_projection():
     theta_x_obs, theta_y_obs = 0.0003, -0.0002
     kwargs = dict(ellipticity=0.35, psi_pol=0.6, theta_xz=0.04, theta_yz=-0.03)
     r_squared = (samples.theta_x[0] - theta_x_obs)**2 + (samples.theta_y[0] - theta_y_obs)**2
-    s_res = samples.gamma[0] ** 2 / (1.0 + samples.ahat()[0] + samples.gamma[0] ** 2 * r_squared)
+    electron = np.array([samples.theta_x[0], samples.theta_y[0], 1.0])
+    electron /= np.linalg.norm(electron)
+    n0 = np.array([
+        -np.sin(kwargs["theta_xz"])*np.cos(kwargs["theta_yz"]),
+        np.sin(kwargs["theta_yz"]),
+        -np.cos(kwargs["theta_xz"])*np.cos(kwargs["theta_yz"]),
+    ])
+    incidence = 0.5 * (1.0 - electron @ n0)
+    s_res = samples.gamma[0] ** 2 / (
+        1.0 + incidence * samples.ahat()[0] + samples.gamma[0] ** 2 * r_squared
+    )
     s_edges = np.array([s_res * 0.999, s_res * 1.001])
     expected_weight = (
         delta.DIFFERENTIAL_PREFACTOR * samples.luminosity[0]

@@ -26,7 +26,7 @@ unfinished or waiting on someone*.
 | 7. Validation completion | 🟡 restricted headless alpha gate implemented; independent fixed-direction delta gates wired (RES084); full angular/four-method coverage remains open |
 | 8. Polish | 🟡 script alpha 0.1.0a1: explicit-input example, figure/data, request/result persistence and installation guide; broader release work remains open |
 
-**Suite:** tiered with execution markers (`pytest -m fast` in ~20s, bare `pytest` in ~1.2m, `pytest --run-heavy` for full ~11m sweep; RES075); `python -m gammaforge.validation.run` passes its runnable
+**Suite:** tiered with execution markers (`pytest -m fast` in ~20s, bare `pytest` in ~1.1m, `pytest --run-heavy` for full ~6m sweep; RES075); `python -m gammaforge.validation.run` passes its runnable
 core/identity/golden checks. `python -m gammaforge.validation.run --alpha` adds reduced
 analytical/xigma comparisons within the release scope (RES065).
 `python -m gammaforge.validation.run --production` runs the

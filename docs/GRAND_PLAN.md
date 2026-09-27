@@ -1,6 +1,6 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.41 — 2026-09-26
+**Status:** draft v0.42 — 2026-09-26
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 
@@ -1036,17 +1036,17 @@ formula is implemented.
 
 | Phase | Scope | Exit criteria |
 |-------|-------|---------------|
-| **0. Scaffold** | Repo, git, pyproject (Python 3.12), pytest, package skeleton, README, ADR index + **`docs/decisions/` provenance system started** (C1); `.gitignore` **explicitly covers large data formats (`.ele`, notebooks with large outputs) and sync-conflict patterns from day one** (C3) | `pytest` green on an empty-suite smoke test; `pip install -e .` works; doc-staleness guard scaffolding in place (C2) — a CI smoke test asserting **every backticked identifier in the docs resolves in the package** |
-| **1. Core** | `io/`: schema, units/conventions (CGS), constants; bunch (`Bunch` + `GaussianElectronBeam`); laser (incl. `LaserField` protocol + `GaussianParaxialLaser` as its sole implementation, `fit_gaussian_paraxial`, elliptical+astigmatic model, geometry angles — §3.3/P15); target (auto-ranges + `OutputKind` vocabulary §3.4); interaction (incl. `N_e` scalar + `SamplingSpec` §3.5); sampling + prefilter (§3.2); results contract (incl. `PhotonMacroparticles` §3.6); YAML + `.ele` I/O; HDF5 results writer | Round-trip tests; schema validation tests; CGS conversion tests vs known values; `LaserField` protocol conformance test for `GaussianParaxialLaser` (period-averaged + period-resolved at arbitrary points); `fit_gaussian_paraxial` identity test on a `GaussianParaxialLaser` input; geometry round-trip test (R⁻¹ recovers head-on angles, §2.2) |
+| **0. Scaffold** | Repo, git, pyproject (Python 3.12), pytest, package skeleton, README, ADR index + **`docs/decisions/` provenance system started** (C1); `.gitignore` **explicitly covers large data formats (`.ele`, notebooks with large outputs) and sync-conflict patterns from day one** (C3) | `pytest` green; `pip install -e .` works |
+| **1. Core** | `io/`: schema, units/conventions (CGS), constants; bunch (`Bunch` + `GaussianElectronBeam`); laser (incl. `LaserField` protocol + `GaussianParaxialLaser` as its sole implementation, `fit_gaussian_paraxial`, elliptical+astigmatic model, geometry angles — §3.3/P15); target (auto-ranges + `OutputKind` vocabulary §3.4); interaction (incl. `N_e` scalar + `SamplingSpec` §3.5); sampling + prefilter (§3.2); results contract (incl. `PhotonMacroparticles` §3.6); YAML + `.ele` I/O; HDF5 results writer | Representative serialization round trips; CGS/SI and width/time-convention checks; sampling moments and mass shell; geometry and integral-preservation invariants |
 | **2. Validation harness** | scenarios, runners skeleton, `make_references.py` + first golden snapshots from old repo; invariance-test scaffolding (chunk, prefilter, backend, seed — §7) | Golden generation runs; new-vs-golden comparisons execute |
 | **2.5. Stage 0 + minimal delta** | **Stage 0** (`integrate_trajectories`) and the **shared auto-chunk + OOM-retry utility** (§4.2), pulled forward from 3a because delta needs both; delta itself scoped to Stage-2 normalization arbitration, built on top of Stage 0 (§4.5) | Stage 0 tests green; chunk-invariance holds; delta produces independent spectra on baseline scenarios; identity harness (`kernel` vs `reference` vs `direct binning` vs delta) executable |
-| **3a. xigma engineering** — **landed 2026-08-08** | Stage 1/2 pure functions; Collision facade + stage cache; Engine wrapper; numpy kernel for Stages 1/2, cupy/numba gated like Stage 0 until real kernels exist (**Stage 0 and the chunking utility already built in 2.5**; RES029); geometry/a0/ellipticity parameters wired as explicit identity/no-op placeholders (P14c) | Stage architecture tests green; placeholders documented |
+| **3a. xigma engineering** — **landed 2026-08-08** | Stage 1/2 pure functions; Collision facade + stage cache; Engine wrapper; numpy kernel for Stages 1/2, cupy/numba gated like Stage 0 until real kernels exist (**Stage 0 and the chunking utility already built in 2.5**; RES029); geometry/a0/ellipticity parameters wired as explicit identity/no-op placeholders (P14c) | Deposition/retarget conservation, nonlinear redshift, delta agreement, and backend agreement checks green; placeholders documented |
 | **3b. Physics closure** — **§9.1 landed 2026-08-08; §9.2/§9.3 open, non-blocking** | ~2π resolution (§9.1 — **closed**: traced in 2.5, applied in 3b, RES033), crossing-angle derivation (§9.3), ellipticity→a0 (§9.2) — **runs concurrently with Phases 4 and 5, not serially** | §9.1's constant set in Stage 2 and the identity harness re-gated against 1.0 rather than 2π — **met**; §9.2/§9.3 derivations landed if author completes them in parallel (never blocking 4–6) — **outstanding, and the paper contains no formula for either**, so both stay wired as documented no-ops with `validate()` warnings (RES034) |
 | **4. analytical engine** — **landed 2026-08-09; one growth item open** | estimates + component breakdown; quadrature spectrum; general overlap-integral yield (non-round + displaced foci); remaining growth item (collimated spectrum) | Closed-form limits match — **met** (Thomson-limit anchor *and* the analytic reduction of `overlap_yield` to the round-beam closed form, §7); validation anchor ready — **met** for `TOTAL_YIELD`/`SPECTRUM`; foci displacement + non-round beam — **met** via DER001 (RES039); crossing-angle geometry — **met** for the yield via DER001 §A.6 (RES041), validated against a brute-force Monte Carlo; the width's nonlinearity term — **met** via the luminosity-weighted `<a0²>` (DER001 §A.8, RES042); resolved time/transverse previews — **met** (DER001 §A.9). Outstanding: collimated-spectrum construction, angle-resolved previews (deferred), and `SPECTRUM`'s shape under a crossing angle, which is §9.3's emission kernel rather than overlap geometry |
 | **5. kascade port + delta full role** — **partially landed 2026-09-06** | minimal kascade behind interface **+ its Thomson-limit sanity check (B4)** — **met** (RES059); delta full cross-validation role — **open** | Kascade sanity check passes — **met**; 4-method cross-validation runs — **open** |
-| **6. GUI** | schema-driven two-tab app; overlays + per-engine show/hide; save plots/HDF5; grey-out/release; sketch panel (headless module first); **import-boundary check enforced in CI (B3)** | GUI runs headless-smoke; all planned interactions work; boundary check green |
-| **7. Validation completion** | full scenario bank, convergence, chunk-invariance, closed-form identities, golden cross-checks | Full suite green; results reproducible; 3b closures integrated |
-| **8. Polish** | scans, docs, packaging, notebook examples, **doc-staleness sweep (C2)** | Release-ready |
+| **6. GUI** | schema-driven two-tab app; overlays + per-engine show/hide; save plots/HDF5; grey-out/release; sketch panel (headless module first) | All planned interactions work; calculation remains behind the public runner boundary (B3) |
+| **7. Validation completion** | full scenario bank, convergence, chunk-invariance, closed-form identities, independent delta checks, and four-method cross-validation | Full suite green; results reproducible; 3b closures integrated |
+| **8. Polish** | scans, docs, packaging, notebook examples | Release-ready |
 
 Order note: Phase 3b is explicitly parallel; Phases 4–6 must not wait on physics
 derivations (A3). **Before Phase 3a/6 kickoff, re-verify the old repo's remote
@@ -1067,15 +1067,21 @@ duplicated (C4).
 | Chunking regressions (OOM class) | Chunk-invariance property tests from Phase 2 on; single shared auto-chunk + OOM-retry utility (porting algorithm + constants, not the old triplicated code) |
 | Collimated 3D-slice cost: a deliberate Calculate with the collimated (E,θx,θy) output is inherently slow at high resolution (measured 27 s @ 64 energy bins on CPU in the old repo; linear in n_energy) | **Expected, not a defect** — no live auto-requery exists (engines are Calculate-gated, §5), so the old CPU-pegging mechanism is structurally impossible; the analytical panel stays real-time; per-engine progress indication; cache reuse (`QUERY_ONLY`/`REUSE_INTERMEDIATES`) minimizes repeated cost |
 | pint friction with CGS | pint confined to schema/serialization; kernels never see it; EM conversions hand-coded with tests vs known values |
-| GUI regrows into a monolith (already happened once: 1174 → 1685 lines) | Import-boundary check in CI (P12/B3): `gammaforge.gui` may not import engine stages/kernels — mechanical enforcement, not discipline |
+| GUI regrows into a monolith (already happened once: 1174 → 1685 lines) | Keep the public runner boundary explicit in P12/B3 and review imports when GUI calculation code changes; do not maintain a parser test for source layout |
 | Capability data regrows into a registry/protocol | P10 explicit guardrail: plain tuples/dicts on the Engine instance; any registry/negotiation layer is the old `ModelCapabilities` mistake recurring |
-| Docs drift out of sync with code (old repo's AGENTS.md referenced deleted types) | Doc-staleness guard from Phase 0 (C2): a CI smoke test asserting every backticked identifier in the docs resolves in the package |
+| Docs drift out of sync with code (old repo's AGENTS.md referenced deleted types) | Keep `GRAND_PLAN.md`, `PROGRESS.md`, and the decision/derivation indexes authoritative and update them with the implementation; do not substitute structural documentation linters for review |
 | Scope creep (GUI polish, scans, sketches) | Explicitly deferred/late-phase; architecture supports them but they don't block physics milestones |
 
 ---
 
 ## Changelog
 
+- **v0.42**: Simplify the test strategy around scientific risk. Keep equations, physical
+  invariants, conservation/convergence, independent references and backend agreement,
+  plus a few representative execution and persistence paths. Retire documentation-format,
+  GUI-state, private-routing, cache-mechanics and exhaustive validation-branch tests; those
+  checks had grown to protect the implementation's current shape rather than scientific
+  correctness.
 - **v0.41**: Add per-panel persistent GUI defaults and per-axis output range policy.
   Auto remains the default and is always displayed; manual bounds replace only named
   axes, including a narrower energy grid for collimated spectra (RES089).
