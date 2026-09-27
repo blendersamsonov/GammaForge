@@ -43,12 +43,17 @@ def _smooth_table(
     a = 0.5 * (ahat_edges[:-1] + ahat_edges[1:])
     G, X, Y, A = np.meshgrid(g, x, y, a, indexing="ij")
     H = np.zeros_like(G) if zero else 1.0 + 0.002 * (G - gamma0) + 2.0 * X + 1.5 * Y + 3.0 * A
+    H = H[..., None]
     return Table(
         gamma_edges=gamma_edges,
         theta_x_edges=x_edges,
         theta_y_edges=y_edges,
         ahat_edges=ahat_edges,
+        chirp_edges=np.array([0.5, 1.5]),
         H=H,
+        H_var_a=np.zeros_like(H),
+        H_var_chirp=np.zeros_like(H),
+        H_cov_a_chirp=np.zeros_like(H),
         total_weight=float(np.sum(H)),
         scheme="synthetic-smooth",
     )

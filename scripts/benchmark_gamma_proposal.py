@@ -38,7 +38,10 @@ def stress_case():
                             (y[:-1]+y[1:])/2, (a[:-1]+a[1:])/2, indexing='ij')
     H = np.exp(-.5*((G-1000-60000*X)/45)**2 - .5*(X/.0007)**2 - .5*(Y/.0007)**2)
     H *= np.where(A < .1, 1., .3)
-    return {'name': 'correlated_broad_ahat', 'table': Table(g,x,y,a,H,float(H.sum()),'proposal-stress'),
+    H = H[..., None]
+    return {'name': 'correlated_broad_ahat', 'table': Table(
+                g, x, y, a, np.array([.5, 1.5]), H, np.zeros_like(H),
+                np.zeros_like(H), np.zeros_like(H), float(H.sum()), 'proposal-stress'),
             'kwargs': {'theta_xz': .3, 'theta_yz': -.2, 'ellipticity': .4}}
 
 

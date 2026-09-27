@@ -122,15 +122,16 @@ def test_table_jacobian_preserves_independent_line_mass_and_centroid(crossing):
     unit_v = np.array([tx, ty, 1.]); unit_v /= np.linalg.norm(unit_v)
     ahat_edges = np.array([0., 2*ahat])
     ahat_eval_points = np.array([ahat])
+    H = (1 + (centers/1000)**2)[:, None, None, None, None]
     table = Table(gamma_edges, np.array([tx-1e-5, tx+1e-5]),
-                  np.array([ty-1e-5, ty+1e-5]), ahat_edges,
-                  (1 + (centers/1000)**2)[:, None, None, None], 1., 'doppler-check',
+                  np.array([ty-1e-5, ty+1e-5]), ahat_edges, np.array([.5,1.5]),
+                  H, np.zeros_like(H), np.zeros_like(H), np.zeros_like(H), 1., 'doppler-check',
                   _ahat_eval_points=ahat_eval_points)
     nodes, quad = np.polynomial.legendre.leggauss(12)
     g = ((centers[:-1, None]+centers[1:, None])/2
          + np.diff(centers)[:, None]*nodes/2).ravel()
     wg = (np.diff(centers)[:, None]*quad/2).ravel()
-    density = np.interp(g, centers, table.H[:, 0, 0, 0])
+    density = np.interp(g, centers, table.H[:, 0, 0, 0, 0])
     area = 4e-10
     samples = TrajectorySamples(
         g, np.full_like(g, tx), np.full_like(g, ty), np.full_like(g, ahat),
@@ -195,8 +196,10 @@ def test_cuda_keeps_support_above_the_old_nominal_edge():
     gamma_edges = np.linspace(990., 1010., 17)
     x = np.linspace(tx-.0004, tx+.0004, 97)
     y = np.linspace(-.0004, .0004, 97)
-    table = Table(gamma_edges, x, y, np.array([0., .0001, .0002]),
-                  np.ones((16, 96, 96, 2)), 1., 'doppler-support-check')
+    H = np.ones((16, 96, 96, 2, 1))
+    table = Table(gamma_edges, x, y, np.array([0., .0001, .0002]), np.array([.5,1.5]),
+                  H, np.zeros_like(H), np.zeros_like(H), np.zeros_like(H),
+                  1., 'doppler-support-check')
     n0 = laser_axis(cross, 0.)
     v = np.array([tx, ty, 1.]); v /= np.linalg.norm(v)
     D = (1-v@n0)/(1-n0[2])

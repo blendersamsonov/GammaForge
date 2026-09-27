@@ -31,7 +31,7 @@ def baseline_table():
     samples = integrate_trajectories(
         interaction.bunch, interaction.laser, interaction.N_e, n_steps=64
     )
-    shape_table = deposit_shape_table(samples, n_bins=(32, 32, 32, 64), scheme="cic")
+    shape_table = deposit_shape_table(samples, n_bins=(32, 32, 32, 64, 8), scheme="cic")
     table = retarget_ahat(shape_table, samples.intensity_peak)
     return table, samples
 

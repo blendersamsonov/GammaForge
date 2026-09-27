@@ -1174,11 +1174,13 @@ def integrate_trajectories(
     )
 
 
-#: Default bin counts for :func:`deposit_shape_table`'s four axes, in ``(gamma, theta_x,
-#: theta_y, a0_shape)`` order. The raw-shape axis is deliberately fine — it is
+#: Default bin counts for :func:`deposit_shape_table`'s five axes, in ``(gamma, theta_x,
+#: theta_y, a0_shape, chirp_mean)`` order. The raw-shape axis is deliberately fine — it is
 #: bounded and peak-intensity-independent, so there is no dynamic-range reason to keep it
 #: small the way the old direct-onto-``ahat`` deposit's fourth axis had to be.
-DEFAULT_SHAPE_BINS = (48, 48, 48, 96)
+#: Eight carrier-rate bins are an initial numerical setting, not a privileged physical
+#: resolution; an exactly constant carrier rate always collapses to one bin.
+DEFAULT_SHAPE_BINS = (48, 48, 48, 96, 8)
 
 #: Defaults for :func:`retarget_ahat`'s fixed, non-uniform target grid, tuned against this
 #: repo's scenario bank (RES032), independent of defaults tuned for other scenario banks.
@@ -1221,9 +1223,9 @@ def _validate_edges_and_shape(edges, H, name: str) -> None:
 
 @dataclass(frozen=True)
 class ShapeTable:
-    """Stage 1's output: a 4D photon-weight density over ``(gamma, theta_x, theta_y,
-    a0_shape)``. The nonlinear incidence coefficient is observer-dependent and therefore
-    is not part of this deposited coordinate.
+    """Stage 1's output: a 5D photon-weight density over ``(gamma, theta_x, theta_y,
+    a0_shape, chirp_mean)``. The nonlinear incidence coefficient is observer-dependent
+    and therefore is not part of this deposited coordinate.
 
     Not agnostic in *mass*: ``H`` is deposited with ``samples.luminosity`` at
     ``source_intensity_peak`` (the pulse Stage 0 actually ran), and luminosity scales
@@ -1239,37 +1241,62 @@ class ShapeTable:
     gamma_edges: np.ndarray
     theta_x_edges: np.ndarray
     theta_y_edges: np.ndarray
-    redshift_shape_edges: np.ndarray
+    a0_shape_edges: np.ndarray
+    chirp_edges: np.ndarray
     H: np.ndarray
+    H_var_a_shape: np.ndarray
+    H_var_chirp: np.ndarray
+    H_cov_a_chirp_shape: np.ndarray
     total_weight: float
     scheme: str
     source_intensity_peak: float
+    _chirp_eval_points: np.ndarray | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
-        _validate_edges_and_shape(
-            (self.gamma_edges, self.theta_x_edges, self.theta_y_edges, self.redshift_shape_edges), self.H, "ShapeTable"
-        )
+        edges = (self.gamma_edges, self.theta_x_edges, self.theta_y_edges,
+                 self.a0_shape_edges, self.chirp_edges)
+        for name, channel in (
+            ("H", self.H),
+            ("H_var_a_shape", self.H_var_a_shape),
+            ("H_var_chirp", self.H_var_chirp),
+            ("H_cov_a_chirp_shape", self.H_cov_a_chirp_shape),
+        ):
+            _validate_edges_and_shape(edges, channel, f"ShapeTable.{name}")
+
+    @property
+    def chirp_centers(self):
+        return 0.5 * (self.chirp_edges[:-1] + self.chirp_edges[1:])
+
+    @property
+    def chirp_eval_points(self):
+        return self.chirp_centers if self._chirp_eval_points is None else self._chirp_eval_points
+
+    @property
+    def chirp_widths(self):
+        xp = _get_array_module(self.chirp_edges)
+        return xp.diff(self.chirp_edges)
 
     @property
     def bin_volume(self) -> float:
         """Cell volume, constant because every axis here is a uniform grid."""
         xp = _get_array_module(
             self.gamma_edges, self.theta_x_edges, self.theta_y_edges,
-            self.redshift_shape_edges, self.H,
+            self.a0_shape_edges, self.chirp_edges, self.H,
         )
         return float(
             (self.gamma_edges[-1] - self.gamma_edges[0])
             * (self.theta_x_edges[-1] - self.theta_x_edges[0])
             * (self.theta_y_edges[-1] - self.theta_y_edges[0])
-            * (self.redshift_shape_edges[-1] - self.redshift_shape_edges[0])
-            / (self.H.shape[0] * self.H.shape[1] * self.H.shape[2] * self.H.shape[3])
+            * (self.a0_shape_edges[-1] - self.a0_shape_edges[0])
+            * (self.chirp_edges[-1] - self.chirp_edges[0])
+            / math.prod(self.H.shape)
         )
 
 
 @dataclass(frozen=True)
 class Table:
-    """Stage 2's input: a 4D photon-weight density over ``(gamma, theta_x, theta_y,
-    ahat)``, for one specific peak intensity.
+    """Stage 2's input: a 5D photon-weight density over ``(gamma, theta_x, theta_y,
+    ahat, chirp_mean)``, for one specific peak intensity.
 
     The axis stores raw ``ahat``; Stage 2 evaluates the observer-dependent nonlinear
     coefficient at query time. ``H`` is a **density** (weight per unit cell volume).
@@ -1284,17 +1311,28 @@ class Table:
     theta_x_edges: np.ndarray
     theta_y_edges: np.ndarray
     ahat_edges: np.ndarray
+    chirp_edges: np.ndarray
     H: np.ndarray
+    H_var_a: np.ndarray
+    H_var_chirp: np.ndarray
+    H_cov_a_chirp: np.ndarray
     total_weight: float
     scheme: str
     # Precomputed evaluation points for the ahat axis (zeroth bin at 0 for sub-floor/linear mode).
-    # If None, falls back to ahat_centers (for backward compatibility with manually created Tables).
+    # If None, ordinary geometric bin centers are the evaluation points.
     _ahat_eval_points: np.ndarray | None = field(default=None, repr=False)
+    _chirp_eval_points: np.ndarray | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
-        _validate_edges_and_shape(
-            (self.gamma_edges, self.theta_x_edges, self.theta_y_edges, self.ahat_edges), self.H, "Table"
-        )
+        edges = (self.gamma_edges, self.theta_x_edges, self.theta_y_edges,
+                 self.ahat_edges, self.chirp_edges)
+        for name, channel in (
+            ("H", self.H),
+            ("H_var_a", self.H_var_a),
+            ("H_var_chirp", self.H_var_chirp),
+            ("H_cov_a_chirp", self.H_cov_a_chirp),
+        ):
+            _validate_edges_and_shape(edges, channel, f"Table.{name}")
 
     @property
     def gamma_centers(self):
@@ -1341,6 +1379,19 @@ class Table:
         axis here, so this is an array rather than a scalar."""
         xp = _get_array_module(self.ahat_edges)
         return xp.diff(self.ahat_edges)
+
+    @property
+    def chirp_centers(self):
+        return 0.5 * (self.chirp_edges[:-1] + self.chirp_edges[1:])
+
+    @property
+    def chirp_eval_points(self):
+        return self.chirp_centers if self._chirp_eval_points is None else self._chirp_eval_points
+
+    @property
+    def chirp_widths(self):
+        xp = _get_array_module(self.chirp_edges)
+        return xp.diff(self.chirp_edges)
 
     @property
     def gamma_theta_cell_area(self) -> float:
@@ -1399,20 +1450,19 @@ def _deposit_cic(coords, weight, n_bins):
 def deposit_shape_table(
     samples: TrajectorySamples,
     *,
-    n_bins: tuple[int, int, int, int] = DEFAULT_SHAPE_BINS,
+    n_bins: tuple[int, int, int, int, int] = DEFAULT_SHAPE_BINS,
     scheme: str = "nearest",
     margin: float = 0.02,
     backend: str = "numpy",
     chunk: int | None = None,
 ) -> ShapeTable:
-    """Stage 1: bin samples into the 4D raw ``a0_shape`` table ``H``.
+    """Stage 1: bin samples into the 5D ``(a0_shape, chirp_mean)`` table channels.
 
     Incidence and observation geometry are deliberately absent from the nonlinear axis;
     Stage 2 evaluates the exact observer-dependent coefficient for each query.
 
-    ``scheme`` is ``"nearest"`` (one cell per sample) or ``"cic"`` (cloud-in-cell, 16
-    neighbours per sample) — both conserve total weight exactly; CIC trades a discretized
-    ``H`` for a smoother one, at 16x the deposition cost.
+    ``scheme`` is ``"nearest"`` (one cell per sample) or ``"cic"`` (cloud-in-cell, 32
+    neighbours per sample) — both conserve total weight exactly.
 
     ``backend`` selects deposition independently of the host input arrays. Particle
     chunks share fixed host-derived edges; device deposits return host masses before
@@ -1426,38 +1476,58 @@ def deposit_shape_table(
     to_host = cp.asnumpy if backend == "cupy" else np.asarray
 
     redshift_shape = np.asarray(samples.a0_shape)
+    chirp_mean = np.asarray(samples.chirp_mean)
+    if len(n_bins) != 5:
+        raise ValueError(f"deposit_shape_table: n_bins must have five entries, got {n_bins!r}")
+    chirp_bins = 1 if np.all(chirp_mean == chirp_mean[0]) else n_bins[4]
+    actual_bins = (*n_bins[:4], chirp_bins)
     gamma_edges = _uniform_edges(samples.gamma, n_bins[0], margin)
     theta_x_edges = _uniform_edges(samples.theta_x, n_bins[1], margin)
     theta_y_edges = _uniform_edges(samples.theta_y, n_bins[2], margin)
-    redshift_shape_edges = _uniform_edges(redshift_shape, n_bins[3], margin, floor_zero=True)
-    edges = (gamma_edges, theta_x_edges, theta_y_edges, redshift_shape_edges)
+    a0_shape_edges = _uniform_edges(redshift_shape, n_bins[3], margin, floor_zero=True)
+    chirp_edges = _uniform_edges(chirp_mean, chirp_bins, margin)
+    edges = (gamma_edges, theta_x_edges, theta_y_edges, a0_shape_edges, chirp_edges)
 
-    H_raw = np.zeros(n_bins, dtype=float)
+    channels_raw = [np.zeros(actual_bins, dtype=float) for _ in range(4)]
     deposit = _deposit_nearest if scheme == "nearest" else _deposit_cic
 
     def deposit_chunk(start, stop):
         coords = tuple(_cell_fractions(xp.asarray(values[start:stop]), edge, n)
                        for values, edge, n in zip(
-                           (samples.gamma, samples.theta_x, samples.theta_y, redshift_shape),
-                           edges, n_bins))
-        mass = to_host(deposit(coords, xp.asarray(samples.luminosity[start:stop]), n_bins))
+                           (samples.gamma, samples.theta_x, samples.theta_y,
+                            redshift_shape, chirp_mean), edges, actual_bins))
+        luminosity = xp.asarray(samples.luminosity[start:stop])
+        weights = (
+            luminosity,
+            luminosity * xp.asarray(samples.var_a_shape[start:stop]),
+            luminosity * xp.asarray(samples.var_chirp[start:stop]),
+            luminosity * xp.asarray(samples.cov_a_chirp_shape[start:stop]),
+        )
+        masses = [to_host(deposit(coords, weight, actual_bins)) for weight in weights]
         # Commit only after device work/transfer succeeds, so an OOM retry cannot double-count.
-        H_raw[:] += mass
+        for channel, mass in zip(channels_raw, masses):
+            channel += mass
 
     # Budget particle coordinates, CIC indices/fractions and corner temporaries;
     # fixed table buffers must still fit at the smallest retry size.
     run_in_chunks(samples.n_particles, deposit_chunk, chunk=chunk,
                   bytes_per_item=256, backend=backend)
-    bin_volume = math.prod(float(e[-1] - e[0]) for e in edges) / math.prod(n_bins)
+    bin_volume = math.prod(float(e[-1] - e[0]) for e in edges) / math.prod(actual_bins)
+    H_raw, H_var_a_raw, H_var_chirp_raw, H_cov_raw = channels_raw
     return ShapeTable(
         gamma_edges=gamma_edges,
         theta_x_edges=theta_x_edges,
         theta_y_edges=theta_y_edges,
-        redshift_shape_edges=redshift_shape_edges,
+        a0_shape_edges=a0_shape_edges,
+        chirp_edges=chirp_edges,
         H=H_raw / bin_volume,
+        H_var_a_shape=H_var_a_raw / bin_volume,
+        H_var_chirp=H_var_chirp_raw / bin_volume,
+        H_cov_a_chirp_shape=H_cov_raw / bin_volume,
         total_weight=float(H_raw.sum()),
         scheme=scheme,
         source_intensity_peak=samples.intensity_peak,
+        _chirp_eval_points=(np.asarray([chirp_mean[0]]) if chirp_bins == 1 else None),
     )
 
 
@@ -1517,7 +1587,7 @@ def retarget_ahat(
     cycle-averaged intensity ``<a^2>`` (RES032, supersedes
     RES028; RES054 for why the parameter is an intensity rather than an amplitude).
 
-    Cheap and independent of ``n_particles`` — a ``shape_table.redshift_shape_edges.size x
+    Cheap and independent of ``n_particles`` — a ``shape_table.a0_shape_edges.size x
     n_bins``-sized tensordot, not a re-deposit — so a `Collision` can cache the shape
     deposit once and retarget many pulse strengths from it.
 
@@ -1543,11 +1613,11 @@ def retarget_ahat(
     # Get array module from shape_table arrays
     xp = _get_array_module(
         shape_table.gamma_edges, shape_table.theta_x_edges, shape_table.theta_y_edges,
-        shape_table.redshift_shape_edges, shape_table.H
+        shape_table.a0_shape_edges, shape_table.chirp_edges, shape_table.H
     )
 
     # Exact: a0_shape is strength-independent, so the axis transform is a pure scale.
-    source_edges = ahat_from_shape(shape_table.redshift_shape_edges, intensity_peak)
+    source_edges = ahat_from_shape(shape_table.a0_shape_edges, intensity_peak)
     target_edges = _ahat_target_edges(ahat_min, ahat_max, n_bins, decades)
 
     # Handle the target grid construction:
@@ -1591,23 +1661,44 @@ def retarget_ahat(
     # ever builds it via _uniform_edges — so a single scalar width is exact here, unlike
     # a scalar width is safe only because the source is uniform; it is not a general
     # non-uniform-axis operation.
-    da_source = shape_table.redshift_shape_edges[1] - shape_table.redshift_shape_edges[0]
+    da_source = shape_table.a0_shape_edges[1] - shape_table.a0_shape_edges[0]
     luminosity_rescale = intensity_peak / shape_table.source_intensity_peak
 
-    mass_source = shape_table.H * da_source * luminosity_rescale  # density -> mass, at this strength
-    mass_target = xp.tensordot(mass_source, W, axes=([3], [0]))
+    channel_scales = (
+        luminosity_rescale,
+        luminosity_rescale * intensity_peak**2,
+        luminosity_rescale,
+        luminosity_rescale * intensity_peak,
+    )
+    source_channels = (
+        shape_table.H,
+        shape_table.H_var_a_shape,
+        shape_table.H_var_chirp,
+        shape_table.H_cov_a_chirp_shape,
+    )
+    mass_targets = [
+        xp.moveaxis(
+            xp.tensordot(channel * da_source * scale, W, axes=([3], [0])), -1, 3
+        )
+        for channel, scale in zip(source_channels, channel_scales)
+    ]
     target_width = xp.diff(target_edges)
-    H_target = mass_target / target_width
+    target_channels = [mass / target_width[None, None, None, :, None]
+                       for mass in mass_targets]
+    H_target, H_var_a_target, H_var_chirp_target, H_cov_target = target_channels
 
     # Truncate trailing ahat bins the rescaled source never reaches: their mass is exactly
     # zero (W's overlap is exactly zero where no source bin overlaps a target bin), so
     # dropping them changes nothing spectrum_from_table's cell sum would have computed —
     # only how many always-zero terms it evaluates. One-sided: the floor bin (index 0)
     # always catches whatever folded below ahat_min, so only the top can be empty.
-    marginal = H_target.sum(axis=(0, 1, 2))
+    marginal = H_target.sum(axis=(0, 1, 2, 4))
     populated = xp.nonzero(marginal > 0.0)[0]
     last = int(populated[-1]) if populated.size else 0
-    H_target = H_target[..., : last + 1]
+    H_target = H_target[:, :, :, : last + 1, :]
+    H_var_a_target = H_var_a_target[:, :, :, : last + 1, :]
+    H_var_chirp_target = H_var_chirp_target[:, :, :, : last + 1, :]
+    H_cov_target = H_cov_target[:, :, :, : last + 1, :]
     target_edges = target_edges[: last + 2]
 
     # Compute evaluation points for the ahat axis
@@ -1629,10 +1720,15 @@ def retarget_ahat(
         theta_x_edges=shape_table.theta_x_edges,
         theta_y_edges=shape_table.theta_y_edges,
         ahat_edges=target_edges,
+        chirp_edges=shape_table.chirp_edges,
         H=H_target,
+        H_var_a=H_var_a_target,
+        H_var_chirp=H_var_chirp_target,
+        H_cov_a_chirp=H_cov_target,
         total_weight=shape_table.total_weight * luminosity_rescale,
         scheme=shape_table.scheme,
         _ahat_eval_points=ahat_eval_points,
+        _chirp_eval_points=shape_table._chirp_eval_points,
     )
 
 
@@ -1649,9 +1745,9 @@ KERNEL_NORMALIZATION_CONSTANT = 1.5 / (2.0 * math.pi)
 def _interp_gamma(table: Table, g):
     """``table.H`` linearly interpolated along gamma at a per-cell query point ``g``.
 
-    ``g`` carries one query value per ``(theta_x, theta_y, ahat)`` cell — the resonance
+    ``g`` carries one query value per ``(theta_x, theta_y, ahat, chirp)`` cell — the resonance
     condition inverted at that cell's own angle and ahat (§4.2) — so this is not a single
-    1D interpolation but ``n_theta_x * n_theta_y * n_ahat`` of them, batched. A query
+    1D interpolation but ``n_theta_x * n_theta_y * n_ahat * n_chirp`` of them, batched. A query
     outside the tabulated gamma range gets zero: the bunch's gamma distribution simply did
     not populate a resonance there, which is physical, not a boundary artefact to
     extrapolate past.
@@ -1663,11 +1759,12 @@ def _interp_gamma(table: Table, g):
     idx_hi = idx + 1
     frac = xp.where(in_range, (g - gc[idx]) / (gc[idx_hi] - gc[idx]), 0.0)
 
-    tx_idx, ty_idx, a_idx = xp.meshgrid(
-        xp.arange(table.H.shape[1]), xp.arange(table.H.shape[2]), xp.arange(table.H.shape[3]), indexing="ij"
+    tx_idx, ty_idx, a_idx, c_idx = xp.meshgrid(
+        xp.arange(table.H.shape[1]), xp.arange(table.H.shape[2]),
+        xp.arange(table.H.shape[3]), xp.arange(table.H.shape[4]), indexing="ij"
     )
-    lo = table.H[idx, tx_idx, ty_idx, a_idx]
-    hi = table.H[idx_hi, tx_idx, ty_idx, a_idx]
+    lo = table.H[idx, tx_idx, ty_idx, a_idx, c_idx]
+    hi = table.H[idx_hi, tx_idx, ty_idx, a_idx, c_idx]
     return xp.where(in_range, lo * (1.0 - frac) + hi * frac, 0.0)
 
 
@@ -1700,23 +1797,29 @@ def spectrum_from_table(
     """
     xp = _get_array_module(table.gamma_edges, table.theta_x_edges, table.theta_y_edges, table.ahat_edges, table.H)
     s_arr = xp.atleast_1d(xp.asarray(s, dtype=float))
-    tx_c = table.theta_x_centers[:, None, None]
-    ty_c = table.theta_y_centers[None, :, None]
+    tx_c = table.theta_x_centers[:, None, None, None]
+    ty_c = table.theta_y_centers[None, :, None, None]
     # Use evaluation points (zeroth bin at ahat=0 for sub-floor/linear mode) instead of centers
-    a_c = table.ahat_eval_points[None, None, :]
+    a_c = table.ahat_eval_points[None, None, :, None]
+    c_c = table.chirp_eval_points[None, None, None, :]
 
     r_sq = (tx_c - theta_x) ** 2 + (ty_c - theta_y) ** 2
     theta_cell_area = table.gamma_theta_cell_area
     # ahat is generally non-uniform (§4.2, RES032), so its width is a per-bin array — folded
     # into the sum below rather than factored out as a scalar the way theta's still is.
-    ahat_widths = table.ahat_widths[None, None, :]
+    cell_widths = (
+        table.ahat_widths[None, None, :, None]
+        * table.chirp_widths[None, None, None, :]
+    )
 
     # Direction-dependent resonance and Jacobian at beta=1 (DER013, RES082).
     D_rel = direction_doppler_factor(tx_c, ty_c, theta_xz, theta_yz)
     Q = observer_ponderomotive_factor(
         tx_c, ty_c, theta_x, theta_y, theta_xz, theta_yz
     )
-    A = 1.0 + Q * a_c
+    # Step C stores C but preserves the pre-chirp query until Step D migrates the inverse
+    # resonance and Jacobian. Broadcasting over C here makes this an exact chirp marginal.
+    A = 1.0 + Q * a_c + 0.0 * c_c
 
     out = xp.zeros(s_arr.shape[0])
     for k, s_val in enumerate(s_arr):
@@ -1743,7 +1846,7 @@ def spectrum_from_table(
         H_val = _interp_gamma(table, g)
         out[k] = (
             KERNEL_NORMALIZATION_CONSTANT
-            * float(xp.sum(H_val * prefac * ahat_widths))
+            * float(xp.sum(H_val * prefac * cell_widths))
             * theta_cell_area
             / s_val**2
         )

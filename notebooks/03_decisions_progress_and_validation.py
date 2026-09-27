@@ -215,7 +215,7 @@ interaction = build(fast_baseline, sampling=toy_sampling)
 # Run Xigma Engine
 xigma = XigmaEngine()
 t0 = time.perf_counter()
-xigma_res = xigma.run(interaction, xigma.schema)
+xigma_res = xigma.run(interaction, xigma.schema.with_values(backend="numpy"))
 t_xigma = (time.perf_counter() - t0) * 1000
 
 # Run Analytical Engine

@@ -15,7 +15,9 @@ def test_proposal_preserves_emission_beyond_nominal_inverse_resonance():
     x = np.linspace(electron-.000025, electron+.000025, 65)
     y = np.linspace(-.000025, .000025, 65)
     g = np.linspace(1100.,1300.,25)
-    table = Table(g,x,y,np.array([0.,.0001,.0002]),np.ones((24,64,64,2)),1.,'proposal-support')
+    H = np.ones((24,64,64,2,1))
+    table = Table(g, x, y, np.array([0.,.0001,.0002]), np.array([.5,1.5]), H,
+                  np.zeros_like(H), np.zeros_like(H), np.zeros_like(H), 1., 'proposal-support')
     axis = np.array([-np.sin(crossing),0.,-np.cos(crossing)])
     v = np.array([electron,0.,1.]); v /= np.linalg.norm(v)
     D = (1-v@axis)/(1-axis[2])

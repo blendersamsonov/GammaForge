@@ -30,20 +30,34 @@ def _centroid(cube: np.ndarray, x: np.ndarray, y: np.ndarray, s: np.ndarray) -> 
 
 
 def _refine_table(table: Table, factor: int) -> Table:
-    density = table.H
     new_edges = []
+    interpolation = []
     for axis, edges in ((1, table.theta_x_edges), (2, table.theta_y_edges)):
         n = len(edges) - 1
         refined = np.linspace(edges[0], edges[-1], n * factor + 1)
         centers = 0.5 * (refined[:-1] + refined[1:])
         coordinate = np.clip((centers - edges[0]) / (edges[1] - edges[0]) - 0.5, 0, n - 1)
         lo = np.clip(np.floor(coordinate).astype(int), 0, n - 2)
-        shape = [1] * density.ndim
-        shape[axis] = centers.size
-        weight = (coordinate - lo).reshape(shape)
-        density = np.take(density, lo, axis=axis) * (1 - weight) + np.take(density, lo + 1, axis=axis) * weight
+        interpolation.append((axis, centers.size, lo, coordinate - lo))
         new_edges.append(refined)
-    return replace(table, H=density, theta_x_edges=new_edges[0], theta_y_edges=new_edges[1])
+
+    def refine(density):
+        for axis, size, lo, fraction in interpolation:
+            shape = [1] * density.ndim
+            shape[axis] = size
+            weight = fraction.reshape(shape)
+            density = (np.take(density, lo, axis=axis) * (1 - weight)
+                       + np.take(density, lo + 1, axis=axis) * weight)
+        return density
+
+    return replace(
+        table,
+        H=refine(table.H),
+        H_var_a=refine(table.H_var_a),
+        H_var_chirp=refine(table.H_var_chirp),
+        H_cov_a_chirp=refine(table.H_cov_a_chirp),
+        theta_x_edges=new_edges[0], theta_y_edges=new_edges[1],
+    )
 
 
 def _grid(table: Table, samples=None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -87,7 +101,7 @@ def _default_cases() -> list[dict]:
     for scenario in scenarios.SCENARIOS:
         interaction = scenarios.build(scenario, SamplingSpec(n_particles=4_000, seed=20260721, prefilter=1e-3))
         samples = integrate_trajectories(interaction.bunch, interaction.laser, interaction.N_e, n_steps=32)
-        shape = deposit_shape_table(samples, n_bins=(12, 12, 12, 12), scheme="cic")
+        shape = deposit_shape_table(samples, n_bins=(12, 12, 12, 12, 4), scheme="cic")
         cases.append({"name": scenario.name, "table": retarget_ahat(shape, samples.intensity_peak), "samples": samples})
 
     crossed = scenarios.build(
@@ -97,7 +111,7 @@ def _default_cases() -> list[dict]:
         )), SamplingSpec(n_particles=4_000, seed=20260721, prefilter=1e-3),
     )
     crossed_samples = integrate_trajectories(crossed.bunch, crossed.laser, crossed.N_e, n_steps=32)
-    crossed_shape = deposit_shape_table(crossed_samples, n_bins=(12, 12, 12, 12), scheme="cic")
+    crossed_shape = deposit_shape_table(crossed_samples, n_bins=(12, 12, 12, 12, 4), scheme="cic")
     cases.append({"name": "crossed", "table": retarget_ahat(crossed_shape, crossed_samples.intensity_peak), "samples": crossed_samples,
                   "kwargs": {"psi_pol": 0.37, "ellipticity": 0.4, "theta_xz": 0.02, "theta_yz": -0.015}})
     cases.extend(_synthetic_cases())
@@ -119,7 +133,11 @@ def _synthetic_cases() -> list[dict]:
         kwargs = {"psi_pol": 0.37, "ellipticity": 0.4, "theta_xz": 0.02, "theta_yz": -0.015}
         if name == "highgamma10000":
             kwargs = {"psi_pol": 0.41, "ellipticity": 1.0, "theta_xz": 0.0, "theta_yz": 0.0}
-        case = {"name": name, "table": Table(gamma_edges, x_edges, y_edges, ahat_edges, H, float(H.sum()), "synthetic-convergence"),
+        H = H[..., None]
+        case = {"name": name, "table": Table(
+                    gamma_edges, x_edges, y_edges, ahat_edges, np.array([0.5, 1.5]), H,
+                    np.zeros_like(H), np.zeros_like(H), np.zeros_like(H),
+                    float(H.sum()), "synthetic-convergence"),
                       "kwargs": kwargs}
         if name == "highgamma10000":
             case["cpu_refinements"] = (32, 64)

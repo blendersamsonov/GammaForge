@@ -12,8 +12,8 @@
 # 2. **Engine Architecture Rules**: Why engines have no mutable `Config` (P5) and recompute costs (`RecomputeCost`).
 # 3. **The Xigma Pipeline Deep Dive (`Collision`)**:
 #    - **Stage 0**: Trajectory integration (`TrajectorySamples`) & active region filtering.
-#    - **Stage 1**: Peak-$a_0$-agnostic 4D shape table deposition (`ShapeTable`).
-#    - **Stage 1.5**: Retargeting to the physical pulse intensity $\hat{a}$ (`Table`).
+#    - **Stage 1**: Peak-intensity-agnostic 5D shape table deposition (`ShapeTable`).
+#    - **Stage 1.5**: Retargeting to the 5D physical $(\hat{a}, \bar C)$ table (`Table`).
 #    - **Stage 2**: Emission quadrature & harmonic integration.
 # 4. **Live Execution & Side-by-Side Comparison**: Running Xigma and Analytical engines side-by-side in milliseconds.
 # 5. **Visualizing Intermediate Diagnostics & Spectra** using Matplotlib and interactive Plotly.
@@ -119,14 +119,15 @@ print(f"Engine 2: '{analytical.name}', outputs: {[o.name for o in analytical.sup
 #                                ▼
 # ┌─────────────────────────────────────────────────────────────┐
 # │ Stage 1: deposit_shape_table() -> ShapeTable                │
-# │ Bins (gamma, thx, thy, a0_shape). The raw nonlinear shape   │
-# │ remains peak-intensity- and observation-agnostic.           │
+# │ Bins (gamma, thx, thy, a0_shape, C̄), plus three co-shaped │
+# │ Var(a), Var(C), and Cov(a,C) moment-density channels.       │
 # └──────────────────────────────┬──────────────────────────────┘
 #                                │
 #                                ▼
 # ┌─────────────────────────────────────────────────────────────┐
 # │ Stage 1.5: retarget_ahat() -> Table                         │
-# │ Scales the shape to the physical raw ahat coordinate.       │
+# │ Scales only the shape axis to the physical raw ahat.        │
+# │ The carrier-rate coordinate is unchanged.                   │
 # │ Stage 2 evaluates Q=(1-n·n0)/(1-e·n0) per query.           │
 # └──────────────────────────────┬──────────────────────────────┘
 #                                │
@@ -141,7 +142,8 @@ print(f"Engine 2: '{analytical.name}', outputs: {[o.name for o in analytical.sup
 from gammaforge.engines.xigma.collision import Collision
 
 # Instantiate a Collision object
-collision = Collision(interaction=interaction, params=xigma.schema)
+notebook_xigma_params = xigma.schema.with_values(backend="numpy")
+collision = Collision(interaction=interaction, params=notebook_xigma_params)
 
 # The schema backend selects Stage 0/1 as well as Stage 2 (RES083).
 # Use xigma.schema.with_values(backend="numpy") for CPU-only execution, or "auto"
@@ -160,6 +162,17 @@ print(f"  Mean gamma: {samples.gamma.mean():.2f}")
 print(f"  Luminosity sum: {samples.luminosity.sum():.4e}")
 print(f"  Carrier correction range: {samples.chirp_mean.min():.4f} .. {samples.chirp_mean.max():.4f}")
 print(f"  Mean intensity-shape variance: {samples.var_a_shape.mean():.4e}")
+
+# Stage 1/1.5 now always expose five axes. This unchirped Gaussian pulse has exactly
+# C̄=1, so its carrier-rate axis collapses to one evaluation bin rather than paying for
+# the configured n_bins_chirp bins.
+shape_table = collision._shape()
+table = collision._table()
+print(f"  ShapeTable axes: {shape_table.H.shape}")
+print(f"  Retargeted Table axes: {table.H.shape}")
+print(f"  Carrier evaluation points: {table.chirp_eval_points}")
+assert table.H_var_a.shape == table.H_var_chirp.shape == table.H_cov_a_chirp.shape == table.H.shape
+assert table.H.shape[-1] == 1
 
 # Stokes parameters in smooth laboratory observer basis (DER007, RES073)
 stokes = collision.stokes_parameters(theta_x=0.0, theta_y=0.0)
@@ -196,8 +209,8 @@ fig, ax = plt.subplots(1, 2, figsize=(11, 4))
 
 ax[0].scatter(samples.gamma, samples.a0_shape, c=samples.luminosity, cmap="plasma", alpha=0.8)
 ax[0].set_xlabel("Particle γ")
-ax[0].set_ylabel("Encountered a₀ (shape)")
-ax[0].set_title("Stage 0: Peak Field vs Particle Energy")
+ax[0].set_ylabel("Normalized intensity shape")
+ax[0].set_title("Stage 0: Intensity Shape vs Particle Energy")
 ax[0].grid(True, alpha=0.3)
 
 ax[1].hist(samples.luminosity, bins=25, color="teal", edgecolor="black", alpha=0.7)
@@ -249,7 +262,7 @@ plt.show()
 # %%
 # 1. Run Xigma Engine
 t_start = time.perf_counter()
-xigma_res = xigma.run(interaction, xigma.schema)
+xigma_res = xigma.run(interaction, notebook_xigma_params)
 t_xigma = (time.perf_counter() - t_start) * 1000
 
 # 2. Run Analytical Engine

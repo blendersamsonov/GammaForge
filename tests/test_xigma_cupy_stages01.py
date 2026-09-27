@@ -81,7 +81,7 @@ def test_stage1_device_deposition_and_retry_preserve_mass(scheme, monkeypatch):
     cp = spectrum_sampler.cp
     inputs = interaction()
     samples = stages.integrate_trajectories(inputs.bunch,inputs.laser,inputs.N_e,n_steps=16)
-    kwargs = dict(n_bins=(8,7,6,5),scheme=scheme)
+    kwargs = dict(n_bins=(8,7,6,5,4),scheme=scheme)
     expected = stages.deposit_shape_table(samples,**kwargs)
     name = '_deposit_nearest' if scheme=='nearest' else '_deposit_cic'
     original = getattr(stages,name)
@@ -97,9 +97,14 @@ def test_stage1_device_deposition_and_retry_preserve_mass(scheme, monkeypatch):
 
     monkeypatch.setattr(stages,name,observed)
     actual = stages.deposit_shape_table(samples,backend='cupy',chunk=96,**kwargs)
-    assert calls==[96,48,48]
+    assert calls == [96] + [48] * 8
     assert isinstance(actual.H,np.ndarray)
     np.testing.assert_allclose(actual.H,expected.H,rtol=3e-12,atol=1e-14*expected.H.max())
+    for actual_channel, expected_channel in zip(
+        (actual.H_var_a_shape, actual.H_var_chirp, actual.H_cov_a_chirp_shape),
+        (expected.H_var_a_shape, expected.H_var_chirp, expected.H_cov_a_chirp_shape),
+    ):
+        np.testing.assert_allclose(actual_channel, expected_channel, rtol=3e-12, atol=1e-14)
     assert actual.total_weight==pytest.approx(samples.total_yield(),rel=1e-13)
 
 

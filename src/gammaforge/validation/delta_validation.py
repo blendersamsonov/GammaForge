@@ -15,18 +15,18 @@ from gammaforge.validation import scenarios
 from gammaforge.validation.references.delta_emission import emission_lines
 from gammaforge.validation.delta_comparison import compare_emission_bins
 VARIANTS = (('headon', 0.0, 0.0, 0.0, 0.0), ('crossed_small', 0.02, -0.015, 0.4, 0.37))
-DEFAULT_TABLE_CONFIGS = (((16, 8, 8, 16), 1), ((32, 16, 16, 32), 1), ((16, 8, 8, 16), 2))
+DEFAULT_TABLE_CONFIGS = (((16, 8, 8, 16, 4), 1), ((32, 16, 16, 32, 4), 1), ((16, 8, 8, 16, 4), 2))
 
 
 def parse_table_config(value):
-    """Parse G,X,Y,A,RETARGET into the pilot's explicit grid configuration."""
+    """Parse G,X,Y,A,C,RETARGET into the pilot's explicit grid configuration."""
     try:
         fields = tuple(int(part.strip()) for part in value.split(','))
     except (AttributeError, ValueError):
-        raise ValueError('table must be five comma-separated positive integers: G,X,Y,A,RETARGET')
-    if len(fields) != 5 or any(item < 1 for item in fields):
-        raise ValueError('table must be five comma-separated positive integers: G,X,Y,A,RETARGET')
-    return (fields[:4], fields[4])
+        raise ValueError('table must be six comma-separated positive integers: G,X,Y,A,C,RETARGET')
+    if len(fields) != 6 or any(item < 1 for item in fields):
+        raise ValueError('table must be six comma-separated positive integers: G,X,Y,A,C,RETARGET')
+    return (fields[:5], fields[5])
 
 
 def _hash_sources():
@@ -50,9 +50,9 @@ def run_pilot(particles=16000, n_steps=64, seed=20260721, retarget_bins=64, quad
                         for shape, multiplier in DEFAULT_TABLE_CONFIGS)
     else:
         configs = tuple(table_configs)
-        if not configs or any(len(shape) != 4 or any(isinstance(item, bool) or not isinstance(item, int) or item < 1 for item in (*shape, rt))
+        if not configs or any(len(shape) != 5 or any(isinstance(item, bool) or not isinstance(item, int) or item < 1 for item in (*shape, rt))
                               for shape, rt in configs):
-            raise ValueError('table_configs must contain positive integer (G,X,Y,A,RETARGET) entries')
+            raise ValueError('table_configs must contain positive integer (G,X,Y,A,C,RETARGET) entries')
     if scenario_names is not None:
         known = {scenario.name for scenario in bank}
         if not scenario_names or any(name not in known for name in scenario_names):

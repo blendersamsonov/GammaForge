@@ -144,6 +144,7 @@ class Collision:
                     self.params.get_int("n_bins_theta_x"),
                     self.params.get_int("n_bins_theta_y"),
                     self.params.get_int("n_bins_a0_shape"),
+                    self.params.get_int("n_bins_chirp"),
                 ),
                 scheme=self.params.get_choice("scheme"),
                 backend=self._overlap_backend,

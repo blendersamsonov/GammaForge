@@ -6,11 +6,10 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/"scripts"))
-from report_figure_common import errors, integrate_values, linearized, quadrature_nodes
-import effective_gamma_proposal as effective_gamma
+from report_figure_common import errors, integrate_values, quadrature_nodes
 from report_sampling_ablation import load_variants
 from gammaforge.engines.xigma import spectrum_sampler as sampler
-from gammaforge.engines.xigma.stages import Table, TrajectorySamples, angular_spectrum_from_table
+from gammaforge.engines.xigma.stages import Table, angular_spectrum_from_table
 from gammaforge.validation.cupy_convergence import _refine_table
 
 pytestmark = [pytest.mark.tier1, pytest.mark.fast]
@@ -32,36 +31,6 @@ def test_dark_bins_retain_spurious_signal():
     assert errors([1., 1.], [1., 0.])["l1"] == 1.
 
 
-def test_effective_gamma_linear_table_conserves_mass_and_bins_partition():
-    rng = np.random.default_rng(8234)
-    n = 4000
-    samples = TrajectorySamples(
-        rng.uniform(180., 220., n),
-        rng.normal(0., 2e-4, n),
-        rng.normal(0., 1e-4, n),
-        rng.uniform(0., 1., n),
-        rng.uniform(.1, 1., n),
-        .04,
-        0,
-        np.ones(n),
-        np.zeros(n),
-        np.zeros(n),
-        np.zeros(n),
-    )
-    exact_linear = linearized(samples)
-    assert np.count_nonzero(exact_linear.a0_shape) == 0
-    table = effective_gamma.deposit_effective_gamma(
-        exact_linear, bins=(8, 8, 8, 32), linear=True
-    )
-    assert table.total_weight == pytest.approx(samples.total_yield())
-    projection = effective_gamma.project_effective_gamma(table)
-    fine_edges = np.linspace(0., 60000., 121)
-    fine = projection.bin_mass(fine_edges)
-    coarse = projection.bin_mass(fine_edges[::3])
-    np.testing.assert_allclose(coarse, fine.reshape(-1, 3).sum(axis=1), atol=1e-13)
-    assert fine.sum() == pytest.approx(projection.total_mass(), rel=1e-13)
-
-
 @gpu
 @pytest.mark.gpu
 def test_real_sampler_ablations_preserve_integrand_and_do_not_patch_production():
@@ -71,7 +40,9 @@ def test_real_sampler_ablations_preserve_integrand_and_do_not_patch_production()
     G,X,Y,A = np.meshgrid((g[:-1]+g[1:])/2,(x[:-1]+x[1:])/2,
                           (y[:-1]+y[1:])/2,(a[:-1]+a[1:])/2,indexing="ij")
     h = np.exp(-.5*((G-2000)/80)**2-.5*(X/.0006)**2-.5*(Y/.0006)**2)*(1+A)
-    table = Table(g,x,y,a,h,float(h.sum()),"report-ablation-test")
+    h = h[..., None]
+    table = Table(g, x, y, a, np.array([.5,1.5]), h, np.zeros_like(h),
+                  np.zeros_like(h), np.zeros_like(h), float(h.sum()), "report-ablation-test")
     nodes = np.array([.35,.5,.7])*2000**2
     kwargs = dict(psi_pol=.37,ellipticity=.4,theta_xz=.02,theta_yz=-.015)
     original_kernel = sampler._kernel

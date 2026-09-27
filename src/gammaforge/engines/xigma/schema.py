@@ -76,6 +76,15 @@ XIGMA_SPECS: tuple[FieldSpec, ...] = (
         value_range=(2, 512),
     ),
     FieldSpec(
+        key="n_bins_chirp",
+        label="Shape table bins: carrier rate",
+        kind=FieldKind.SCALAR,
+        unit=DIMENSIONLESS,
+        default=8,
+        integer=True,
+        value_range=(2, 512),
+    ),
+    FieldSpec(
         key="n_bins_ahat",
         label="Retarget grid bins: ahat",
         kind=FieldKind.SCALAR,

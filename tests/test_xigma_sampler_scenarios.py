@@ -35,7 +35,7 @@ def scenario_tables():
         samples = integrate_trajectories(
             interaction.bunch, interaction.laser, interaction.N_e, n_steps=32
         )
-        shape = deposit_shape_table(samples, n_bins=(12, 12, 12, 12), scheme="cic")
+        shape = deposit_shape_table(samples, n_bins=(12, 12, 12, 12, 4), scheme="cic")
         tables.append((scenario.name, retarget_ahat(shape, samples.intensity_peak), samples))
     return tables
 
@@ -46,20 +46,34 @@ def _integral(cube: np.ndarray, x: np.ndarray, y: np.ndarray, s: np.ndarray) -> 
 
 def _refine_angular_quadrature(table, factor):
     """Sample the same clamped, bilinearly interpolated H at finer cell centers."""
-    density = table.H
     new_edges = []
+    interpolation = []
     for axis, edges in ((1, table.theta_x_edges), (2, table.theta_y_edges)):
         n = len(edges) - 1
         refined = np.linspace(edges[0], edges[-1], n * factor + 1)
         centers = 0.5 * (refined[:-1] + refined[1:])
         coordinate = np.clip((centers - edges[0]) / (edges[1] - edges[0]) - 0.5, 0, n - 1)
         lo = np.clip(np.floor(coordinate).astype(int), 0, n - 2)
-        shape = [1] * density.ndim
-        shape[axis] = centers.size
-        weight = (coordinate - lo).reshape(shape)
-        density = np.take(density, lo, axis=axis) * (1 - weight) + np.take(density, lo + 1, axis=axis) * weight
+        interpolation.append((axis, centers.size, lo, coordinate - lo))
         new_edges.append(refined)
-    return replace(table, H=density, theta_x_edges=new_edges[0], theta_y_edges=new_edges[1])
+
+    def refine(density):
+        for axis, size, lo, fraction in interpolation:
+            shape = [1] * density.ndim
+            shape[axis] = size
+            weight = fraction.reshape(shape)
+            density = (np.take(density, lo, axis=axis) * (1 - weight)
+                       + np.take(density, lo + 1, axis=axis) * weight)
+        return density
+
+    return replace(
+        table,
+        H=refine(table.H),
+        H_var_a=refine(table.H_var_a),
+        H_var_chirp=refine(table.H_var_chirp),
+        H_cov_a_chirp=refine(table.H_cov_a_chirp),
+        theta_x_edges=new_edges[0], theta_y_edges=new_edges[1],
+    )
 
 
 @pytest.mark.parametrize("psi_pol", [0.0, np.pi / 2.0], ids=["pol-x", "pol-y"])
@@ -113,7 +127,7 @@ def crossed_gaussian_table():
     samples = integrate_trajectories(
         crossed.bunch, crossed.laser, crossed.N_e, n_steps=32
     )
-    shape = deposit_shape_table(samples, n_bins=(12, 12, 12, 12), scheme="cic")
+    shape = deposit_shape_table(samples, n_bins=(12, 12, 12, 12, 4), scheme="cic")
     return retarget_ahat(shape, samples.intensity_peak), samples
 
 
@@ -156,9 +170,13 @@ def _nonuniform_ahat_table() -> Table:
     a = 0.5 * (ahat_edges[:-1] + ahat_edges[1:])
     G, X, Y, A = np.meshgrid(g, x, y, a, indexing="ij")
     H = 2.0 + 0.002 * (G - 1800.0) + 2.5 * X - 1.5 * Y + 4.0 * A
+    H = H[..., None]
     return Table(
         gamma_edges=gamma_edges, theta_x_edges=x_edges, theta_y_edges=y_edges,
-        ahat_edges=ahat_edges, H=H, total_weight=float(np.sum(H)), scheme="synthetic-nonuniform-ahat",
+        ahat_edges=ahat_edges, chirp_edges=np.array([0.5, 1.5]), H=H,
+        H_var_a=np.zeros_like(H), H_var_chirp=np.zeros_like(H),
+        H_cov_a_chirp=np.zeros_like(H), total_weight=float(np.sum(H)),
+        scheme="synthetic-nonuniform-ahat",
     )
 
 

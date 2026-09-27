@@ -663,6 +663,10 @@ def calculate_angular_spectrum_gpu(
     if not np.all(np.isfinite(table.H)) or np.any(table.H < 0.0):
         raise ValueError("CuPy table density must be finite and nonnegative")
 
+    # Step C adds the carrier-rate axis before Step F teaches the CUDA kernel to traverse
+    # it. Integrating the density over that axis exactly preserves the pre-chirp kernel.
+    H = np.sum(table.H * table.chirp_widths[None, None, None, None, :], axis=4)
+
     tx = np.atleast_1d(np.asarray(theta_x, dtype=np.float32))
     ty = np.atleast_1d(np.asarray(theta_y, dtype=np.float32))
     s_arr = np.atleast_1d(np.asarray(s, dtype=np.float32))
@@ -670,7 +674,7 @@ def calculate_angular_spectrum_gpu(
         raise ValueError("CuPy query axes must be finite one-dimensional arrays")
 
     grid_x = tx.size * ty.size * s_arr.size
-    if grid_x == 0 or not np.any(table.H):
+    if grid_x == 0 or not np.any(H):
         return np.zeros((tx.size, ty.size, s_arr.size), dtype=CP_FLOAT)
     params = cp.stack(
         cp.meshgrid(cp.asarray(tx), cp.asarray(ty), cp.asarray(s_arr), indexing="ij"), 3
@@ -703,13 +707,13 @@ def calculate_angular_spectrum_gpu(
     # Scale table.H to avoid float32 overflow (max ~3.4e38). The density values can
     # exceed this due to small bin volumes. We scale by the max value and
     # compensate in the output. Compute scale in float64 to avoid overflow.
-    H_max = float(table.H.max())
+    H_max = float(H.max())
     if H_max > 0:
         scale = float(1.0) / H_max
     else:
         scale = 1.0
 
-    H_gpu = cp.asarray(table.H * scale, dtype=CP_FLOAT)
+    H_gpu = cp.asarray(H * scale, dtype=CP_FLOAT)
     H_marginal_gpu = (H_gpu * ahat_widths[None, None, None, :]).sum(axis=(0, 3))
     # A coarse zero must not exclude nonzero interpolated target density between cells.
     H_marginal_gpu += CP_FLOAT(PROPOSAL_FLOOR_FRACTION) * H_marginal_gpu.max()
@@ -718,7 +722,7 @@ def calculate_angular_spectrum_gpu(
     H_gamma_gpu = (H_gpu * ahat_widths[None, None, None, :]).sum(axis=(1, 2, 3))
     H_gamma_gpu /= H_gamma_gpu.max()
     H_gamma_gpu += CP_FLOAT(PROPOSAL_FLOOR_FRACTION)
-    ahat_marginal = (table.H * scale).sum(axis=(0, 1, 2)) * table.ahat_widths
+    ahat_marginal = (H * scale).sum(axis=(0, 1, 2)) * table.ahat_widths
     ahat_ref = float(np.dot(table.ahat_eval_points, ahat_marginal) / ahat_marginal.sum())
 
     spec = cp.zeros((grid_x,), dtype=CP_FLOAT)
