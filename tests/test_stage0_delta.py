@@ -656,7 +656,7 @@ def test_delta_passes_each_particle_direction_to_the_polarization_projection():
     samples = TrajectorySamples(
         gamma=np.array([2000.0]), theta_x=np.array([0.0011]), theta_y=np.array([-0.0007]),
         a0_shape=np.array([1.0]), luminosity=np.array([7.0]), intensity_peak=0.02, n_steps=1,
-        chirp_mean=np.ones(1), var_a_shape=np.zeros(1), var_chirp=np.zeros(1),
+        chirp_mean=np.array([1.07]), var_a_shape=np.zeros(1), var_chirp=np.zeros(1),
         cov_a_chirp_shape=np.zeros(1),
     )
     theta_x_obs, theta_y_obs = 0.0003, -0.0002
@@ -669,9 +669,13 @@ def test_delta_passes_each_particle_direction_to_the_polarization_projection():
         np.sin(kwargs["theta_yz"]),
         -np.cos(kwargs["theta_xz"])*np.cos(kwargs["theta_yz"]),
     ])
-    incidence = 0.5 * (1.0 - electron @ n0)
-    s_res = samples.gamma[0] ** 2 / (
-        1.0 + incidence * samples.ahat()[0] + samples.gamma[0] ** 2 * r_squared
+    observer = np.array([theta_x_obs, theta_y_obs, 1.0])
+    observer /= np.linalg.norm(observer)
+    electron_encounter = 1.0 - electron @ n0
+    direction_factor = electron_encounter / (1.0 - n0[2])
+    observer_factor = (1.0 - observer @ n0) / electron_encounter
+    s_res = direction_factor * samples.chirp_mean[0] * samples.gamma[0] ** 2 / (
+        1.0 + observer_factor * samples.ahat()[0] + samples.gamma[0] ** 2 * r_squared
     )
     s_edges = np.array([s_res * 0.999, s_res * 1.001])
     expected_weight = (

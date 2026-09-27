@@ -134,7 +134,8 @@ print(f"Engine 2: '{analytical.name}', outputs: {[o.name for o in analytical.sup
 #                                ▼
 # ┌─────────────────────────────────────────────────────────────┐
 # │ Stage 2: angle_integrated_spectrum() -> Results             │
-# │ Numerical quadrature over Compton emission harmonics       │
+# │ CPU pull query returns raw rho0, rho1, rho2 channels.       │
+# │ The current public spectrum remains the rho0 delta line.    │
 # └─────────────────────────────────────────────────────────────┘
 # ```
 
@@ -176,6 +177,26 @@ print(f"  Retargeted Table axes: {table.H.shape}")
 print(f"  Carrier evaluation points: {table.chirp_eval_points}")
 assert table.H_var_a.shape == table.H_var_chirp.shape == table.H_cov_a_chirp.shape == table.H.shape
 assert table.H.shape[-1] == 1
+
+# Stage 2's CPU primitive evaluates all five table axes and returns the unbroadened
+# spectrum rho0 plus the first two raw finite-line moment channels. The moment-density
+# tables are already luminosity-weighted, so the query consumes them directly; it never
+# divides by H. Spectral reconstruction from these channels is the next pipeline step.
+from gammaforge.engines.xigma.stages import query_spectral_moments
+
+s_probe = np.linspace(0.75, 1.05, 32) * samples.gamma.mean() ** 2
+raw_moments = query_spectral_moments(
+    table,
+    theta_x=0.0,
+    theta_y=0.0,
+    s=s_probe,
+    theta_xz=interaction.laser.m("theta_xz"),
+    theta_yz=interaction.laser.m("theta_yz"),
+)
+print(f"  Raw spectral channels: {raw_moments.rho0.shape}")
+print(f"  rho0 peak: {raw_moments.rho0.max():.4e}")
+print(f"  rho1/rho2 finite: {np.isfinite(raw_moments.rho1).all()}, "
+      f"{np.isfinite(raw_moments.rho2).all()}")
 
 # Stokes parameters in smooth laboratory observer basis (DER007, RES073)
 stokes = collision.stokes_parameters(theta_x=0.0, theta_y=0.0)

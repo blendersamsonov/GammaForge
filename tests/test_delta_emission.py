@@ -5,12 +5,12 @@ from gammaforge.engines.xigma.stages import TrajectorySamples
 from gammaforge.validation.references.delta_emission import bin_emission, emission_lines
 
 
-def samples(gamma=2000.0, tx=0.0, ty=0.0, lum=1.0, ahat=0.0):
+def samples(gamma=2000.0, tx=0.0, ty=0.0, lum=1.0, ahat=0.0, chirp=1.0):
     gamma = np.atleast_1d(gamma)
     zeros = np.zeros_like(gamma)
     return TrajectorySamples(
         gamma, np.atleast_1d(tx), np.atleast_1d(ty), np.atleast_1d(ahat),
-        np.atleast_1d(lum), 1.0, 1, np.ones_like(gamma), zeros, zeros, zeros,
+        np.atleast_1d(lum), 1.0, 1, np.broadcast_to(chirp, gamma.shape), zeros, zeros, zeros,
     )
 
 
@@ -19,6 +19,12 @@ def test_headon_resonance_and_signed_ellipticity():
     b = emission_lines(samples(), 0.0, 0.0, photon_energy=1.0, ellipticity=-.4)
     np.testing.assert_allclose(a[0], [4 * 2000.0**2])
     np.testing.assert_allclose(a[1], b[1])
+
+
+def test_carrier_rate_scales_the_resonance_energy():
+    unchirped, _ = emission_lines(samples(), 0.0, 0.0, photon_energy=1.0)
+    chirped, _ = emission_lines(samples(chirp=1.08), 0.0, 0.0, photon_energy=1.0)
+    np.testing.assert_allclose(chirped / unchirped, [1.08])
 
 
 @pytest.mark.parametrize("gamma", [2.0, 2000.0, 10000.0])

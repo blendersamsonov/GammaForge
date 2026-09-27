@@ -48,6 +48,8 @@ from ...engines.xigma.stages import (
 )
 __all__ = [
     "resonance_spectrum",
+    "resonance_spectral_moments",
+    "DeltaSpectralMoments",
     "angle_integrated_spectrum",
     "single_electron_spectrum",
     "NormalizationCheck",
@@ -75,6 +77,70 @@ DIFFERENTIAL_PREFACTOR = 3.0 / (2.0 * math.pi)
 DEFAULT_CONE_FACTOR = 4.0
 
 
+@dataclass(frozen=True)
+class DeltaSpectralMoments:
+    """Direct-particle raw spectral moments on a common normalized-energy grid."""
+
+    s: np.ndarray
+    rho0: np.ndarray
+    rho1: np.ndarray
+    rho2: np.ndarray
+
+
+def _particle_resonance_quantities(
+    samples: TrajectorySamples,
+    theta_x: float,
+    theta_y: float,
+    psi_pol: float,
+    ellipticity: float,
+    theta_xz: float,
+    theta_yz: float,
+):
+    """Independent line centres, weights, and geometry for direct-particle references."""
+    gamma = samples.gamma
+    ahat = samples.ahat()
+    chirp = samples.chirp_mean
+    if np.any(chirp <= 0.0):
+        raise ValueError("carrier-rate samples must be positive")
+    delta_x = samples.theta_x - theta_x
+    delta_y = samples.theta_y - theta_y
+    r_squared = delta_x**2 + delta_y**2
+    gamma_squared = gamma**2
+
+    norm = np.sqrt(1.0 + samples.theta_x**2 + samples.theta_y**2)
+    n0 = np.array([
+        -math.sin(theta_xz) * math.cos(theta_yz),
+        math.sin(theta_yz),
+        -math.cos(theta_xz) * math.cos(theta_yz),
+    ])
+    electron_encounter = (
+        1.0
+        - (n0[0] * samples.theta_x + n0[1] * samples.theta_y + n0[2]) / norm
+    )
+    observer = np.array([theta_x, theta_y, 1.0])
+    observer /= np.linalg.norm(observer)
+    observer_encounter = 1.0 - np.dot(observer, n0)
+    nominal_encounter = 1.0 - n0[2]
+    direction_factor = electron_encounter / nominal_encounter
+    q_incidence = observer_encounter / electron_encounter
+    denominator = 1.0 + q_incidence * ahat + gamma_squared * r_squared
+    s_res = direction_factor * chirp * gamma_squared / denominator
+
+    lorentz = 1.0 / (1.0 + r_squared * gamma_squared) ** 2
+    pol_factor = polarization_factor(
+        gamma, samples.theta_x, samples.theta_y, theta_x, theta_y,
+        ellipticity, psi_pol, theta_xz, theta_yz,
+    )
+    weights = (
+        DIFFERENTIAL_PREFACTOR
+        * samples.luminosity
+        * pol_factor
+        * gamma_squared
+        * lorentz
+    )
+    return s_res, weights, q_incidence, denominator
+
+
 def resonance_spectrum(
     samples: TrajectorySamples,
     s_edges: np.ndarray,
@@ -88,11 +154,9 @@ def resonance_spectrum(
     """``d3N / (ds dOmega)`` seen from the direction ``(theta_x, theta_y)``.
 
     Each macroparticle radiates at one energy in this direction — its resonance,
-    ``s_res = gamma**2 / (1 + P*ahat + gamma**2 r**2)`` with ``r`` the angle between the
-    particle's own direction and the observer's and
-    ``P = (1 - e dot n0) / 2``. The nonlinear redshift enters through ``ahat``, the
-    trajectory-averaged intensity Stage 0 already produced, with the beaming-cone
-    incidence correction of DER014/RES088.
+    ``s_res = D*Cbar*gamma**2 / (1 + Q*ahat + gamma**2*r**2)``. The direction factor
+    ``D`` and exact observer-dependent nonlinear factor ``Q`` are constructed directly
+    from normalized vectors here so this remains independent of the table kernel.
 
     The weight is the **bare** differential cross-section, ``gamma**2 / (1 + r**2
     gamma**2)**2`` times the polarization factor. Not the ``gamma**5`` form a table-based
@@ -110,38 +174,61 @@ def resonance_spectrum(
     The polarization factor now includes ellipticity and crossing angle effects per DER006,
     replacing the head-on linear factor ``cos^2 psi``.
     """
-    gamma = samples.gamma
-    ahat = samples.ahat()
-    delta_x = samples.theta_x - theta_x
-    delta_y = samples.theta_y - theta_y
-    r_squared = delta_x**2 + delta_y**2
-    gamma_squared = gamma**2
-
-    norm = np.sqrt(1.0 + samples.theta_x**2 + samples.theta_y**2)
-    n0 = np.array([
-        -math.sin(theta_xz) * math.cos(theta_yz),
-        math.sin(theta_yz),
-        -math.cos(theta_xz) * math.cos(theta_yz),
-    ])
-    incidence = 0.5 * (
-        1.0
-        - (n0[0] * samples.theta_x + n0[1] * samples.theta_y + n0[2]) / norm
+    s_res, weights, _, _ = _particle_resonance_quantities(
+        samples, theta_x, theta_y, psi_pol, ellipticity, theta_xz, theta_yz
     )
-    s_res = gamma_squared / (1.0 + incidence * ahat + gamma_squared * r_squared)
-
-    lorentz = 1.0 / (1.0 + r_squared * gamma_squared) ** 2
-
-    # New polarization factor from DER006 (replaces 1.0 - 4.0 * cos_pol^2 * r^2 * gamma^2 * lorentz)
-    pol_factor = polarization_factor(
-        gamma, samples.theta_x, samples.theta_y, theta_x, theta_y,
-        ellipticity, psi_pol, theta_xz, theta_yz,
-    )
-
-    weights = DIFFERENTIAL_PREFACTOR * samples.luminosity * pol_factor * gamma_squared * lorentz
 
     s_edges = np.asarray(s_edges, dtype=float)
     histogram, _ = np.histogram(s_res, bins=s_edges, weights=weights)
     return histogram / np.diff(s_edges)
+
+
+def resonance_spectral_moments(
+    samples: TrajectorySamples,
+    s_edges: np.ndarray,
+    theta_x: float,
+    theta_y: float,
+    psi_pol: float = 0.0,
+    ellipticity: float = 0.0,
+    theta_xz: float = 0.0,
+    theta_yz: float = 0.0,
+) -> DeltaSpectralMoments:
+    """Direct-particle ``rho0``, ``rho1``, and ``rho2`` without table compression."""
+    s_res, weights, q_incidence, denominator = _particle_resonance_quantities(
+        samples, theta_x, theta_y, psi_pol, ellipticity, theta_xz, theta_yz
+    )
+    chirp = samples.chirp_mean
+    var_ahat = samples.intensity_peak**2 * samples.var_a_shape
+    cov_ahat_chirp = samples.intensity_peak * samples.cov_a_chirp_shape
+    correction = (
+        q_incidence**2 * var_ahat / denominator**2
+        - q_incidence * cov_ahat_chirp / (denominator * chirp)
+    )
+    variance = (
+        samples.var_chirp / chirp**2
+        + q_incidence**2 * var_ahat / denominator**2
+        - 2.0 * q_incidence * cov_ahat_chirp / (denominator * chirp)
+    )
+    mu1 = s_res * correction
+    mu2 = s_res**2 * variance
+
+    s_edges = np.asarray(s_edges, dtype=float)
+    if s_edges.ndim != 1 or s_edges.size < 2:
+        raise ValueError("s_edges must be one-dimensional and strictly increasing")
+    widths = np.diff(s_edges)
+    if np.any(widths <= 0.0):
+        raise ValueError("s_edges must be one-dimensional and strictly increasing")
+
+    def density(channel_weight):
+        histogram, _ = np.histogram(s_res, bins=s_edges, weights=channel_weight)
+        return histogram / widths
+
+    return DeltaSpectralMoments(
+        s=0.5 * (s_edges[:-1] + s_edges[1:]),
+        rho0=density(weights),
+        rho1=density(weights * mu1),
+        rho2=density(weights * mu2),
+    )
 
 
 def angle_integrated_spectrum(

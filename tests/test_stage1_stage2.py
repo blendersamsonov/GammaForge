@@ -26,17 +26,25 @@ pytestmark = [pytest.mark.tier2]
 
 from gammaforge.engines.xigma import stages
 from gammaforge.engines.xigma.stages import (
+    Table,
     TrajectorySamples,
     _ahat_target_edges,
+    _inverse_resonance_gamma_sq,
+    _inverse_resonance_jacobian,
     angular_spectrum_from_table,
     deposit_shape_table,
     integrate_trajectories,
+    query_spectral_moments,
     retarget_ahat,
     spectrum_from_table,
     spectrum_in_angular_range,
 )
 from gammaforge.validation import scenarios
-from gammaforge.validation.references.delta import captured_fraction, resonance_spectrum
+from gammaforge.validation.references.delta import (
+    captured_fraction,
+    resonance_spectral_moments,
+    resonance_spectrum,
+)
 
 
 def _samples(scenario, n_particles=20_000, **kwargs):
@@ -352,6 +360,74 @@ def test_spectrum_from_table_is_nonnegative_and_zero_past_the_compton_edge():
     assert np.all(spec[s > 1.1 * edge] == 0.0)
 
 
+def test_chirped_resonance_inverse_and_jacobian_match_forward_and_finite_difference():
+    rng = np.random.default_rng(20260927)
+    gamma = rng.uniform(50.0, 5000.0, 200)
+    A = rng.uniform(1.0, 1.8, 200)
+    K = rng.uniform(0.7, 1.3, 200)
+    r_sq = rng.uniform(0.0, 0.4 / gamma**2)
+    s = K * gamma**2 / (A + gamma**2 * r_sq)
+
+    inverted, valid = _inverse_resonance_gamma_sq(A, K, r_sq, s)
+    assert np.all(valid)
+    np.testing.assert_allclose(inverted, gamma**2, rtol=3e-15)
+
+    step = 1e-6 * s
+    plus = np.sqrt(_inverse_resonance_gamma_sq(A, K, r_sq, s + step)[0])
+    minus = np.sqrt(_inverse_resonance_gamma_sq(A, K, r_sq, s - step)[0])
+    numerical = (plus - minus) / (2.0 * step)
+    expected = _inverse_resonance_jacobian(K, gamma, A, s)
+    np.testing.assert_allclose(numerical, expected, rtol=2e-9)
+
+
+def _single_cell_moment_table(var_a=0.0, var_chirp=0.0, covariance=0.0):
+    gamma_edges = np.linspace(80.0, 120.0, 81)
+    H = np.ones((80, 1, 1, 1, 1))
+    return Table(
+        gamma_edges=gamma_edges,
+        theta_x_edges=np.array([-1e-6, 1e-6]),
+        theta_y_edges=np.array([-1e-6, 1e-6]),
+        ahat_edges=np.array([0.1, 0.2]),
+        chirp_edges=np.array([0.9, 1.1]),
+        H=H,
+        H_var_a=var_a * H,
+        H_var_chirp=var_chirp * H,
+        H_cov_a_chirp=covariance * H,
+        total_weight=1.0,
+        scheme="synthetic-moments",
+        _ahat_eval_points=np.array([0.15]),
+        _chirp_eval_points=np.array([1.0]),
+    )
+
+
+def test_raw_spectral_moment_channels_match_the_closed_form_weights():
+    s = np.array([7000.0])
+    var_a, var_chirp, covariance = 0.02, 0.03, 0.01
+    moments = query_spectral_moments(
+        _single_cell_moment_table(var_a, var_chirp, covariance), 0.0, 0.0, s
+    )
+    B = 1.15
+    expected_1 = s * (var_a / B**2 - covariance / B)
+    expected_2 = s**2 * (var_chirp + var_a / B**2 - 2.0 * covariance / B)
+    np.testing.assert_allclose(moments.rho1 / moments.rho0, expected_1, rtol=2e-12)
+    np.testing.assert_allclose(moments.rho2 / moments.rho0, expected_2, rtol=2e-12)
+
+    zero = query_spectral_moments(_single_cell_moment_table(), 0.0, 0.0, s)
+    np.testing.assert_array_equal(zero.rho1, np.zeros(1))
+    np.testing.assert_array_equal(zero.rho2, np.zeros(1))
+
+    pure_chirp = query_spectral_moments(
+        _single_cell_moment_table(var_chirp=var_chirp), 0.0, 0.0, s
+    )
+    np.testing.assert_array_equal(pure_chirp.rho1, np.zeros(1))
+    np.testing.assert_allclose(pure_chirp.rho2 / pure_chirp.rho0, s**2 * var_chirp)
+
+    uncorrelated = query_spectral_moments(
+        _single_cell_moment_table(var_a, var_chirp, 0.0), 0.0, 0.0, s
+    )
+    assert moments.rho2[0] < uncorrelated.rho2[0]
+
+
 def test_the_kernel_and_delta_agree_on_where_the_redshift_puts_the_photons():
     """The one check that watches ``ahat`` itself, rather than integrating it away.
 
@@ -527,6 +603,75 @@ def test_stage2_kernel_agrees_with_delta_at_a_point():
 
     ratio = float(np.sum(kernel)) / float(np.sum(reference))
     assert ratio == pytest.approx(1.0, abs=0.1)
+
+
+def test_chirped_stage2_kernel_tracks_particle_oracle_for_head_on_and_crossed_geometry():
+    samples = _synthetic_samples(n=80_000, gamma0=1200.0, seed=7, a0_shape=0.7)
+    chirp = np.random.default_rng(18).uniform(0.94, 1.06, len(samples.gamma))
+    samples = replace(samples, chirp_mean=chirp)
+    shape_table = deposit_shape_table(samples, n_bins=(40, 64, 64, 1, 16), scheme="cic")
+    table = retarget_ahat(
+        shape_table, samples.intensity_peak, ahat_max=0.1, n_bins=1
+    )
+
+    edge = 1.2 * float(np.max(samples.gamma) ** 2)
+    s_edges = np.linspace(0.0, edge, 220)
+    s_centers = 0.5 * (s_edges[:-1] + s_edges[1:])
+
+    def centroid(spectrum):
+        return float(np.sum(s_centers * spectrum) / np.sum(spectrum))
+
+    geometries = [
+        dict(theta_x=0.0, theta_y=0.0, theta_xz=0.0, theta_yz=0.0),
+        dict(theta_x=3e-4, theta_y=-2e-4, theta_xz=0.05, theta_yz=-0.03),
+    ]
+    for geometry in geometries:
+        kernel = spectrum_from_table(table, s=s_centers, **geometry)
+        reference = resonance_spectrum(samples, s_edges=s_edges, **geometry)
+        assert centroid(kernel) == pytest.approx(centroid(reference), rel=0.03)
+        assert np.sum(kernel) == pytest.approx(np.sum(reference), rel=0.05)
+
+
+def test_table_moment_channels_converge_to_direct_particle_oracle():
+    samples = _synthetic_samples(n=80_000, gamma0=1200.0, seed=9, a0_shape=0.7)
+    n_particles = len(samples.gamma)
+    samples = replace(
+        samples,
+        chirp_mean=np.full(n_particles, 1.03),
+        var_a_shape=np.full(n_particles, 0.02),
+        var_chirp=np.full(n_particles, 0.003),
+        cov_a_chirp_shape=np.full(n_particles, 0.002),
+    )
+    s_edges = np.linspace(0.0, 1.2 * float(np.max(samples.gamma) ** 2), 240)
+    s_centers = 0.5 * (s_edges[:-1] + s_edges[1:])
+    widths = np.diff(s_edges)
+    geometry = dict(theta_x=3e-4, theta_y=-2e-4, theta_xz=0.05, theta_yz=-0.03)
+    direct = resonance_spectral_moments(samples, s_edges, **geometry)
+    np.testing.assert_array_equal(
+        direct.rho0, resonance_spectrum(samples, s_edges, **geometry)
+    )
+
+    def integrated_channels(shape_bins):
+        shape_table = deposit_shape_table(samples, n_bins=shape_bins, scheme="cic")
+        table = retarget_ahat(
+            shape_table, samples.intensity_peak, ahat_max=0.1, n_bins=1
+        )
+        moments = query_spectral_moments(table, s=s_centers, **geometry)
+        return np.array([
+            np.sum(moments.rho0 * widths),
+            np.sum(moments.rho1 * widths),
+            np.sum(moments.rho2 * widths),
+        ])
+
+    expected = np.array([
+        np.sum(direct.rho0 * widths),
+        np.sum(direct.rho1 * widths),
+        np.sum(direct.rho2 * widths),
+    ])
+    coarse = integrated_channels((24, 32, 32, 1, 1))
+    fine = integrated_channels((40, 64, 64, 1, 1))
+    assert np.all(np.abs(fine / expected - 1.0) < np.abs(coarse / expected - 1.0))
+    np.testing.assert_allclose(fine, expected, rtol=0.06)
 
 
 @pytest.mark.tier3

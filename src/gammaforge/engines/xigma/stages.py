@@ -79,8 +79,10 @@ __all__ = [
     "BYTES_PER_PARTICLE_STEP",
     "ShapeTable",
     "Table",
+    "SpectralMoments",
     "deposit_shape_table",
     "retarget_ahat",
+    "query_spectral_moments",
     "spectrum_from_table",
     "angular_spectrum_from_table",
     "spectrum_in_angular_range",
@@ -1396,7 +1398,8 @@ class Table:
     @property
     def gamma_theta_cell_area(self) -> float:
         """The still-uniform ``theta_x * theta_y`` cell area (gamma is interpolated, not
-        integrated over, in :func:`spectrum_from_table` — see :func:`_interp_gamma`)."""
+        integrated over, in :func:`spectrum_from_table` — see
+        :func:`_interp_gamma_channel`)."""
         xp = _get_array_module(self.theta_x_edges, self.theta_y_edges, self.H)
         return float(
             (self.theta_x_edges[-1] - self.theta_x_edges[0]) / self.H.shape[1]
@@ -1742,8 +1745,40 @@ def retarget_ahat(
 KERNEL_NORMALIZATION_CONSTANT = 1.5 / (2.0 * math.pi)
 
 
-def _interp_gamma(table: Table, g):
-    """``table.H`` linearly interpolated along gamma at a per-cell query point ``g``.
+@dataclass(frozen=True)
+class SpectralMoments:
+    """Raw CPU pull-query channels on a common normalized-energy grid."""
+
+    s: np.ndarray
+    rho0: np.ndarray
+    rho1: np.ndarray
+    rho2: np.ndarray
+
+    def __post_init__(self) -> None:
+        arrays = tuple(
+            np.asarray(values) for values in (self.s, self.rho0, self.rho1, self.rho2)
+        )
+        if any(values.ndim != 1 for values in arrays):
+            raise ValueError("SpectralMoments arrays must be one-dimensional")
+        if len({values.shape for values in arrays}) != 1:
+            raise ValueError("SpectralMoments arrays must have the same shape")
+
+
+def _inverse_resonance_gamma_sq(A, K, r_sq, s):
+    """Analytical inverse ``Gamma**2 = A / (K/s - r**2)`` and its support."""
+    xp = _get_array_module(A, K, r_sq)
+    inv_base = K / s - r_sq
+    valid = inv_base > 0.0
+    return A / xp.where(valid, inv_base, 1.0), valid
+
+
+def _inverse_resonance_jacobian(K, gamma, A, s):
+    """Absolute ``dGamma/ds`` at the nominal resonance root."""
+    return K * gamma**3 / (2.0 * A * s**2)
+
+
+def _interp_gamma_channel(table: Table, channel, g):
+    """One co-shaped table channel interpolated along gamma at query points ``g``.
 
     ``g`` carries one query value per ``(theta_x, theta_y, ahat, chirp)`` cell — the resonance
     condition inverted at that cell's own angle and ahat (§4.2) — so this is not a single
@@ -1752,7 +1787,10 @@ def _interp_gamma(table: Table, g):
     not populate a resonance there, which is physical, not a boundary artefact to
     extrapolate past.
     """
-    xp = _get_array_module(table.gamma_edges, table.theta_x_edges, table.theta_y_edges, table.ahat_edges, table.H, g)
+    xp = _get_array_module(
+        table.gamma_edges, table.theta_x_edges, table.theta_y_edges,
+        table.ahat_edges, table.chirp_edges, channel, g,
+    )
     gc = table.gamma_centers
     in_range = (g >= gc[0]) & (g <= gc[-1])
     idx = xp.clip(xp.searchsorted(gc, g) - 1, 0, len(gc) - 2)
@@ -1763,12 +1801,12 @@ def _interp_gamma(table: Table, g):
         xp.arange(table.H.shape[1]), xp.arange(table.H.shape[2]),
         xp.arange(table.H.shape[3]), xp.arange(table.H.shape[4]), indexing="ij"
     )
-    lo = table.H[idx, tx_idx, ty_idx, a_idx, c_idx]
-    hi = table.H[idx_hi, tx_idx, ty_idx, a_idx, c_idx]
+    lo = channel[idx, tx_idx, ty_idx, a_idx, c_idx]
+    hi = channel[idx_hi, tx_idx, ty_idx, a_idx, c_idx]
     return xp.where(in_range, lo * (1.0 - frac) + hi * frac, 0.0)
 
 
-def spectrum_from_table(
+def query_spectral_moments(
     table: Table,
     theta_x: float,
     theta_y: float,
@@ -1778,14 +1816,14 @@ def spectrum_from_table(
     ellipticity: float = 0.0,
     theta_xz: float = 0.0,
     theta_yz: float = 0.0,
-):
-    """Stage 2: ``d2N / (ds dOmega)`` at one observation direction, over an array of ``s``.
+) -> SpectralMoments:
+    """Return the raw ``rho0``, ``rho1``, and ``rho2`` CPU pull-query channels.
 
     A direct grid quadrature over Stage 1's table, independent of the GPU importance
-    sampler (RES029) — sums the table's own ``(theta_x, theta_y, ahat)`` cells, inverting the
+    sampler (RES029) — sums the table's own ``(theta_x, theta_y, ahat, chirp)`` cells, inverting the
     resonance condition at each cell to find the gamma an electron there would need to
     radiate a photon of energy ``s`` toward ``(theta_x, theta_y)``, and interpolates ``H``
-    at that gamma (:func:`_interp_gamma`).
+    at that gamma (:func:`_interp_gamma_channel`).
 
     ``g``/``prefac`` are recomputed inside the ahat loop implicitly — this function never
     factors ahat out of the resonance condition. The table stores raw ``ahat`` and the
@@ -1795,13 +1833,18 @@ def spectrum_from_table(
     The polarization factor now includes ellipticity and crossing angle effects per DER006,
     replacing the head-on linear factor ``cos^2 psi``.
     """
-    xp = _get_array_module(table.gamma_edges, table.theta_x_edges, table.theta_y_edges, table.ahat_edges, table.H)
+    xp = _get_array_module(
+        table.gamma_edges, table.theta_x_edges, table.theta_y_edges,
+        table.ahat_edges, table.chirp_edges, table.H,
+    )
     s_arr = xp.atleast_1d(xp.asarray(s, dtype=float))
     tx_c = table.theta_x_centers[:, None, None, None]
     ty_c = table.theta_y_centers[None, :, None, None]
     # Use evaluation points (zeroth bin at ahat=0 for sub-floor/linear mode) instead of centers
     a_c = table.ahat_eval_points[None, None, :, None]
     c_c = table.chirp_eval_points[None, None, None, :]
+    if bool(xp.any(c_c <= 0.0)):
+        raise ValueError("query_spectral_moments requires positive carrier-rate evaluation points")
 
     r_sq = (tx_c - theta_x) ** 2 + (ty_c - theta_y) ** 2
     theta_cell_area = table.gamma_theta_cell_area
@@ -1817,40 +1860,84 @@ def spectrum_from_table(
     Q = observer_ponderomotive_factor(
         tx_c, ty_c, theta_x, theta_y, theta_xz, theta_yz
     )
-    # Step C stores C but preserves the pre-chirp query until Step D migrates the inverse
-    # resonance and Jacobian. Broadcasting over C here makes this an exact chirp marginal.
-    A = 1.0 + Q * a_c + 0.0 * c_c
+    A = 1.0 + Q * a_c
+    K = D_rel * c_c
 
-    out = xp.zeros(s_arr.shape[0])
+    rho0 = xp.zeros(s_arr.shape[0])
+    rho1 = xp.zeros(s_arr.shape[0])
+    rho2 = xp.zeros(s_arr.shape[0])
     for k, s_val in enumerate(s_arr):
         # s <= 0 is not a resonance to invert (the formula's own 1/s and 1/s**2 factors
-        # are singular there) — zero photon energy is zero photons, and `out` is already
-        # zero, so there is nothing to compute.
+        # are singular there) — zero photon energy is zero photons, and the raw channels
+        # are already zero, so there is nothing to compute.
         if s_val <= 0.0:
             continue
-        inv_base = D_rel / s_val - r_sq
         # A resonance exists only where inv_base > 0 (g_sq would otherwise be negative or
         # infinite); `valid` gates every quantity built from it, including the gamma this
         # cell would query `H` at, so an invalid cell contributes exactly zero rather than
         # a stray extrapolated lookup.
-        valid = inv_base > 0.0
-        g_sq = A / xp.where(valid, inv_base, 1.0)
+        g_sq, valid = _inverse_resonance_gamma_sq(A, K, r_sq, s_val)
         g = xp.where(valid, xp.sqrt(g_sq), 0.0)
         gth_sq_inv = 1.0 / (1.0 + r_sq * g_sq) ** 2
+        B = A + g_sq * r_sq
 
         # New polarization factor from DER006 (replaces a_fac = 1 - 4*cos^2(psi)*r^2*g^2*gth_sq_inv)
         pol_factor = polarization_factor_vectorized(
             g, tx_c, ty_c, theta_x, theta_y, ellipticity, psi_pol, theta_xz, theta_yz
         )
-        prefac = xp.where(valid, D_rel * pol_factor * g**5 * gth_sq_inv / A, 0.0)
-        H_val = _interp_gamma(table, g)
-        out[k] = (
-            KERNEL_NORMALIZATION_CONSTANT
-            * float(xp.sum(H_val * prefac * cell_widths))
-            * theta_cell_area
-            / s_val**2
+        jacobian = _inverse_resonance_jacobian(K, g, A, s_val)
+        prefac = xp.where(
+            valid,
+            2.0 * KERNEL_NORMALIZATION_CONSTANT
+            * pol_factor * g**2 * gth_sq_inv * jacobian,
+            0.0,
         )
-    return out[0] if xp.ndim(s) == 0 else out
+        H_val = _interp_gamma_channel(table, table.H, g)
+        H_var_a = _interp_gamma_channel(table, table.H_var_a, g)
+        H_var_chirp = _interp_gamma_channel(table, table.H_var_chirp, g)
+        H_cov = _interp_gamma_channel(table, table.H_cov_a_chirp, g)
+        W1 = s_val * (
+            Q**2 * H_var_a / B**2
+            - Q * H_cov / (B * c_c)
+        )
+        W2 = s_val**2 * (
+            H_var_chirp / c_c**2
+            + Q**2 * H_var_a / B**2
+            - 2.0 * Q * H_cov / (B * c_c)
+        )
+        scale = theta_cell_area
+        rho0[k] = scale * float(xp.sum(H_val * prefac * cell_widths))
+        rho1[k] = scale * float(xp.sum(W1 * prefac * cell_widths))
+        rho2[k] = scale * float(xp.sum(W2 * prefac * cell_widths))
+    return SpectralMoments(
+        s=np.asarray(s_arr),
+        rho0=np.asarray(rho0),
+        rho1=np.asarray(rho1),
+        rho2=np.asarray(rho2),
+    )
+
+
+def spectrum_from_table(
+    table: Table,
+    theta_x: float,
+    theta_y: float,
+    s,
+    *,
+    psi_pol: float = 0.0,
+    ellipticity: float = 0.0,
+    theta_xz: float = 0.0,
+    theta_yz: float = 0.0,
+):
+    """Delta-line Stage-2 spectrum; raw finite-line moments use
+    :func:`query_spectral_moments`."""
+    moments = query_spectral_moments(
+        table, theta_x, theta_y, s,
+        psi_pol=psi_pol,
+        ellipticity=ellipticity,
+        theta_xz=theta_xz,
+        theta_yz=theta_yz,
+    )
+    return moments.rho0[0] if np.ndim(s) == 0 else moments.rho0
 
 
 def angular_spectrum_from_table(

@@ -43,11 +43,13 @@ def emission_lines(samples: TrajectorySamples, theta_x: float, theta_y: float, *
         raise ValueError("photon_energy/directions must be finite and positive; ellipticity must be in [-1,1]")
     gamma = np.asarray(samples.gamma, dtype=np.longdouble)
     tx = np.asarray(samples.theta_x, dtype=np.longdouble); ty = np.asarray(samples.theta_y, dtype=np.longdouble)
-    ahat = np.asarray(samples.ahat(), dtype=np.longdouble); lum = np.asarray(samples.luminosity, dtype=np.longdouble)
-    if not (gamma.ndim == tx.ndim == ty.ndim == ahat.ndim == lum.ndim == 1) or len({a.size for a in (gamma, tx, ty, ahat, lum)}) != 1:
+    ahat = np.asarray(samples.ahat(), dtype=np.longdouble)
+    chirp = np.asarray(samples.chirp_mean, dtype=np.longdouble)
+    lum = np.asarray(samples.luminosity, dtype=np.longdouble)
+    if not (gamma.ndim == tx.ndim == ty.ndim == ahat.ndim == chirp.ndim == lum.ndim == 1) or len({a.size for a in (gamma, tx, ty, ahat, chirp, lum)}) != 1:
         raise ValueError("sample fields must be same-shaped one-dimensional arrays")
-    if any(np.any(~np.isfinite(a)) for a in (gamma, tx, ty, ahat, lum)) or np.any(gamma <= 1) or np.any(ahat < 0) or np.any(lum < 0):
-        raise ValueError("samples contain invalid gamma, ahat, luminosity, or directions")
+    if any(np.any(~np.isfinite(a)) for a in (gamma, tx, ty, ahat, chirp, lum)) or np.any(gamma <= 1) or np.any(ahat < 0) or np.any(chirp <= 0) or np.any(lum < 0):
+        raise ValueError("samples contain invalid gamma, ahat, chirp, luminosity, or directions")
     n = np.array([theta_x, theta_y, 1.], dtype=np.longdouble); n /= np.linalg.norm(n)
     e0_raw, e1_raw, n0 = _axes(*map(np.longdouble, (psi_pol, theta_xz, theta_yz)))
     v = np.stack((tx, ty, np.ones_like(tx)), axis=1); v /= np.linalg.norm(v, axis=1)[:, None]
@@ -83,7 +85,7 @@ def emission_lines(samples: TrajectorySamples, theta_x: float, theta_y: float, *
         raise ValueError("electron-laser encounter factor is too small for the nonlinear resonance")
     q_incidence = observer_encounter / direction_factor
     den = 1 + q_incidence*ahat + gamma**2*r2
-    energies = 2*np.longdouble(photon_energy)*encounter*gamma**2/den
+    energies = 2*np.longdouble(photon_energy)*encounter*chirp*gamma**2/den
     weights = (3/(2*np.pi))*lum*pol*gamma**2/(1+gamma**2*r2)**2
     if np.any(~np.isfinite(energies)) or np.any(~np.isfinite(weights)):
         raise ValueError("reference emission calculation produced non-finite values")
