@@ -156,7 +156,11 @@ search_knowledge_base("cupy")
 # ## 4. The Validation Scenario Bank in Action
 # The matched-bin delta pilot now explicitly uses the direction-Doppler mode (beta=1).
 # Its historical nominal and exact finite-speed modes remain diagnostics. DER013 is
-# author-verified (2026-09-13); broader independent arbitrary-angle acceptance remains open.
+# author-verified (2026-09-13). DER014/RES088 additionally multiply each electron's
+# unchanged `ahat` by the beaming-cone incidence coefficient
+# `P = (1 - e dot n0) / 2`; this coefficient remains tied to the electron direction even
+# when a diagnostic selects a different resonance numerator. Broader independent
+# arbitrary-angle acceptance remains open.
 # 
 # The Stage-0/1 CUDA agreement gate is `scripts/validate_cupy_stages01.py` (RES083).
 # It iterates the shared scenario bank and reports agreement separately from warm
@@ -323,3 +327,12 @@ fig_val.show()
 # 2. **Derivations must be verified**: Mathematical proofs back physics before landing.
 # 3. **Blockers are explicitly flagged**: Known issues (like CuPy sampler) are documented and pinned rather than swept under the rug.
 # 4. Use `search_knowledge_base("keyword")` any time you want to catch up on what agents decided while you were away!
+
+# %% [markdown]
+# ### Report Figure 1: delta and two xigma table coordinates
+# `scripts/plot_report_figure1.py` measures direct GPU delta, production xigma's
+# intensity coordinate, and the report-local effective-gamma proposal against a
+# separately sampled matched-bin delta reference. The publication run uses the exact
+# linear limit and a 5x5 observer grid. `RES086` and `docs/report-figures.md` document
+# the timing boundary, precision differences, reference diagnostics, and why the
+# effective-gamma competitor remains outside production routing.

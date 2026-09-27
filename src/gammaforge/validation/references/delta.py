@@ -88,16 +88,18 @@ def resonance_spectrum(
     """``d3N / (ds dOmega)`` seen from the direction ``(theta_x, theta_y)``.
 
     Each macroparticle radiates at one energy in this direction — its resonance,
-    ``s_res = gamma**2 / (1 + ahat + gamma**2 r**2)`` with ``r`` the angle between the
-    particle's own direction and the observer's. The nonlinear redshift enters through
-    ``ahat``, the trajectory-averaged intensity Stage 0 already produced.
+    ``s_res = gamma**2 / (1 + P*ahat + gamma**2 r**2)`` with ``r`` the angle between the
+    particle's own direction and the observer's and
+    ``P = (1 - e dot n0) / 2``. The nonlinear redshift enters through ``ahat``, the
+    trajectory-averaged intensity Stage 0 already produced, with the beaming-cone
+    incidence correction of DER014/RES088.
 
     The weight is the **bare** differential cross-section, ``gamma**2 / (1 + r**2
     gamma**2)**2`` times the polarization factor. Not the ``gamma**5`` form a table-based
     kernel uses: those extra powers are a ``|dGamma/domega|`` Jacobian for evaluating a
     *smooth, already-binned* distribution at an interpolated gamma, and there is nothing
     interpolated here — every particle contributes at its own exact gamma. For the same
-    reason no ``1 / (1 + ahat)`` Jacobian appears: that one comes from the ensemble
+    reason no ``1 / (1 + P*ahat)`` Jacobian appears: that one comes from the ensemble
     gamma-integral collapse a table lookup performs, and delta never performs it.
 
     The histogram is returned as a density in ``s``, so integrating it over ``s`` and over
@@ -115,7 +117,17 @@ def resonance_spectrum(
     r_squared = delta_x**2 + delta_y**2
     gamma_squared = gamma**2
 
-    s_res = gamma_squared / (1.0 + ahat + gamma_squared * r_squared)
+    norm = np.sqrt(1.0 + samples.theta_x**2 + samples.theta_y**2)
+    n0 = np.array([
+        -math.sin(theta_xz) * math.cos(theta_yz),
+        math.sin(theta_yz),
+        -math.cos(theta_xz) * math.cos(theta_yz),
+    ])
+    incidence = 0.5 * (
+        1.0
+        - (n0[0] * samples.theta_x + n0[1] * samples.theta_y + n0[2]) / norm
+    )
+    s_res = gamma_squared / (1.0 + incidence * ahat + gamma_squared * r_squared)
 
     lorentz = 1.0 / (1.0 + r_squared * gamma_squared) ** 2
 

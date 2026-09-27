@@ -1,9 +1,10 @@
 """xigma's pipeline as composable pure functions (GRAND_PLAN.md §4.2).
 
 Stage 0 (:func:`integrate_trajectories`), Stage 1 (:func:`deposit_shape_table`, onto the
-a0-independent :attr:`TrajectorySamples.a0_shape` axis), the retarget step
-(:func:`retarget_ahat`, a conservative regrid onto the physical, non-uniform ``ahat`` axis
-for one specific peak a0 — RES032) and Stage 2 (:func:`spectrum_from_table`,
+peak-intensity-independent ``P*a0_shape`` axis), the retarget step
+(:func:`retarget_ahat`, a conservative regrid onto the physical, non-uniform
+``P*ahat`` axis for one specific peak intensity — RES032, RES088) and Stage 2
+(:func:`spectrum_from_table`,
 :func:`angular_spectrum_from_table`, :func:`spectrum_in_angular_range`) all live here.
 
 **Every stage is a pure function.** State lives in the `Collision` facade (Phase 3a), not
@@ -102,6 +103,7 @@ __all__ = [
     "relative_velocity",
     "doppler_factor_per_particle",
     "direction_doppler_factor",
+    "ponderomotive_incidence_factor",
 ]
 
 #: Relative-velocity factor for the near-backscattering geometry: electron and photon
@@ -158,6 +160,20 @@ def direction_doppler_factor(theta_x, theta_y, theta_xz=0.0, theta_yz=0.0, *, k_
     tx, ty = xp.asarray(theta_x), xp.asarray(theta_y)
     encounter = 1.0 - (n0[0] * tx + n0[1] * ty + n0[2]) / xp.sqrt(1.0 + tx**2 + ty**2)
     return xp.maximum(0.0, encounter) / nominal
+
+
+def ponderomotive_incidence_factor(
+    theta_x, theta_y, theta_xz=0.0, theta_yz=0.0, *, k_hat=None
+):
+    """Coefficient ``(1 - e dot n0) / 2`` multiplying ``ahat`` (DER014, RES088).
+
+    Production uses the same beta=1 electron direction as
+    :func:`direction_doppler_factor`. The observation direction is approximated by that
+    electron direction because its radiation is confined to the beaming cone.
+    """
+    n0 = _incident_axis(theta_xz, theta_yz) if k_hat is None else np.asarray(k_hat, dtype=float)
+    nominal = 1.0 - n0[2]
+    return 0.5 * nominal * direction_doppler_factor(theta_x, theta_y, k_hat=n0)
 
 
 def doppler_factor_per_particle(
@@ -771,6 +787,11 @@ class TrajectorySamples:
     in this dataclass carries a polarization convention, because ``<a^2>`` at fixed pulse
     energy does not depend on one (RES054).
 
+    ``incident_axis`` records the laser propagation direction used for this trajectory
+    integration. Stage 1 combines it with each electron direction when depositing the
+    incidence-weighted nonlinear shape (DER014, RES088). Manually constructed samples
+    may omit it only for the head-on default.
+
     It is one scalar per particle rather than a per-timestep distribution, and that is
     physics, not an optimization: in this weakly nonlinear regime the photon formation
     length spans the whole trajectory, so — unlike synchrotron radiation — the trajectory
@@ -786,6 +807,7 @@ class TrajectorySamples:
     intensity_peak: float
     n_steps: int
     diagnostics: TrajectoryDiagnostics | None = None
+    incident_axis: np.ndarray | None = None
 
     @property
     def n_particles(self) -> int:
@@ -1025,13 +1047,14 @@ def integrate_trajectories(
         intensity_peak=intensity_peak,
         n_steps=n_steps,
         diagnostics=diagnostics,
+        incident_axis=np.asarray(k_hat, dtype=float),
     )
 
 
 #: Default bin counts for :func:`deposit_shape_table`'s four axes, in ``(gamma, theta_x,
-#: theta_y, a0_shape)`` order. The ``a0_shape`` axis is deliberately fine — it is bounded
-#: and a0-peak-independent, so there is no dynamic-range reason to keep it small the way
-#: the old direct-onto-``ahat`` deposit's fourth axis had to be.
+#: theta_y, P*a0_shape)`` order. The effective-shape axis is deliberately fine — it is
+#: bounded and peak-intensity-independent, so there is no dynamic-range reason to keep it
+#: small the way the old direct-onto-``ahat`` deposit's fourth axis had to be.
 DEFAULT_SHAPE_BINS = (48, 48, 48, 96)
 
 #: Defaults for :func:`retarget_ahat`'s fixed, non-uniform target grid, tuned against this
@@ -1076,8 +1099,10 @@ def _validate_edges_and_shape(edges, H, name: str) -> None:
 @dataclass(frozen=True)
 class ShapeTable:
     """Stage 1's output: a 4D photon-weight density over ``(gamma, theta_x, theta_y,
-    a0_shape)`` — pulse-strength-agnostic on its axis, since ``a0_shape`` is by
-    construction independent of any actual pulse (`TrajectorySamples.a0_shape`).
+    P*a0_shape)``. Here ``P = (1 - e dot n0) / 2`` is evaluated per trajectory before
+    deposition (DER014, RES088), so the axis already carries the incidence correction.
+    It remains pulse-strength-agnostic because both factors are independent of peak
+    intensity.
 
     Not agnostic in *mass*: ``H`` is deposited with ``samples.luminosity`` at
     ``source_intensity_peak`` (the pulse Stage 0 actually ran), and luminosity scales
@@ -1093,7 +1118,7 @@ class ShapeTable:
     gamma_edges: np.ndarray
     theta_x_edges: np.ndarray
     theta_y_edges: np.ndarray
-    a0_shape_edges: np.ndarray
+    redshift_shape_edges: np.ndarray
     H: np.ndarray
     total_weight: float
     scheme: str
@@ -1101,18 +1126,21 @@ class ShapeTable:
 
     def __post_init__(self) -> None:
         _validate_edges_and_shape(
-            (self.gamma_edges, self.theta_x_edges, self.theta_y_edges, self.a0_shape_edges), self.H, "ShapeTable"
+            (self.gamma_edges, self.theta_x_edges, self.theta_y_edges, self.redshift_shape_edges), self.H, "ShapeTable"
         )
 
     @property
     def bin_volume(self) -> float:
         """Cell volume, constant because every axis here is a uniform grid."""
-        xp = _get_array_module(self.gamma_edges, self.theta_x_edges, self.theta_y_edges, self.a0_shape_edges, self.H)
+        xp = _get_array_module(
+            self.gamma_edges, self.theta_x_edges, self.theta_y_edges,
+            self.redshift_shape_edges, self.H,
+        )
         return float(
             (self.gamma_edges[-1] - self.gamma_edges[0])
             * (self.theta_x_edges[-1] - self.theta_x_edges[0])
             * (self.theta_y_edges[-1] - self.theta_y_edges[0])
-            * (self.a0_shape_edges[-1] - self.a0_shape_edges[0])
+            * (self.redshift_shape_edges[-1] - self.redshift_shape_edges[0])
             / (self.H.shape[0] * self.H.shape[1] * self.H.shape[2] * self.H.shape[3])
         )
 
@@ -1120,10 +1148,12 @@ class ShapeTable:
 @dataclass(frozen=True)
 class Table:
     """Stage 2's input: a 4D photon-weight density over ``(gamma, theta_x, theta_y,
-    ahat)``, for one specific peak a0.
+    P*ahat)``, for one specific peak intensity.
 
-    ``H`` is a **density** (weight per unit cell volume). Unlike `ShapeTable`, the ``ahat``
-    axis is generally **non-uniform** — :func:`retarget_ahat` builds it dense near
+    Public field names retain ``ahat`` for continuity, but the incidence factor is already
+    included by Stage 1 and must not be reapplied by Stage 2. ``H`` is a **density**
+    (weight per unit cell volume). Unlike `ShapeTable`, the ``ahat`` axis is generally
+    **non-uniform** — :func:`retarget_ahat` builds it dense near
     ``ahat_max`` and coarse toward ``ahat_min`` (RES032), so there is no
     single scalar cell volume; :attr:`ahat_widths` and :attr:`gamma_theta_cell_area` are
     what :func:`spectrum_from_table` actually needs.
@@ -1254,13 +1284,13 @@ def deposit_shape_table(
     backend: str = "numpy",
     chunk: int | None = None,
 ) -> ShapeTable:
-    """Stage 1: bin Stage 0's per-particle samples into the 4D ``a0_shape`` table ``H``.
+    """Stage 1: bin samples into the 4D ``P*a0_shape`` table ``H``.
 
-    Peak-a0-agnostic: bins directly onto ``samples.a0_shape`` (already independent of any
-    actual pulse) with ``samples.luminosity`` as the deposited weight, so one deposit
-    serves every peak a0 a caller might later want via :func:`retarget_ahat` — unlike the
-    single-stage ``ahat``-axis deposit this replaces, which needed a fresh deposit per
-    peak a0 (RES028, superseded by RES032).
+    The per-trajectory incidence factor ``P = (1 - e dot n0) / 2`` is multiplied into
+    ``samples.a0_shape`` before binning. This preserves its correlation with electron
+    direction instead of reconstructing it from angular cell centres in Stage 2. The
+    product remains independent of peak intensity, so one deposit serves every strength a
+    caller might later request via :func:`retarget_ahat` (DER014, RES088).
 
     ``scheme`` is ``"nearest"`` (one cell per sample) or ``"cic"`` (cloud-in-cell, 16
     neighbours per sample) — both conserve total weight exactly; CIC trades a discretized
@@ -1277,11 +1307,19 @@ def deposit_shape_table(
     xp = cp if backend == "cupy" else np
     to_host = cp.asnumpy if backend == "cupy" else np.asarray
 
+    incident_axis = (
+        np.array([0.0, 0.0, -1.0])
+        if samples.incident_axis is None
+        else np.asarray(samples.incident_axis, dtype=float)
+    )
+    redshift_shape = np.asarray(samples.a0_shape) * ponderomotive_incidence_factor(
+        samples.theta_x, samples.theta_y, k_hat=incident_axis
+    )
     gamma_edges = _uniform_edges(samples.gamma, n_bins[0], margin)
     theta_x_edges = _uniform_edges(samples.theta_x, n_bins[1], margin)
     theta_y_edges = _uniform_edges(samples.theta_y, n_bins[2], margin)
-    a0_shape_edges = _uniform_edges(samples.a0_shape, n_bins[3], margin, floor_zero=True)
-    edges = (gamma_edges, theta_x_edges, theta_y_edges, a0_shape_edges)
+    redshift_shape_edges = _uniform_edges(redshift_shape, n_bins[3], margin, floor_zero=True)
+    edges = (gamma_edges, theta_x_edges, theta_y_edges, redshift_shape_edges)
 
     H_raw = np.zeros(n_bins, dtype=float)
     deposit = _deposit_nearest if scheme == "nearest" else _deposit_cic
@@ -1289,7 +1327,7 @@ def deposit_shape_table(
     def deposit_chunk(start, stop):
         coords = tuple(_cell_fractions(xp.asarray(values[start:stop]), edge, n)
                        for values, edge, n in zip(
-                           (samples.gamma, samples.theta_x, samples.theta_y, samples.a0_shape),
+                           (samples.gamma, samples.theta_x, samples.theta_y, redshift_shape),
                            edges, n_bins))
         mass = to_host(deposit(coords, xp.asarray(samples.luminosity[start:stop]), n_bins))
         # Commit only after device work/transfer succeeds, so an OOM retry cannot double-count.
@@ -1304,7 +1342,7 @@ def deposit_shape_table(
         gamma_edges=gamma_edges,
         theta_x_edges=theta_x_edges,
         theta_y_edges=theta_y_edges,
-        a0_shape_edges=a0_shape_edges,
+        redshift_shape_edges=redshift_shape_edges,
         H=H_raw / bin_volume,
         total_weight=float(H_raw.sum()),
         scheme=scheme,
@@ -1362,12 +1400,14 @@ def retarget_ahat(
     n_bins: int = DEFAULT_RETARGET_BINS,
     decades: float = DEFAULT_AHAT_DECADES,
 ) -> Table:
-    """Stage 1.5: conservative (mass-preserving) regrid of a `ShapeTable`'s ``a0_shape``
-    axis onto the fixed, non-uniform ``ahat`` axis Stage 2 actually queries, for one
+    """Stage 1.5: conservative regrid of a `ShapeTable`'s ``P*a0_shape`` axis.
+
+    The fixed, non-uniform target coordinate is therefore ``P*ahat``, the complete
+    nonlinear term Stage 2 queries, for one
     specific peak cycle-averaged intensity ``<a^2>`` (RES032, supersedes
     RES028; RES054 for why the parameter is an intensity rather than an amplitude).
 
-    Cheap and independent of ``n_particles`` — a ``shape_table.a0_shape_edges.size x
+    Cheap and independent of ``n_particles`` — a ``shape_table.redshift_shape_edges.size x
     n_bins``-sized tensordot, not a re-deposit — so a `Collision` can cache the shape
     deposit once and retarget many pulse strengths from it.
 
@@ -1393,12 +1433,11 @@ def retarget_ahat(
     # Get array module from shape_table arrays
     xp = _get_array_module(
         shape_table.gamma_edges, shape_table.theta_x_edges, shape_table.theta_y_edges,
-        shape_table.a0_shape_edges, shape_table.H
+        shape_table.redshift_shape_edges, shape_table.H
     )
 
-    # Exact, and the third and last caller of :func:`ahat_from_shape`: a0_shape is
-    # strength-independent by construction, so the axis transform is a pure scale.
-    source_edges = ahat_from_shape(shape_table.a0_shape_edges, intensity_peak)
+    # Exact: P*a0_shape is strength-independent, so the axis transform is a pure scale.
+    source_edges = ahat_from_shape(shape_table.redshift_shape_edges, intensity_peak)
     target_edges = _ahat_target_edges(ahat_min, ahat_max, n_bins, decades)
 
     # Handle the target grid construction:
@@ -1438,11 +1477,11 @@ def retarget_ahat(
     # W[i, j]: fraction of source bin i's mass assigned to target bin j.
     W = overlap / xp.clip(src_width, 1e-300, None)[:, None]
 
-    # The source (a0_shape) axis stays uniform in this design — deposit_shape_table only
+    # The source (P*a0_shape) axis stays uniform in this design — deposit_shape_table only
     # ever builds it via _uniform_edges — so a single scalar width is exact here, unlike
     # a scalar width is safe only because the source is uniform; it is not a general
     # non-uniform-axis operation.
-    da_source = shape_table.a0_shape_edges[1] - shape_table.a0_shape_edges[0]
+    da_source = shape_table.redshift_shape_edges[1] - shape_table.redshift_shape_edges[0]
     luminosity_rescale = intensity_peak / shape_table.source_intensity_peak
 
     mass_source = shape_table.H * da_source * luminosity_rescale  # density -> mass, at this strength
@@ -1542,8 +1581,9 @@ def spectrum_from_table(
     at that gamma (:func:`_interp_gamma`).
 
     ``g``/``prefac`` are recomputed inside the ahat loop implicitly — this function never
-    factors ahat out of the resonance condition — because the resonance shifts with ahat
-    (the nonlinear redshift); an ahat-independent shortcut is wrong, not just slower.
+    factors ahat out of the resonance condition. The table's ``ahat`` coordinate already
+    means ``P * ahat`` because Stage 1 deposits the per-trajectory incidence factor
+    (DER014, RES088); applying ``P`` again here would double-count it.
 
     The polarization factor now includes ellipticity and crossing angle effects per DER006,
     replacing the head-on linear factor ``cos^2 psi``.
@@ -1563,6 +1603,7 @@ def spectrum_from_table(
 
     # Direction-dependent resonance and Jacobian at beta=1 (DER013, RES082).
     D_rel = direction_doppler_factor(tx_c, ty_c, theta_xz, theta_yz)
+    A = 1.0 + a_c
 
     out = xp.zeros(s_arr.shape[0])
     for k, s_val in enumerate(s_arr):
@@ -1577,7 +1618,7 @@ def spectrum_from_table(
         # cell would query `H` at, so an invalid cell contributes exactly zero rather than
         # a stray extrapolated lookup.
         valid = inv_base > 0.0
-        g_sq = (1.0 + a_c) / xp.where(valid, inv_base, 1.0)
+        g_sq = A / xp.where(valid, inv_base, 1.0)
         g = xp.where(valid, xp.sqrt(g_sq), 0.0)
         gth_sq_inv = 1.0 / (1.0 + r_sq * g_sq) ** 2
 
@@ -1585,7 +1626,7 @@ def spectrum_from_table(
         pol_factor = polarization_factor_vectorized(
             g, tx_c, ty_c, theta_x, theta_y, ellipticity, psi_pol, theta_xz, theta_yz
         )
-        prefac = xp.where(valid, D_rel * pol_factor * g**5 * gth_sq_inv / (1.0 + a_c), 0.0)
+        prefac = xp.where(valid, D_rel * pol_factor * g**5 * gth_sq_inv / A, 0.0)
         H_val = _interp_gamma(table, g)
         out[k] = (
             KERNEL_NORMALIZATION_CONSTANT

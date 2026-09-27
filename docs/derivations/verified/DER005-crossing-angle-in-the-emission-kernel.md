@@ -187,3 +187,11 @@ Implemented together per RES034/RES060:
 - `EMISSION_IS_HEAD_ON` is `False`.
 
 As noted in §Verification, this implements the manuscript's lab-frame formula; independent arbitrary-angle emission physics validation remains an open item in `PROGRESS.md`.
+
+## Amendments
+
+> **2026-09-23 — `ahat` remains unchanged, but its resonance coefficient does not.** The
+> trajectory definition of $\hat a$ is still independent of the phase-to-time change of
+> variable described above. DER014 adds the distinct incidence multiplier
+> $(1-\mathbf e\cdot\mathbf n_0)/2$ when that unchanged $\hat a$ enters the nonlinear
+> resonance denominator.

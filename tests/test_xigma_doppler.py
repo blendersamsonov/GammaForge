@@ -30,6 +30,42 @@ def test_direction_factor_is_unit_speed_and_broadcasts():
     assert stages.direction_doppler_factor(0., 0.) == 1
 
 
+def test_ponderomotive_incidence_uses_each_electron_direction():
+    tx, ty = np.array([-.2, .0, .3]), np.array([.1, -.2, .05])
+    n0 = laser_axis(.7, -.3)
+    vectors = np.stack((tx, ty, np.ones_like(tx)), axis=-1)
+    vectors /= np.linalg.norm(vectors, axis=-1)[:, None]
+    expected = 0.5 * (1 - vectors @ n0)
+    np.testing.assert_allclose(
+        stages.ponderomotive_incidence_factor(tx, ty, k_hat=n0), expected, rtol=1e-14
+    )
+    assert stages.ponderomotive_incidence_factor(0., 0.) == 1
+
+
+def test_stage2_does_not_reapply_incidence_to_corrected_table(monkeypatch):
+    table = Table(
+        np.array([900., 1000., 1100.]),
+        np.array([-.01, 0., .01]),
+        np.array([-.01, 0., .01]),
+        np.array([.04, .06]),
+        np.ones((2, 2, 2, 1)),
+        1.,
+        "incidence-already-deposited",
+        _ahat_eval_points=np.array([.05]),
+    )
+    monkeypatch.setattr(
+        stages,
+        "ponderomotive_incidence_factor",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Stage 2 reapplied the deposited incidence factor")
+        ),
+    )
+
+    value = stages.spectrum_from_table(table, 0., 0., 1000.**2/1.05, theta_xz=.6)
+
+    assert np.isfinite(value)
+
+
 def test_stage0_flux_uses_each_direction_without_changing_ballistic_window():
     interaction = scenarios.build(replace(scenarios.BASELINE,
         sampling=replace(scenarios.BASELINE.sampling, n_particles=4)))
@@ -55,6 +91,7 @@ def test_stage0_flux_uses_each_direction_without_changing_ballistic_window():
                 * interaction.N_e * bunch.weight * np.maximum(0, t1-t0))
     result = stages.integrate_trajectories(bunch, laser, interaction.N_e, n_steps=4, chunk=1)
     np.testing.assert_allclose(result.luminosity, expected, rtol=1e-13)
+    np.testing.assert_allclose(result.incident_axis, n0, rtol=0.0, atol=0.0)
 
 
 @pytest.mark.parametrize('crossing', [(0., 0.), (.8, -.3)])
@@ -62,9 +99,13 @@ def test_table_jacobian_preserves_independent_line_mass_and_centroid(crossing):
     tx, ty, ahat = .12, -.08, .02
     gamma_edges = np.linspace(600., 1400., 49)
     centers = (gamma_edges[:-1] + gamma_edges[1:])/2
-    ahat_edges = np.array([0., 2*ahat])
-    # Single bin [0, 0.04] should be evaluated at its center (0.02), not at 0
-    ahat_eval_points = np.array([ahat])
+    n0 = laser_axis(*crossing)
+    unit_v = np.array([tx, ty, 1.]); unit_v /= np.linalg.norm(unit_v)
+    P = 0.5*(1-unit_v@n0)
+    effective_ahat = P*ahat
+    ahat_edges = np.array([0., 2*effective_ahat])
+    # The Table coordinate already contains P*ahat from Stage-1 deposition.
+    ahat_eval_points = np.array([effective_ahat])
     table = Table(gamma_edges, np.array([tx-1e-5, tx+1e-5]),
                   np.array([ty-1e-5, ty+1e-5]), ahat_edges,
                   (1 + (centers/1000)**2)[:, None, None, None], 1., 'doppler-check',
@@ -76,15 +117,13 @@ def test_table_jacobian_preserves_independent_line_mass_and_centroid(crossing):
     density = np.interp(g, centers, table.H[:, 0, 0, 0])
     area = 4e-10
     samples = TrajectorySamples(g, np.full_like(g, tx), np.full_like(g, ty),
-                                np.full_like(g, ahat), density*wg*area*(2*ahat), 1., 1)
-    n0 = laser_axis(*crossing)
+                                np.full_like(g, ahat), density*wg*area*(2*effective_ahat), 1., 1)
     photon_scale = 2*(1-n0[2])  # E_laser=1 erg, same normalized s as production
     energies, weights = emission_lines(samples, tx, ty, photon_energy=1.,
         theta_xz=crossing[0], theta_yz=crossing[1], ellipticity=.4, doppler='direction')
     # Break energy quadrature at mapped table interpolation knots, independently from the kernel.
-    unit_v = np.array([tx, ty, 1.]); unit_v /= np.linalg.norm(unit_v)
     D = (1-unit_v@n0)/(1-n0[2])
-    knots = D*centers**2/(1+ahat)
+    knots = D*centers**2/(1+effective_ahat)
     energy = ((knots[:-1, None]+knots[1:, None])/2 + np.diff(knots)[:, None]*nodes/2).ravel()
     ws = (np.diff(knots)[:, None]*quad/2).ravel()
     spectrum = stages.spectrum_from_table(table, tx, ty, energy,

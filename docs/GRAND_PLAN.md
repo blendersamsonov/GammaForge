@@ -968,13 +968,23 @@ annotated at both equations.
 ballistic speed, beta = 1, while using each electron's normalized direction in
 the encounter factor F = 1 - e dot n0. Stage 0 uses F in the overlap flux. In
 nominally scaled energy s = E / (2 E_laser F0), with F0 = 1 - n0_z, Stage 2 uses
-D = F/F0 both in the inverse resonance gamma² = (1 + ahat)/(D/s - r²) and in
-its Jacobian. NumPy and CuPy use the same convention, and GPU radial support must
-enclose D over its full angular domain. The table-free linear spectrum rescales
-each electron's energy and density by D. The finite-beta delta diagnostic remains
-available separately; it is not silently substituted for the production approximation.
-This extends the manuscript's head-on table reduction using Eq. wR, without claiming
-an exact finite-gamma or unrestricted-angle theory (DER013, RES082).
+D = F/F0 in the resonance and its Jacobian. The ponderomotive term uses the
+author-selected beaming-cone approximation n approximately e: its coefficient is
+P = (1 - e dot n0)/2 = F/2, so the inverse resonance is
+gamma² = (1 + P ahat)/(D/s - r²). This substitutes the electron direction for the
+observation direction because one electron's useful radiation is concentrated within
+an O(1/gamma) cone around e; it retains the general-incidence reduction of nonlinear
+redshift without carrying a separate observation-direction coefficient through Stage 2.
+Stage 1 deposits the intensity-independent product P times a0_shape, so retargeting
+produces a table whose `ahat` coordinate already means P times ahat. Stage 2 therefore
+uses that coordinate directly in 1 + ahat_table; it must not reconstruct P from angular
+cell centres or apply the incidence factor a second time.
+NumPy and CuPy use the same convention, and GPU radial support must jointly enclose the
+direction-Doppler factor over its full angular domain. The table-free linear spectrum is
+unchanged because ahat = 0 there. The finite-beta delta diagnostic remains available
+separately; it is not silently substituted for the production approximation. This is
+an ultrarelativistic beaming-cone model, not an exact finite-gamma or unrestricted-angle
+theory (DER013, DER014, RES088).
 
 The manuscript's polarization projection is defined with the field-free electron
 velocity. The author confirmed on 2026-09-06 that Stage 2 uses that velocity directly
@@ -1079,6 +1089,11 @@ derivations (A3).
 - **v0.41**: Add per-panel persistent GUI defaults and per-axis output range policy.
   Auto remains the default and is always displayed; manual bounds replace only named
   axes, including a narrower energy grid for collimated spectra (RES089).
+- **v0.40**: Apply the author-selected beaming-cone closure to the nonlinear resonance:
+  replace the observation direction in the ponderomotive angular coefficient by each
+  electron's beta=1 direction, giving P = (1 - e dot n0)/2 multiplying `ahat`. Require
+  NumPy, CUDA, delta references, inverse Jacobian and support bounds to use the same
+  correlated incidence/Doppler convention (§9.3).
 - **v0.39**: Make GammaForge operationally independent of ComptonSuite. Retire the
   transitional subprocess bridge and committed snapshots; validation now relies on the
   native analytical, delta, xigma, and kascade legs, closed-form identities, convergence,

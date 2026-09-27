@@ -243,8 +243,12 @@ def _define_kernel(capacity=32):
         if s <= CP_ZERO:
             skip = True
         else:
-            rmin_g = cp.sqrt(cp.maximum(CP_ZERO, doppler_lo / s - (CP_ONE + ahat_max) / gamma_lo**2))
-            rmax_g = cp.sqrt(cp.maximum(CP_ZERO, doppler_hi / s - (CP_ONE + ahat_min) / gamma_hi**2))
+            rmin_g = cp.sqrt(cp.maximum(
+                CP_ZERO, doppler_lo / s - (CP_ONE + ahat_max) / gamma_lo**2
+            ))
+            rmax_g = cp.sqrt(cp.maximum(
+                CP_ZERO, doppler_hi / s - (CP_ONE + ahat_min) / gamma_hi**2
+            ))
 
             rmin_r = cp.sqrt(max(cp.abs(box_x0) - dx, CP_ZERO) ** 2 + max(cp.abs(box_y0) - dy, CP_ZERO) ** 2)
 
@@ -505,7 +509,8 @@ def _define_kernel(capacity=32):
                                 for ai2 in jit.range(CP_INT(n_a0)):
                                     a0_val = ahat_eval_points[ai2]
                                     a0_width = ahat_widths[ai2]
-                                    g_sq = (CP_ONE + a0_val) / inv_base
+                                    A = CP_ONE + a0_val
+                                    g_sq = A / inv_base
                                     g = cp.sqrt(g_sq)
 
                                     if g >= gamma_min + gamma_width / 2 and g <= gamma_min + gamma_width * (CP_FLOAT(n_gamma) - CP_FLOAT(0.5)):
@@ -517,7 +522,7 @@ def _define_kernel(capacity=32):
                                             xi00, xi11,
                                         )
                                         # Energy scaling precedes H multiplication to avoid overflow (RES069).
-                                        prefac = doppler * (g**5 / (s * s)) * pol_factor * gth_sq_inv / (CP_ONE + a0_val)
+                                        prefac = doppler * (g**5 / (s * s)) * pol_factor * gth_sq_inv / A
 
                                         Gf = (g - gamma_min) / gamma_width - CP_FLOAT(0.5)
                                         gi2 = CP_INT(cp.floor(Gf))

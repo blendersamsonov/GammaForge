@@ -112,6 +112,8 @@ class Collision:
             )
             for values in (samples.gamma, samples.theta_x, samples.theta_y, samples.a0_shape, samples.luminosity):
                 values.setflags(write=False)
+            if samples.incident_axis is not None:
+                samples.incident_axis.setflags(write=False)
             if samples.diagnostics is not None:
                 diagnostic = samples.diagnostics
                 arrays = (diagnostic.t_edges, diagnostic.time_envelope, diagnostic.spatial_envelope,

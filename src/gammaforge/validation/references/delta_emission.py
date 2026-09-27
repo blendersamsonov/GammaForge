@@ -31,8 +31,9 @@ def emission_lines(samples: TrajectorySamples, theta_x: float, theta_y: float, *
     ``photon_energy`` is the incident laser photon energy in CGS erg. ``nominal``
     uses the historical nominal-axis factor; ``particle`` uses exact finite speed;
     ``direction`` uses each electron's direction at beta=1, matching xigma (RES082).
-    All three intentionally share Stage-0
-    luminosity weights so this remains a bounded emission-reference check.
+    In every mode the coefficient multiplying ``ahat`` uses that beta=1 electron
+    direction (DER014, RES088). All three intentionally share Stage-0 luminosity weights
+    so this remains a bounded emission-reference check.
     """
     _ld_guard()
     if doppler not in ("nominal", "particle", "direction"):
@@ -70,14 +71,17 @@ def emission_lines(samples: TrajectorySamples, theta_x: float, theta_y: float, *
     u1 = np.cross(n, np.cross(n - v, e1)) / d[:, None]
     eps2 = np.longdouble(ellipticity) ** 2
     pol = (np.sum(u0*u0, axis=1) + eps2*np.sum(u1*u1, axis=1)) / (1 + eps2)
-    den = 1 + ahat + gamma**2*r2
-    c = (1 + np.cos(np.longdouble(theta_xz))*np.cos(np.longdouble(theta_yz))) / 2
+    nominal_encounter = 1 + np.cos(np.longdouble(theta_xz))*np.cos(np.longdouble(theta_yz))
     if doppler == "nominal":
-        energies = 4*np.longdouble(photon_energy)*c*gamma**2/den
+        encounter = np.full_like(gamma, nominal_encounter)
     elif doppler == "direction":
-        energies = 2*np.longdouble(photon_energy)*direction_factor*gamma**2/den
+        encounter = direction_factor
     else:
-        energies = 2*np.longdouble(photon_energy)*(1-np.sum(v*n0, axis=1))*gamma**2/den
+        encounter = 1-np.sum(v*n0, axis=1)
+    # The diagnostic numerator mode does not change the author-selected beta=1
+    # beaming-cone coefficient multiplying ahat (DER014, RES088).
+    den = 1 + 0.5*direction_factor*ahat + gamma**2*r2
+    energies = 2*np.longdouble(photon_energy)*encounter*gamma**2/den
     weights = (3/(2*np.pi))*lum*pol*gamma**2/(1+gamma**2*r2)**2
     if np.any(~np.isfinite(energies)) or np.any(~np.isfinite(weights)):
         raise ValueError("reference emission calculation produced non-finite values")

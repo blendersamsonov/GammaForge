@@ -123,3 +123,11 @@ Measured effect: the fourth `run.py::identity_checks` leg (RES029) and the
 populate only a handful of the 32 target bins. Cost: `n_bins_ahat`'s default moving 12 ->
 32, and its meaning shifting from direct-deposit bin count to retarget target-grid bin
 count, is a behavior change for any existing config relying on the old default.
+
+## Amendments
+
+> **2026-09-23 — Shape coordinate extended by RES088.** The peak-independent fourth
+> coordinate is now $P a_{0,\mathrm{shape}}$, with the per-trajectory incidence factor
+> deposited before retargeting. The cache/regrid architecture and mass-preserving scale
+> remain unchanged; the resulting Table coordinate now represents $P\hat a$ rather than
+> raw $\hat a$.

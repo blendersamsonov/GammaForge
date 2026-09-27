@@ -68,3 +68,11 @@ Author verification: A. Samsonov explicitly confirmed DER013 as verified on
 2026-09-13. Together with the symbolic and numerical checks above, this completes
 the derivation confidence pipeline. Broader arbitrary-angle scientific acceptance
 remains a separate validation task (RES074).
+
+## Amendments
+
+> **2026-09-23 — Nonlinear incidence coefficient extended by DER014.** The derivation's
+> direction-Doppler algebra and linear limit remain current. For nonzero $\hat a$, the
+> author-selected beaming-cone model replaces $A=1+\hat a$ by
+> $A_P=1+[(1-\mathbf e\cdot\mathbf n_0)/2]\hat a$; DER014 derives and verifies that
+> extension.

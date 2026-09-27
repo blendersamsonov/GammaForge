@@ -118,14 +118,16 @@ print(f"Engine 2: '{analytical.name}', outputs: {[o.name for o in analytical.sup
 #                                ▼
 # ┌─────────────────────────────────────────────────────────────┐
 # │ Stage 1: deposit_shape_table() -> ShapeTable                │
-# │ Bins particles into 4D space (gamma, thx, thy, a0_shape).  │
-# │ Completely peak-a0-agnostic!                                │
+# │ Bins (gamma, thx, thy, P*a0_shape), with                    │
+# │ P=(1-e·n0)/2 evaluated for every trajectory.                │
+# │ The coordinate remains peak-intensity-agnostic.             │
 # └──────────────────────────────┬──────────────────────────────┘
 #                                │
 #                                ▼
 # ┌─────────────────────────────────────────────────────────────┐
 # │ Stage 1.5: retarget_ahat() -> Table                         │
-# │ Scales normalized shape to the physical pulse intensity <a²>│
+# │ Scales the shape to the physical P*ahat coordinate.         │
+# │ Stage 2 consumes it directly; it does not reapply P.        │
 # └──────────────────────────────┬──────────────────────────────┘
 #                                │
 #                                ▼

@@ -73,3 +73,10 @@ A. Samsonov explicitly confirmed DER013 as verified. Its status now combines aut
 verification with the existing symbolic and numerical implementation checks. The
 author-review thread recorded above is closed; broader arbitrary-angle scientific
 acceptance remains open.
+
+## Amendments
+
+> **2026-09-23 — Nonlinear denominator extended by RES088.** RES082's Doppler factor,
+> encounter flux, Jacobian placement, and linear spectrum remain current. RES088 uses
+> the same electron direction to add the correlated ponderomotive coefficient
+> $P=(1-\mathbf e\cdot\mathbf n_0)/2$ multiplying `ahat`.

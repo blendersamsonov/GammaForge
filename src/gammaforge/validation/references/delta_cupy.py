@@ -79,7 +79,8 @@ def _line_kernel():
             const double encounter = mode == 0 ? 1.0+cx*cy
                                    : 1.0-(mode == 1 ? beta : 1.0)*incident;
             const double r2 = (tx-ox)*(tx-ox)+(ty-oy)*(ty-oy);
-            energy = 2.0*photon*encounter*g*g/(1.0+a+g*g*r2);
+            const double ponderomotive = 0.5*(1.0-incident);
+            energy = 2.0*photon*encounter*g*g/(1.0+ponderomotive*a+g*g*r2);
             weight = (3.0/(2.0*3.14159265358979323846))*lum*pol*g*g
                      / ((1.0+g*g*r2)*(1.0+g*g*r2));
         }
