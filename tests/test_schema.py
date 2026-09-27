@@ -8,6 +8,7 @@ pytestmark = [pytest.mark.tier0, pytest.mark.fast]
 
 from gammaforge.io.schema import FieldKind, FieldSpec, Parameters
 from gammaforge.io.units import TimeConvention, WidthConvention
+from gammaforge.engines.xigma.schema import default_parameters as xigma_parameters
 
 
 SIGMA_X = FieldSpec(
@@ -59,3 +60,14 @@ def test_display_conversions_round_trip_without_changing_physics():
 
 def test_duration_can_be_entered_as_a_length_via_light_time():
     assert DURATION.to_core(3e-4, "cm") == pytest.approx(3e-4 / 29979245800.0)
+
+
+def test_xigma_reduced_dimension_axes_accept_one_bin():
+    params = xigma_parameters().with_values(
+        n_bins_a0_shape=1,
+        n_bins_chirp=1,
+        n_bins_ahat=1,
+    )
+    assert params.get_int("n_bins_a0_shape") == 1
+    assert params.get_int("n_bins_chirp") == 1
+    assert params.get_int("n_bins_ahat") == 1

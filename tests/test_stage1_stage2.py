@@ -172,6 +172,17 @@ def test_constant_chirp_collapses_to_one_exact_evaluation_bin(scheme):
     np.testing.assert_array_equal(table.chirp_eval_points, np.array([1.0]))
 
 
+def test_single_nonlinear_and_chirp_bins_produce_an_effective_3d_table():
+    samples = _synthetic_samples(n=100)
+    shape = deposit_shape_table(samples, n_bins=(4, 4, 4, 1, 1))
+    assert shape.H.shape == (4, 4, 4, 1, 1)
+
+    table = retarget_ahat(shape, samples.intensity_peak, n_bins=1)
+    assert table.H.shape == (4, 4, 4, 1, 1)
+    np.testing.assert_array_equal(table.ahat_eval_points, np.array([0.0]))
+    np.testing.assert_array_equal(table.chirp_eval_points, np.array([1.0]))
+
+
 def test_deposit_uses_raw_shape_independent_of_observation_geometry():
     samples = TrajectorySamples(
         gamma=np.full(3, 2000.0),

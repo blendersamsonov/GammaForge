@@ -73,7 +73,7 @@ XIGMA_SPECS: tuple[FieldSpec, ...] = (
         unit=DIMENSIONLESS,
         default=96,
         integer=True,
-        value_range=(2, 512),
+        value_range=(1, 512),
     ),
     FieldSpec(
         key="n_bins_chirp",
@@ -82,7 +82,7 @@ XIGMA_SPECS: tuple[FieldSpec, ...] = (
         unit=DIMENSIONLESS,
         default=8,
         integer=True,
-        value_range=(2, 512),
+        value_range=(1, 512),
     ),
     FieldSpec(
         key="n_bins_ahat",
@@ -91,7 +91,7 @@ XIGMA_SPECS: tuple[FieldSpec, ...] = (
         unit=DIMENSIONLESS,
         default=32,
         integer=True,
-        value_range=(2, 512),
+        value_range=(1, 512),
     ),
     FieldSpec(
         key="ahat_min",

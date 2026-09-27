@@ -166,6 +166,9 @@ print(f"  Mean intensity-shape variance: {samples.var_a_shape.mean():.4e}")
 # Stage 1/1.5 now always expose five axes. This unchirped Gaussian pulse has exactly
 # C̄=1, so its carrier-rate axis collapses to one evaluation bin rather than paying for
 # the configured n_bins_chirp bins.
+# All three nonlinear/carrier controls accept one bin. Setting n_bins_a0_shape,
+# n_bins_chirp, and n_bins_ahat to 1 yields an effectively 3D table; the retargeted
+# ahat bin is evaluated at zero, explicitly selecting the linear-emission limit.
 shape_table = collision._shape()
 table = collision._table()
 print(f"  ShapeTable axes: {shape_table.H.shape}")
