@@ -203,19 +203,6 @@ def observer_ponderomotive_factor(
     return observer_encounter / electron_encounter
 
 
-def ponderomotive_incidence_factor(
-    theta_x, theta_y, theta_xz=0.0, theta_yz=0.0, *, k_hat=None
-):
-    """Legacy RES088 coefficient, retained only as a historical documentation resolver.
-
-    Production physics uses :func:`observer_ponderomotive_factor`; this helper is neither
-    exported nor called by any production path.
-    """
-    n0 = _incident_axis(theta_xz, theta_yz) if k_hat is None else np.asarray(k_hat, dtype=float)
-    nominal = 1.0 - n0[2]
-    return 0.5 * nominal * direction_doppler_factor(theta_x, theta_y, k_hat=n0)
-
-
 def doppler_factor_per_particle(
     gamma: np.ndarray,
     theta_x: np.ndarray,
