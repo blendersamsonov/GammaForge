@@ -16,7 +16,10 @@ gpu = pytest.mark.skipif(not is_gpu_available(), reason="CUDA unavailable")
 def samples(gamma=2000., tx=0., ty=0., ahat=0., lum=1.):
     arrays = np.broadcast_arrays(*[np.atleast_1d(np.asarray(x, dtype=float))
                                    for x in (gamma, tx, ty, ahat, lum)])
-    return stages.TrajectorySamples(*arrays, 1., 1)
+    zeros = np.zeros_like(arrays[0])
+    return stages.TrajectorySamples(
+        *arrays, 1., 1, np.ones_like(arrays[0]), zeros, zeros, zeros
+    )
 
 
 @gpu

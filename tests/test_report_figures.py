@@ -43,6 +43,10 @@ def test_effective_gamma_linear_table_conserves_mass_and_bins_partition():
         rng.uniform(.1, 1., n),
         .04,
         0,
+        np.ones(n),
+        np.zeros(n),
+        np.zeros(n),
+        np.zeros(n),
     )
     exact_linear = linearized(samples)
     assert np.count_nonzero(exact_linear.a0_shape) == 0

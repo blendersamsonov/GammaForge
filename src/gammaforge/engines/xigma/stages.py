@@ -12,9 +12,10 @@ here, so validation can call these directly and a stage can be reasoned about wi
 knowing what cached it.
 
 **The engine calls the laser; it does not model it** (§4.2, P15). Stage 0 samples
-``intensity_profile`` — the cycle-averaged ``<a^2>`` — along each trajectory through the
-`LaserField` protocol and needs nothing else from it: no envelope formula, no Gaussian
-assumption, no spot sizes. The photon density follows by inverting the same
+``intensity_profile`` — the cycle-averaged ``<a^2>`` — and the explicit additional
+``carrier_phase_four_gradient`` along each trajectory through the `LaserField` protocol;
+it assumes no envelope formula, Gaussian shape, or spot sizes. The photon density follows
+by inverting the same
 energy→intensity chain the laser used to produce it (:func:`photon_density_scale`), so a
 future non-Gaussian `LaserField` drops in with no change here.
 
@@ -803,21 +804,19 @@ class TrajectorySamples:
     ``luminosity`` is the plan's per-particle ``L`` — the photon weight this macroparticle
     deposits, integrated over its passage through the pulse. Summing it is the total yield.
 
-    ``a0_shape`` is **not** the trajectory-averaged effective intensity ``ahat``; it is
-    the paper's ``int|E|**4 / int|E|**2`` — ``ahat``'s intensity-independent shape factor,
-    computed without reference to any actual pulse strength. That is what lets one Stage 0
-    run be retargeted to a different pulse energy without rerunning it (§5's
-    `REUSE_INTERMEDIATES` tier). :func:`ahat_from_shape` is the only route from here to
-    ``ahat``.
+    ``a0_shape`` is **not** an amplitude or the trajectory-averaged effective intensity
+    ``ahat``. It is the normalized cycle-averaged-intensity shape
+    ``integral(C r**2) / integral(C r)``, where ``r = <a**2>/<a**2>_peak``.
+    :func:`ahat_from_shape` is the only route from here to ``ahat``.
+
+    ``chirp_mean``, ``var_a_shape``, ``var_chirp``, and ``cov_a_chirp_shape`` are the
+    strength-independent carrier/intensity moments defined by the chirped resonance
+    model. The variance and covariance of physical ``q`` at another peak intensity follow
+    from :meth:`retargeted_var_a` and :meth:`retargeted_cov_a_chirp`.
 
     ``intensity_peak`` is the peak **cycle-averaged** ``<a^2>``, not a peak ``a0``; nothing
     in this dataclass carries a polarization convention, because ``<a^2>`` at fixed pulse
     energy does not depend on one (RES054).
-
-    ``incident_axis`` records the laser propagation direction used for this trajectory
-    integration. Stage 1 combines it with each electron direction when depositing the
-    incidence-weighted nonlinear shape (DER014, RES088). Manually constructed samples
-    may omit it only for the head-on default.
 
     It is one scalar per particle rather than a per-timestep distribution, and that is
     physics, not an optimization: in this weakly nonlinear regime the photon formation
@@ -833,8 +832,11 @@ class TrajectorySamples:
     luminosity: np.ndarray
     intensity_peak: float
     n_steps: int
+    chirp_mean: np.ndarray
+    var_a_shape: np.ndarray
+    var_chirp: np.ndarray
+    cov_a_chirp_shape: np.ndarray
     diagnostics: TrajectoryDiagnostics | None = None
-    incident_axis: np.ndarray | None = None
 
     @property
     def n_particles(self) -> int:
@@ -850,6 +852,14 @@ class TrajectorySamples:
     def retargeted_ahat(self, intensity_peak: float) -> np.ndarray:
         """``ahat`` for a pulse of a different peak ``<a^2>``, no rerun needed."""
         return ahat_from_shape(self.a0_shape, intensity_peak)
+
+    def retargeted_var_a(self, intensity_peak: float) -> np.ndarray:
+        """Trajectory variance of physical ``q`` at another peak ``<a^2>``."""
+        return float(intensity_peak) ** 2 * self.var_a_shape
+
+    def retargeted_cov_a_chirp(self, intensity_peak: float) -> np.ndarray:
+        """Trajectory covariance of physical ``q`` and ``C`` at another peak."""
+        return float(intensity_peak) * self.cov_a_chirp_shape
 
     def retargeted_luminosity(self, intensity_peak: float) -> np.ndarray:
         """``luminosity`` for a pulse of a different peak ``<a^2>``, no rerun needed.
@@ -980,41 +990,105 @@ def integrate_trajectories(
         k_hat = _incident_axis(metrics.m("theta_xz"), metrics.m("theta_yz"))
     # Use the same per-electron encounter factor as the resonance (DER013, RES082).
     rel_vel = (1.0 - k_hat[2]) * direction_doppler_factor(bunch.thx, bunch.thy, k_hat=k_hat)
+    if np.any(rel_vel <= 64.0 * np.finfo(float).eps):
+        raise ValueError(
+            "electron-laser encounter factor is too small; co-propagation is outside xigma's regime"
+        )
     rate = rel_vel * density_scale * C_CGS * SIGMA_T_CGS
+    omega0 = float(laser.omega0())
 
     def integrate(first_index: int, last_index: int):
         sl = slice(first_index, last_index)
         local_span = xp.asarray(span[sl])
         local_rate = xp.asarray(rate[sl])
+        local_encounter = xp.asarray(rel_vel[sl])
         local_weight = xp.asarray(weight[sl])
         times = xp.asarray(start[sl, None]) + offsets[None, :] * local_span[:, None]
-        positions = tuple(xp.asarray(position[sl, None]) + xp.asarray(speed[sl, None]) * times
-                          for position, speed in zip((bunch.x, bunch.y, bunch.z), velocity))
+        local_velocity = tuple(xp.asarray(speed[sl, None]) for speed in velocity)
+        positions = tuple(
+            xp.asarray(position[sl, None]) + speed * times
+            for position, speed in zip((bunch.x, bunch.y, bunch.z), local_velocity)
+        )
         # `<a^2>`, not `a0`: everything below is a functional of the cycle-averaged
         # intensity, polarization-agnostic at fixed pulse energy (RES054). Do not form `a0`
         # and square it here — that's where RES053's missing factor of two hid.
         intensity = xp.asarray(laser.intensity_profile(*positions, times))
+        phase_gradient = laser.carrier_phase_four_gradient(*positions, times)
+        if not isinstance(phase_gradient, (tuple, list)) or len(phase_gradient) != 4:
+            raise TypeError(
+                "carrier_phase_four_gradient must return (d_t, d_x, d_y, d_z)"
+            )
+        d_t, d_x, d_y, d_z = xp.broadcast_arrays(
+            *(xp.asarray(component, dtype=float) for component in phase_gradient)
+        )
+        carrier_ratio = 1.0 + (
+            d_t
+            + local_velocity[0] * d_x
+            + local_velocity[1] * d_y
+            + local_velocity[2] * d_z
+        ) / (omega0 * local_encounter[:, None])
         # The photon density an electron flies through, and the rate it scatters at.
         # In CGS this is simply flux x cross-section x time; no coordinate-normalization
         # Jacobian belongs here (RES015).
         dt = local_span / n_steps
-        luminosity = local_rate * local_weight * dt * xp.sum(intensity, axis=1)
+        contributing = (intensity > 0.0) & (dt[:, None] > 0.0)
+        if xp.any(contributing & ((carrier_ratio <= 0.0) | ~xp.isfinite(carrier_ratio))):
+            raise ValueError(
+                "encountered carrier phase ratio C must be finite and positive over contributing samples"
+            )
+        carrier_ratio = xp.where(contributing, carrier_ratio, 1.0)
+        weighted_intensity = carrier_ratio * intensity
+        luminosity = local_rate * local_weight * dt * xp.sum(weighted_intensity, axis=1)
 
         # `ratio` is the local intensity as a fraction of the pulse's peak. a0_shape is its
         # second moment over the trajectory, normalized by its first: the intensity an
         # electron *effectively* experiences, weighted by where it actually radiated. Being
         # a ratio of intensities, it is polarization-agnostic like everything else here.
         ratio = intensity / intensity_peak
-        moment_1 = xp.sum(ratio, axis=1)
+        weighted_ratio = carrier_ratio * ratio
+        moment_1 = xp.sum(weighted_ratio, axis=1)
         # A particle with no window saw nothing, whatever the envelope reads at the
         # anchor time above; its effective intensity is zero, not the value at t = 0.
         usable = (moment_1 > 0.0) & (dt > 0.0)
+        safe_moment_1 = xp.maximum(moment_1, 1e-300)
         a0_shape = xp.where(
-            usable, xp.sum(ratio**2, axis=1) / xp.maximum(moment_1, 1e-300), 0.0
+            usable, xp.sum(carrier_ratio * ratio**2, axis=1) / safe_moment_1, 0.0
+        )
+        chirp_mean = xp.where(
+            usable, xp.sum(carrier_ratio**2 * ratio, axis=1) / safe_moment_1, 0.0
+        )
+        second_a = xp.sum(carrier_ratio * ratio**3, axis=1) / safe_moment_1
+        second_chirp = xp.sum(carrier_ratio**3 * ratio, axis=1) / safe_moment_1
+        var_a_shape_raw = xp.where(usable, second_a - a0_shape**2, 0.0)
+        var_chirp_raw = xp.where(usable, second_chirp - chirp_mean**2, 0.0)
+
+        def checked_variance(raw, second, mean_squared, name):
+            scale = xp.maximum(xp.maximum(xp.abs(second), xp.abs(mean_squared)), 1.0)
+            tolerance = 64.0 * np.finfo(float).eps * scale
+            if xp.any(usable & (raw < -tolerance)):
+                raise ValueError(f"{name} is materially negative")
+            return xp.where(raw < 0.0, 0.0, raw)
+
+        var_a_shape = checked_variance(
+            var_a_shape_raw, second_a, a0_shape**2, "var_a_shape"
+        )
+        var_chirp = checked_variance(
+            var_chirp_raw, second_chirp, chirp_mean**2, "var_chirp"
+        )
+        cov_a_chirp_shape = xp.where(
+            usable,
+            xp.sum(carrier_ratio**2 * ratio**2, axis=1) / safe_moment_1
+            - a0_shape * chirp_mean,
+            0.0,
         )
         time_mass = spatial_mass = None
         if t_edges is not None or spatial_edges is not None:
-            contribution = local_rate[:, None] * local_weight[:, None] * dt[:, None] * intensity
+            contribution = (
+                local_rate[:, None]
+                * local_weight[:, None]
+                * dt[:, None]
+                * weighted_intensity
+            )
             if t_edges is not None:
                 # Direct bin sums avoid subtracting large cumulative masses in dim tails.
                 index = xp.searchsorted(xp.asarray(t_edges), times.ravel(), side="right") - 1
@@ -1026,8 +1100,19 @@ def integrate_trajectories(
                 x, y = positions[:2]
                 spatial_mass = xp.histogram2d(x.ravel(), y.ravel(), bins=tuple(xp.asarray(edge) for edge in spatial_edges),
                                              weights=contribution.ravel())[0]
-        return tuple(None if value is None else to_host(value)
-                     for value in (luminosity, a0_shape, time_mass, spatial_mass))
+        return tuple(
+            None if value is None else to_host(value)
+            for value in (
+                luminosity,
+                a0_shape,
+                chirp_mean,
+                var_a_shape,
+                var_chirp,
+                cov_a_chirp_shape,
+                time_mass,
+                spatial_mass,
+            )
+        )
 
     parts = run_in_chunks(
         bunch.n_particles,
@@ -1048,19 +1133,27 @@ def integrate_trajectories(
     if parts:
         luminosity = np.concatenate([part[0] for part in parts])
         a0_shape = np.concatenate([part[1] for part in parts])
+        chirp_mean = np.concatenate([part[2] for part in parts])
+        var_a_shape = np.concatenate([part[3] for part in parts])
+        var_chirp = np.concatenate([part[4] for part in parts])
+        cov_a_chirp_shape = np.concatenate([part[5] for part in parts])
     else:
         luminosity = np.zeros(0, dtype=np.float64)
         a0_shape = np.zeros(0, dtype=np.float64)
+        chirp_mean = np.zeros(0, dtype=np.float64)
+        var_a_shape = np.zeros(0, dtype=np.float64)
+        var_chirp = np.zeros(0, dtype=np.float64)
+        cov_a_chirp_shape = np.zeros(0, dtype=np.float64)
 
     diagnostics = None
     if t_edges is not None or spatial_edges is not None:
         time_envelope = spatial_envelope = None
         if t_edges is not None:
-            mass = sum((part[2] for part in parts), np.zeros(t_edges.size - 1))
+            mass = sum((part[6] for part in parts), np.zeros(t_edges.size - 1))
             time_envelope = mass / np.diff(t_edges)
         if spatial_edges is not None:
             x_edges, y_edges = spatial_edges
-            mass = sum((part[3] for part in parts),
+            mass = sum((part[7] for part in parts),
                        np.zeros((x_edges.size - 1, y_edges.size - 1)))
             spatial_envelope = mass / (np.diff(x_edges)[:, None] * np.diff(y_edges)[None, :])
         diagnostics = TrajectoryDiagnostics(t_edges, time_envelope, spatial_edges, spatial_envelope)
@@ -1073,8 +1166,11 @@ def integrate_trajectories(
         luminosity=luminosity,
         intensity_peak=intensity_peak,
         n_steps=n_steps,
+        chirp_mean=chirp_mean,
+        var_a_shape=var_a_shape,
+        var_chirp=var_chirp,
+        cov_a_chirp_shape=cov_a_chirp_shape,
         diagnostics=diagnostics,
-        incident_axis=np.asarray(k_hat, dtype=float),
     )
 
 

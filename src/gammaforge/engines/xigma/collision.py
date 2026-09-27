@@ -110,10 +110,18 @@ class Collision:
                 t_edges=t_edges,
                 spatial_edges=spatial_edges,
             )
-            for values in (samples.gamma, samples.theta_x, samples.theta_y, samples.a0_shape, samples.luminosity):
+            for values in (
+                samples.gamma,
+                samples.theta_x,
+                samples.theta_y,
+                samples.a0_shape,
+                samples.luminosity,
+                samples.chirp_mean,
+                samples.var_a_shape,
+                samples.var_chirp,
+                samples.cov_a_chirp_shape,
+            ):
                 values.setflags(write=False)
-            if samples.incident_axis is not None:
-                samples.incident_axis.setflags(write=False)
             if samples.diagnostics is not None:
                 diagnostic = samples.diagnostics
                 arrays = (diagnostic.t_edges, diagnostic.time_envelope, diagnostic.spatial_envelope,

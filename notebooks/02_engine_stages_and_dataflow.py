@@ -112,7 +112,8 @@ print(f"Engine 2: '{analytical.name}', outputs: {[o.name for o in analytical.sup
 # ┌─────────────────────────────────────────────────────────────┐
 # │ Stage 0: integrate_trajectories() -> TrajectorySamples     │
 # │ Tracks each macroparticle through the laser pulse:          │
-# │ evaluates local a0, angles, and luminosity weights          │
+# │ weights photons by C⟨a²⟩ and records a0_shape, C̄,          │
+# │ Var(a), Var(C), and Cov(a,C) trajectory moments             │
 # └──────────────────────────────┬──────────────────────────────┘
 #                                │
 #                                ▼
@@ -154,9 +155,11 @@ samples = collision.build_overlap()
 t1 = time.perf_counter()
 print(f"Stage 0 complete in {(t1 - t0)*1000:.2f} ms")
 print(f"  Trajectory samples: {len(samples.gamma)} particles")
-print(f"  Peak a0 encountered: {samples.a0_shape.max():.4f}")
+print(f"  Maximum normalized intensity shape: {samples.a0_shape.max():.4f}")
 print(f"  Mean gamma: {samples.gamma.mean():.2f}")
 print(f"  Luminosity sum: {samples.luminosity.sum():.4e}")
+print(f"  Carrier correction range: {samples.chirp_mean.min():.4f} .. {samples.chirp_mean.max():.4f}")
+print(f"  Mean intensity-shape variance: {samples.var_a_shape.mean():.4e}")
 
 # Stokes parameters in smooth laboratory observer basis (DER007, RES073)
 stokes = collision.stokes_parameters(theta_x=0.0, theta_y=0.0)

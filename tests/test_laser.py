@@ -83,6 +83,16 @@ def test_photon_density_integrates_to_one_over_space():
     assert total == pytest.approx(1.0, rel=1e-4)
 
 
+def test_unchirped_laser_returns_zero_additional_phase_gradient_with_broadcasting():
+    laser = make_laser()
+    gradient = laser.carrier_phase_four_gradient(
+        np.zeros((2, 1)), np.zeros((1, 3)), 0.0, np.arange(3)[None, :]
+    )
+    assert len(gradient) == 4
+    for component in gradient:
+        np.testing.assert_array_equal(component, np.zeros((2, 3)))
+
+
 def test_a0_matches_the_textbook_intensity_relation():
     # a0 = 8.55e-10 * lambda[um] * sqrt(I[W/cm^2]) for linear polarization. Derived here
     # from CGS-Gaussian first principles, so agreement checks the whole chain.
@@ -395,6 +405,9 @@ def test_quasi_monochromatic_conforming_laser_runs_without_gaussian_fitter():
 
         def intensity_profile(self, x, y, z, t):
             return self._inner.intensity_profile(x, y, z, t)
+
+        def carrier_phase_four_gradient(self, x, y, z, t):
+            return self._inner.carrier_phase_four_gradient(x, y, z, t)
 
         def a0_profile(self, x, y, z, t):
             return self._inner.a0_profile(x, y, z, t)

@@ -48,12 +48,31 @@ def test_stage0_runs_on_device_and_matches_source_diagnostics(pulse_train, chunk
     actual = stages.integrate_trajectories(inputs.bunch,ObservedLaser(),inputs.N_e,
                                          backend='cupy',chunk=chunk,**kwargs)
     assert seen and max(seen)<=chunk
-    for a,b in [(actual.luminosity,cpu.luminosity),(actual.a0_shape,cpu.a0_shape),
-                (actual.diagnostics.time_envelope,cpu.diagnostics.time_envelope),
-                (actual.diagnostics.spatial_envelope,cpu.diagnostics.spatial_envelope)]:
+    for a,b in [
+        (actual.luminosity, cpu.luminosity),
+        (actual.a0_shape, cpu.a0_shape),
+        (actual.chirp_mean, cpu.chirp_mean),
+        (actual.var_a_shape, cpu.var_a_shape),
+        (actual.var_chirp, cpu.var_chirp),
+        (actual.cov_a_chirp_shape, cpu.cov_a_chirp_shape),
+        (actual.diagnostics.time_envelope, cpu.diagnostics.time_envelope),
+        (actual.diagnostics.spatial_envelope, cpu.diagnostics.spatial_envelope),
+    ]:
         assert isinstance(a,np.ndarray)
         np.testing.assert_allclose(a,b,rtol=2e-11,atol=2e-14*np.max(abs(b)))
     assert isinstance(inputs.bunch.x,np.ndarray)
+
+
+@gpu
+def test_carrier_phase_gradient_broadcasts_on_device():
+    cp = spectrum_sampler.cp
+    laser = interaction().laser
+    gradient = laser.carrier_phase_four_gradient(
+        cp.zeros((2, 1)), cp.zeros((1, 3)), 0.0, cp.arange(3)[None, :]
+    )
+    for component in gradient:
+        assert isinstance(component, cp.ndarray)
+        cp.testing.assert_array_equal(component, cp.zeros((2, 3)))
 
 
 @gpu

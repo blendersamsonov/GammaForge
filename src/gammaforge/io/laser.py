@@ -3,7 +3,8 @@
 Two things live here, and the split is the point:
 
 * :class:`LaserField` — the **sampling contract engines are typed against**. Vectorized,
-  lab-frame methods (``intensity_profile``, ``a0_profile``, ``field``, ``active_region``).
+  lab-frame methods (``intensity_profile``, ``carrier_phase_four_gradient``,
+  ``a0_profile``, ``field``, ``active_region``) plus the reference ``omega0``.
   Quasi-monochromatic engines (xigma, kascade) consume field sampling alongside physical
   carrier and polarization invariants; analytical explicitly requires `GaussianParaxialLaser`
   (RES067).
@@ -146,7 +147,7 @@ EMISSION_IS_HEAD_ON = False
 class LaserField(Protocol):
     """What an engine may assume about a laser (§3.3/P15).
 
-    All three methods are **lab-frame** and **array-callable**: pass numpy (or cupy)
+    The sampling methods are **lab-frame** and **array-callable**: pass numpy (or cupy)
     arrays of positions/times and get arrays back, broadcasting normally. Engines call
     these; they never re-implement field physics themselves.
 
@@ -163,6 +164,24 @@ class LaserField(Protocol):
         `GaussianParaxialLaser.intensity_profile`), so a consumer of this never needs to
         know or apply a cycle-average factor.
         """
+        ...
+
+    def carrier_phase_four_gradient(self, x, y, z, t):
+        """Lab-frame derivatives of the additional carrier phase ``delta Phi``.
+
+        The full carrier phase convention is
+        ``Phi_L = omega0 * (t - n0 dot r / c) + delta Phi``. Return the four
+        ordinary derivatives ``(d_t delta Phi, d_x delta Phi, d_y delta Phi,
+        d_z delta Phi)`` in that order, in ``rad/s`` and ``rad/cm`` respectively,
+        broadcasting over NumPy or CuPy inputs.
+        This is an explicit correction beyond the reference plane-wave carrier;
+        it must not implicitly include an implementation's envelope, Gouy, or
+        wavefront-curvature phase.
+        """
+        ...
+
+    def omega0(self) -> float:
+        """Reference carrier angular frequency in radians per second."""
         ...
 
     def a0_profile(self, x, y, z, t):
@@ -599,6 +618,19 @@ class SeparableParaxialLaser:
         density = self.photon_density(x, y, z, t)
         xp = _get_array_module(density)
         return (E_ESU / (ME_CGS * C_CGS * self.omega0())) ** 2 * 4.0 * xp.pi * self.m("pulse_energy") * density
+
+    def carrier_phase_four_gradient(self, x, y, z, t):
+        """Zero additional carrier-phase gradient for the current unchirped fields.
+
+        The paraxial phase used by :meth:`field` and the temporal envelope is
+        deliberately excluded from this API.
+        """
+        xp = _get_array_module(x, y, z, t)
+        shape = xp.broadcast_arrays(
+            xp.asarray(x), xp.asarray(y), xp.asarray(z), xp.asarray(t)
+        )[0].shape
+        zero = xp.zeros(shape, dtype=float)
+        return zero, zero, zero, zero
 
     def a0_profile(self, x, y, z, t):
         """Period-averaged normalized vector-potential envelope."""

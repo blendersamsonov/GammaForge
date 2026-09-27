@@ -172,7 +172,11 @@ fig_3d.show()
 # ## 3. Laser Field Protocol & `GaussianParaxialLaser`
 # 
 # Key architectural principles (`GRAND_PLAN.md §3.3`, Principle P15):
-# 1. **`LaserField` is a protocol**: Engines sample fields via `intensity_profile()`, `field()`, and `active_region()`.
+# 1. **`LaserField` is a protocol**: Engines sample fields via `intensity_profile()`,
+#    `carrier_phase_four_gradient()`, `field()`, and `active_region()`. The four-gradient
+#    is the explicit additional phase in
+#    $\Phi_L=\omega_0(t-\mathbf n_0\cdot\mathbf r/c)+\delta\Phi$; it does not implicitly
+#    include paraxial Gouy or wavefront-curvature phase.
 # 2. **Cycle-averaged intensity $\langle a^2 \rangle$ is the physical quantity**:
 #    At fixed pulse energy, $\langle a^2 \rangle$ is identical regardless of polarization state.
 #    $a_0$ is merely a reported linear-equivalent convention.
@@ -196,6 +200,8 @@ print("Laser parameters:")
 print(f"  Peak a0: {laser.a0_peak():.4f}")
 print(f"  Photon count: {laser.n_photons():.3e}")
 print(f"  Rayleigh range z_R: {laser.rayleigh_x():.4e} cm")
+phase_gradient = laser.carrier_phase_four_gradient(np.zeros(3), 0.0, 0.0, 0.0)
+print(f"  Additional carrier-phase gradient: {[component.tolist() for component in phase_gradient]}")
 
 # Evaluate intensity profile along x at focus and t=0
 x_grid = np.linspace(-60e-4, 60e-4, 100)  # -60 to +60 µm in cm

@@ -68,6 +68,10 @@ def _synthetic_samples(n=20_000, gamma0=2000.0, seed=0, a0_shape=1.0, intensity_
         luminosity=np.full(n, 1e4),
         intensity_peak=intensity_peak,
         n_steps=10,
+        chirp_mean=np.ones(n),
+        var_a_shape=np.zeros(n),
+        var_chirp=np.zeros(n),
+        cov_a_chirp_shape=np.zeros(n),
     )
 
 
@@ -102,7 +106,10 @@ def test_deposit_uses_raw_shape_independent_of_observation_geometry():
         luminosity=np.ones(3),
         intensity_peak=.2,
         n_steps=8,
-        incident_axis=np.array([-.5, .25, -np.sqrt(.6875)]),
+        chirp_mean=np.ones(3),
+        var_a_shape=np.zeros(3),
+        var_chirp=np.zeros(3),
+        cov_a_chirp_shape=np.zeros(3),
     )
     table = deposit_shape_table(samples, n_bins=(2, 3, 3, 6), margin=.02)
 
@@ -110,11 +117,12 @@ def test_deposit_uses_raw_shape_independent_of_observation_geometry():
         table.redshift_shape_edges,
         stages._uniform_edges(samples.a0_shape, 6, .02, floor_zero=True),
     )
+    n0 = np.array([-.5, .25, -np.sqrt(.6875)])
     q_left = stages.observer_ponderomotive_factor(
-        samples.theta_x, samples.theta_y, -.2, .1, k_hat=samples.incident_axis
+        samples.theta_x, samples.theta_y, -.2, .1, k_hat=n0
     )
     q_right = stages.observer_ponderomotive_factor(
-        samples.theta_x, samples.theta_y, .3, -.15, k_hat=samples.incident_axis
+        samples.theta_x, samples.theta_y, .3, -.15, k_hat=n0
     )
     assert not np.allclose(q_left, q_right)
     np.testing.assert_array_equal(samples.a0_shape, np.array([.6, 1.0, 1.4]))
@@ -130,6 +138,10 @@ def test_deposit_handles_a_monoenergetic_zero_divergence_beam():
         luminosity=np.full(n, 1.0),
         intensity_peak=0.045,
         n_steps=10,
+        chirp_mean=np.ones(n),
+        var_a_shape=np.zeros(n),
+        var_chirp=np.zeros(n),
+        cov_a_chirp_shape=np.zeros(n),
     )
     table = deposit_shape_table(samples, n_bins=(8, 8, 8, 4))
     assert np.all(np.isfinite(table.H))

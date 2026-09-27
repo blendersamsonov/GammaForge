@@ -18,6 +18,7 @@ import pytest
 
 pytestmark = [pytest.mark.tier2]
 
+from gammaforge.engines.xigma import stages
 from gammaforge.engines.xigma.stages import (
     relative_velocity,
     doppler_factor_per_particle,
@@ -29,7 +30,7 @@ from gammaforge.engines.xigma.stages import (
     polarization_factor_vectorized,
 )
 from gammaforge.io.interaction import PREFILTER_OFF
-from gammaforge.io.units import Quantity
+from gammaforge.io.units import C_CGS, Quantity
 from gammaforge.validation import scenarios
 from gammaforge.validation.references import delta
 
@@ -88,12 +89,163 @@ def baseline():
 # ---------------------------------------------------------------------------
 def test_stage_0_produces_one_sample_per_macroparticle(baseline):
     assert baseline.n_particles == 2000
-    for values in (baseline.gamma, baseline.theta_x, baseline.theta_y,
-                   baseline.a0_shape, baseline.luminosity):
+    for values in (
+        baseline.gamma,
+        baseline.theta_x,
+        baseline.theta_y,
+        baseline.a0_shape,
+        baseline.luminosity,
+        baseline.chirp_mean,
+        baseline.var_a_shape,
+        baseline.var_chirp,
+        baseline.cov_a_chirp_shape,
+    ):
         assert values.shape == (2000,)
     assert np.all(baseline.luminosity > 0.0)
     assert np.all(np.isfinite(baseline.a0_shape))
     assert baseline.total_yield() > 0.0
+    np.testing.assert_array_equal(baseline.chirp_mean, np.ones(2000))
+    np.testing.assert_array_equal(baseline.var_chirp, np.zeros(2000))
+    np.testing.assert_array_equal(baseline.cov_a_chirp_shape, np.zeros(2000))
+
+
+def _known_profile_samples(monkeypatch, ratio, carrier_ratio, *, theta_x=0.0,
+                           spatial_gradient_x=None, t_edges=None):
+    ratio = np.asarray(ratio, dtype=float)
+    carrier_ratio = np.asarray(carrier_ratio, dtype=float)
+    interaction = scenarios.build(replace(
+        scenarios.BASELINE,
+        sampling=replace(scenarios.BASELINE.sampling, n_particles=1),
+    ))
+    bunch = replace(
+        interaction.bunch,
+        thx=np.array([theta_x]),
+        thy=np.zeros(1),
+    )
+    monkeypatch.setattr(
+        stages,
+        "overlap_time_window",
+        lambda bunch, laser, threshold: (np.zeros(bunch.n_particles), np.ones(bunch.n_particles)),
+    )
+    omega0 = 7.0
+    direction_norm = math.sqrt(1.0 + theta_x**2)
+    encounter = 1.0 + 1.0 / direction_norm
+
+    class KnownProfileLaser:
+        def omega0(self):
+            return omega0
+
+        def intensity_peak(self):
+            return 1.0
+
+        def focusing_axes(self):
+            return np.array([0.0, 0.0, -1.0]), None, None
+
+        def intensity_profile(self, x, y, z, t):
+            index = np.minimum((np.asarray(t) * ratio.size).astype(int), ratio.size - 1)
+            return ratio[index]
+
+        def carrier_phase_four_gradient(self, x, y, z, t):
+            shape = np.broadcast_shapes(
+                np.shape(x), np.shape(y), np.shape(z), np.shape(t)
+            )
+            zero = np.zeros(shape)
+            if spatial_gradient_x is not None:
+                return zero, zero + spatial_gradient_x, zero, zero
+            index = np.minimum(
+                (np.asarray(t) * carrier_ratio.size).astype(int), carrier_ratio.size - 1
+            )
+            d_t = (carrier_ratio[index] - 1.0) * omega0 * encounter
+            return d_t, zero, zero, zero
+
+    return integrate_trajectories(
+        bunch,
+        KnownProfileLaser(),
+        interaction.N_e,
+        n_steps=ratio.size,
+        t_edges=t_edges,
+    )
+
+
+def test_stage0_accumulates_known_carrier_and_intensity_moments(monkeypatch):
+    ratio = np.array([0.2, 0.5, 0.9, 0.4])
+    carrier = np.array([0.8, 1.1, 1.4, 0.9])
+    samples = _known_profile_samples(
+        monkeypatch, ratio, carrier, t_edges=np.linspace(0.0, 1.0, 5)
+    )
+    z = np.sum(carrier * ratio)
+    expected_a = np.sum(carrier * ratio**2) / z
+    expected_c = np.sum(carrier**2 * ratio) / z
+    assert samples.a0_shape[0] == pytest.approx(expected_a, rel=1e-15)
+    assert samples.chirp_mean[0] == pytest.approx(expected_c, rel=1e-15)
+    assert samples.var_a_shape[0] == pytest.approx(
+        np.sum(carrier * ratio**3) / z - expected_a**2, rel=1e-14
+    )
+    assert samples.var_chirp[0] == pytest.approx(
+        np.sum(carrier**3 * ratio) / z - expected_c**2, rel=1e-14
+    )
+    assert samples.cov_a_chirp_shape[0] == pytest.approx(
+        np.sum(carrier**2 * ratio**2) / z - expected_a * expected_c, rel=1e-14
+    )
+    diagnostic_mass = np.sum(
+        samples.diagnostics.time_envelope * np.diff(samples.diagnostics.t_edges)
+    )
+    assert diagnostic_mass == pytest.approx(samples.total_yield(), rel=1e-15)
+
+    brighter = 2.5
+    np.testing.assert_allclose(
+        samples.retargeted_ahat(brighter), brighter * samples.a0_shape
+    )
+    np.testing.assert_allclose(
+        samples.retargeted_var_a(brighter), brighter**2 * samples.var_a_shape
+    )
+    np.testing.assert_allclose(
+        samples.retargeted_cov_a_chirp(brighter),
+        brighter * samples.cov_a_chirp_shape,
+    )
+
+
+def test_unchirped_stage0_moments_are_exact(monkeypatch):
+    ratio = np.array([0.1, 0.4, 0.8, 0.3])
+    samples = _known_profile_samples(monkeypatch, ratio, np.ones_like(ratio))
+    expected_a = np.sum(ratio**2) / np.sum(ratio)
+    np.testing.assert_array_equal(samples.chirp_mean, np.ones(1))
+    np.testing.assert_array_equal(samples.var_chirp, np.zeros(1))
+    np.testing.assert_array_equal(samples.cov_a_chirp_shape, np.zeros(1))
+    assert samples.a0_shape[0] == pytest.approx(expected_a, rel=1e-15)
+    assert samples.var_a_shape[0] == pytest.approx(
+        np.sum(ratio**3) / np.sum(ratio) - expected_a**2, rel=1e-14
+    )
+
+
+def test_flat_intensity_has_zero_shape_variance(monkeypatch):
+    samples = _known_profile_samples(
+        monkeypatch, np.full(4, 0.6), np.array([0.7, 1.0, 1.2, 1.4])
+    )
+    np.testing.assert_array_equal(samples.var_a_shape, np.zeros(1))
+
+
+def test_spatial_phase_gradient_enters_through_particle_velocity(monkeypatch):
+    theta_x = 0.3
+    norm = math.sqrt(1.0 + theta_x**2)
+    encounter = 1.0 + 1.0 / norm
+    expected = 1.25
+    gradient_x = (expected - 1.0) * 7.0 * encounter / (C_CGS * theta_x / norm)
+    samples = _known_profile_samples(
+        monkeypatch,
+        np.ones(4),
+        np.ones(4),
+        theta_x=theta_x,
+        spatial_gradient_x=gradient_x,
+    )
+    np.testing.assert_allclose(samples.chirp_mean, [expected], rtol=1e-15)
+    np.testing.assert_array_equal(samples.var_chirp, np.zeros(1))
+
+
+@pytest.mark.parametrize("carrier", [np.zeros(4), -np.ones(4)])
+def test_nonpositive_encountered_carrier_rate_is_rejected(monkeypatch, carrier):
+    with pytest.raises(ValueError, match="carrier phase ratio C must be finite and positive"):
+        _known_profile_samples(monkeypatch, np.ones(4), carrier)
 
 
 def test_the_chunk_size_cannot_change_the_answer():
@@ -504,6 +656,8 @@ def test_delta_passes_each_particle_direction_to_the_polarization_projection():
     samples = TrajectorySamples(
         gamma=np.array([2000.0]), theta_x=np.array([0.0011]), theta_y=np.array([-0.0007]),
         a0_shape=np.array([1.0]), luminosity=np.array([7.0]), intensity_peak=0.02, n_steps=1,
+        chirp_mean=np.ones(1), var_a_shape=np.zeros(1), var_chirp=np.zeros(1),
+        cov_a_chirp_shape=np.zeros(1),
     )
     theta_x_obs, theta_y_obs = 0.0003, -0.0002
     kwargs = dict(ellipticity=0.35, psi_pol=0.6, theta_xz=0.04, theta_yz=-0.03)
@@ -581,6 +735,9 @@ def test_delta_is_linear_in_charge(baseline):
         gamma=baseline.gamma, theta_x=baseline.theta_x, theta_y=baseline.theta_y,
         a0_shape=baseline.a0_shape, luminosity=2.0 * baseline.luminosity,
         intensity_peak=baseline.intensity_peak, n_steps=baseline.n_steps,
+        chirp_mean=baseline.chirp_mean, var_a_shape=baseline.var_a_shape,
+        var_chirp=baseline.var_chirp,
+        cov_a_chirp_shape=baseline.cov_a_chirp_shape,
     )
     edge = float(np.max(baseline.gamma) ** 2)
     s_edges = np.linspace(0.0, 1.05 * edge, 65)

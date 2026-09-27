@@ -6,8 +6,12 @@ from gammaforge.validation.references.delta_emission import bin_emission, emissi
 
 
 def samples(gamma=2000.0, tx=0.0, ty=0.0, lum=1.0, ahat=0.0):
-    return TrajectorySamples(np.atleast_1d(gamma), np.atleast_1d(tx), np.atleast_1d(ty),
-                             np.atleast_1d(ahat), np.atleast_1d(lum), 1.0, 1)
+    gamma = np.atleast_1d(gamma)
+    zeros = np.zeros_like(gamma)
+    return TrajectorySamples(
+        gamma, np.atleast_1d(tx), np.atleast_1d(ty), np.atleast_1d(ahat),
+        np.atleast_1d(lum), 1.0, 1, np.ones_like(gamma), zeros, zeros, zeros,
+    )
 
 
 def test_headon_resonance_and_signed_ellipticity():
@@ -176,6 +180,7 @@ def test_nominal_headon_matches_legacy_delta_histogram():
     sample_set = TrajectorySamples(
         np.array([1200.0, 2000.0, 2800.0]), np.array([0.0, 0.001, -0.0007]),
         np.array([0.0, -0.0004, 0.0006]), np.zeros(3), np.array([1.0, 0.7, 1.3]), 1.0, 1,
+        np.ones(3), np.zeros(3), np.zeros(3), np.zeros(3),
     )
     laser = 2.5e-7
     s_edges = np.array([0.0, 0.4e6, 1.0e6, 2.0e6, 4.0e6, 9.0e6])

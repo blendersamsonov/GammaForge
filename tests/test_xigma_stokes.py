@@ -270,6 +270,10 @@ def test_bunch_stokes_parameters_empty_samples():
         luminosity=np.empty(0),
         intensity_peak=0.1,
         n_steps=16,
+        chirp_mean=np.empty(0),
+        var_a_shape=np.empty(0),
+        var_chirp=np.empty(0),
+        cov_a_chirp_shape=np.empty(0),
     )
     res = bunch_stokes_parameters(empty_samples)
     assert res == (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
@@ -283,6 +287,8 @@ def test_bunch_stokes_parameters_honors_explicit_basis_and_observer_keywords():
         gamma=np.array([2000.0]), theta_x=np.array([0.0]), theta_y=np.array([0.0]),
         a0_shape=np.array([1.0]), luminosity=np.array([1.0]),
         intensity_peak=0.1, n_steps=16,
+        chirp_mean=np.ones(1), var_a_shape=np.zeros(1), var_chirp=np.zeros(1),
+        cov_a_chirp_shape=np.zeros(1),
     )
     e0, e1 = rotated_laser_axes()
     horizontal = bunch_stokes_parameters(

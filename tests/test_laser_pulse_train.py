@@ -41,12 +41,16 @@ def test_protocol_adherence():
     )
     assert isinstance(laser, LaserField)
     assert hasattr(laser, "intensity_profile")
+    assert hasattr(laser, "carrier_phase_four_gradient")
     assert hasattr(laser, "a0_profile")
     assert hasattr(laser, "field")
     assert hasattr(laser, "active_region")
     assert hasattr(laser, "omega0")
     assert hasattr(laser, "photon_energy")
     assert hasattr(laser, "intensity_peak")
+    for component in laser.carrier_phase_four_gradient(np.zeros((2, 1)), 0.0, 0.0,
+                                                        np.zeros((1, 3))):
+        np.testing.assert_array_equal(component, np.zeros((2, 3)))
 
 
 def test_single_subpulse_equivalence_to_gaussian():
