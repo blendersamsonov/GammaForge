@@ -1,7 +1,7 @@
 # GammaForge browser UI specification
 
 Status: implementation specification, author-directed 2026-09-05.
-Authority: GRAND_PLAN.md v0.41, especially §§3–6. Physics stays in the existing shared
+Authority: GRAND_PLAN.md v0.42, especially §§3–6. Physics stays in the existing shared
 types and engines. This document specifies presentation and local execution only.
 
 ## Launch and execution boundary
@@ -92,8 +92,9 @@ Every row below spans the available pane width.
 
 ## Analytical estimates row
 
-- Always visible below Target/Outputs. Show total yield, total spectral width, and the
-  existing collimation, emittance, energy-spread, and nonlinearity width components.
+- Always visible below Target/Outputs. Show total yield, peak `a0`, total spectral width,
+  and the existing collimation, emittance, energy-spread, and nonlinearity width components.
+  Peak `a0` occupies its own row beneath the total-yield/width row.
 - Re-evaluate after valid input edits using the existing analytical engine; no large
   bunch sampling for a preview. Coalesce edits and discard obsolete preview responses.
 - Preview computation also stays off the event loop: exact quadrature and flying-focus
@@ -130,7 +131,12 @@ Every row below spans the available pane width.
 - For 2D outputs, select among available engines. For collimated spectra, expose
   zero-angle slices, energy-angle projections integrated over the other angle, and
   the spectrum integrated over both collimation angles. Use axis measures, not plain
-  array sums, and preserve density units after display conversion.
+  array sums, and preserve density units after display conversion. Offer an opt-in
+  checkbox that scales each run's angle-integrated spectrum to its own maximum for
+  shape comparison; keep absolute spectral density as the default. Display the
+  collimated yield for every run by integrating the full energy/angle slice; label this
+  absolute count as photons on target, and do not change it when plot normalization is
+  enabled.
 - Browser plots support zoom/pan. Provide PNG/PDF plot export and HDF5 results download;
   attach a YAML input specification to saved calculations. No new save format.
 - Particle output shows photon/final-electron counts and scalar engine diagnostics.

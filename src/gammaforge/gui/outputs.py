@@ -47,6 +47,19 @@ def _run_color(index: int) -> str:
     return _RUN_COLORS[index % len(_RUN_COLORS)]
 
 
+def _normalize_to_peak(values):
+    """Return display values scaled to unit peak, preserving an all-zero curve."""
+    peak = float(values.max())
+    return values / peak if peak > 0.0 else values
+
+
+def _collimated_yield_rows(
+    available: dict[str, tuple[int, PhasespaceSlice]],
+) -> tuple[tuple[str, float], ...]:
+    """Run names and photons inside each collimated spectrum's target acceptance."""
+    return tuple((name, slice_.integrate()) for name, (_, slice_) in available.items())
+
+
 def _plot(figure, *, height: int = 500) -> None:
     """Embed a split-pane-safe Plotly chart without NiceGUI's hidden-pane resize bug."""
     ui = _ui()
@@ -344,9 +357,26 @@ def _render_collimated(available: dict[str, tuple[int, PhasespaceSlice]], view_s
 
     all_names = list(available.keys())
 
+    with ui.card().classes("w-full"):
+        with ui.column().classes("w-full gap-2"):
+            ui.label("Collimated Yield by Run").classes("text-subtitle1 font-medium")
+            ui.label("Number of photons inside the requested target acceptance.").classes(
+                "text-caption text-grey-7"
+            )
+            with ui.row().classes("w-full items-center gap-8 text-caption text-grey-7 mb-1"):
+                ui.label("Run").classes("w-32")
+                ui.label("Photons on target").classes("w-40")
+            for name, yield_value in _collimated_yield_rows(available):
+                with ui.row().classes("w-full items-center gap-8"):
+                    ui.label(name).classes("w-32 font-medium")
+                    ui.label(f"{yield_value:.6g}").classes("w-40 font-mono")
+
     if "collimated_selected_runs" not in view_state:
         view_state["collimated_selected_runs"] = all_names.copy()
     view_state["collimated_selected_runs"] = [n for n in view_state["collimated_selected_runs"] if n in available]
+    view_state["collimated_normalize_spectrum"] = bool(
+        view_state.get("collimated_normalize_spectrum", False)
+    )
 
     holder = ui.column().classes("w-full")
 
@@ -403,6 +433,12 @@ def _render_collimated(available: dict[str, tuple[int, PhasespaceSlice]], view_s
                             axis = axes[0]
                             x = display_values(axis, slice_.axes[axis])
                             y = _density_in_display_units(slice_.distr, axes)
+                            normalize = (
+                                view == "spectrum"
+                                and view_state["collimated_normalize_spectrum"]
+                            )
+                            if normalize:
+                                y = _normalize_to_peak(y)
                             color = _run_color(all_names.index(name))
 
                             if figure is None:
@@ -411,7 +447,10 @@ def _render_collimated(available: dict[str, tuple[int, PhasespaceSlice]], view_s
                                 )
                                 figure.update_layout(
                                     xaxis_title=f"{_LABELS[axis]} [{display_unit(axis)}]",
-                                    yaxis_title=_density_label(axes),
+                                    yaxis_title=(
+                                        "Normalized spectral density [a.u.]"
+                                        if normalize else _density_label(axes)
+                                    ),
                                     title=view.replace("_", " ").title(),
                                 )
                             else:
@@ -468,6 +507,18 @@ def _render_collimated(available: dict[str, tuple[int, PhasespaceSlice]], view_s
                         view_state["collimated_selected_runs"] = [x for x in view_state["collimated_selected_runs"] if x != n]
                     redraw(view_state["collimated_selected_runs"])
                 cb.on_value_change(on_toggle)
+
+    normalize_checkbox = ui.checkbox(
+        "Normalize spectra to maximum",
+        value=view_state["collimated_normalize_spectrum"],
+    ).props("dense")
+
+    def on_normalize(event):
+        view_state["collimated_normalize_spectrum"] = bool(event.value)
+        redraw(view_state["collimated_selected_runs"])
+
+    normalize_checkbox.on_value_change(on_normalize)
+    normalize_checkbox.tooltip("Scale each run's angle-integrated spectrum to a peak of 1")
 
     redraw(view_state["collimated_selected_runs"])
 

@@ -487,6 +487,7 @@ class Pane:
         result = page.preview
         total = result.photon_slices.get(OutputKind.TOTAL_YIELD)
         width = result.model_specific.get("spectrum_width_fwhm")
+        a0_peak = result.model_specific.get("a0_peak")
         with ui.row().classes("w-full gap-4"):
             if total is not None:
                 self._metric("Total yield", f"{float(total.distr):.5g} photons")
@@ -495,6 +496,9 @@ class Pane:
                                     ("Emittance", "emittance"), ("Energy spread", "energy_spread"),
                                     ("Nonlinearity", "nonlinearity")):
                     self._metric(label, f"{getattr(width, attr):.3%}")
+        if a0_peak is not None:
+            with ui.row().classes("w-full gap-4"):
+                self._metric("Peak a₀", f"{a0_peak:.5g}")
         if width is not None:
             ui.label("Widths are FWHM relative to the Compton edge. "
                      f"Nonlinear broadening bracket: {width.nonlinearity_lo:.3%}–"
