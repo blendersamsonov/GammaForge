@@ -15,7 +15,7 @@ unfinished or waiting on someone*.
 | Phase | Status |
 |-------|--------|
 | 0. Scaffold | 🟢 done |
-| 1. Core (`gammaforge.io`) | 🟢 done; `PulseTrainParaxialLaser` temporal modulation and pulse trains landed (RES071) |
+| 1. Core (`gammaforge.io`) | 🟢 done; `PulseTrainParaxialLaser` temporal modulation and pulse trains landed (RES071); luminosity-aware adaptive sampling landed as an opt-in `SamplingSpec.strategy` (RES092) |
 | 2. Validation harness | 🟢 done |
 | 2.5. Stage 0 + minimal delta | 🟢 done |
 | 3a. xigma engineering | 🟢 NumPy/CuPy Stage 0/1 execution with host stage boundaries (RES083), five-dimensional shape/physical tables, Stage-2 raw spectral moments, nonuniform second-order reconstruction, persistent adaptive queries, `Collision`, and `XigmaEngine`. Stage 0 accepts carrier phase gradients and accumulates the weighted statistics in DER016; Stage 1 stores raw nonlinear shape and carrier mean with co-shaped moment channels; Stage 2 applies exact observer-dependent $Q$ (DER015/RES090). Gamma-resonance sampling (RES080) retains the ring-shaped proposal while reusing static backend/QMC state. The real-CUDA release gate includes quantitative `moment2` reconstruction agreement; scientific acceptance remains in Phase 3b. |
@@ -99,6 +99,19 @@ Ordered by who is blocked. Each names the file that carries the detail.
   per run (RES030). Only charge is currently declared cheap; engine-side stage caching
   remains a separate task.
 - **Phase 4's collimated-spectrum construction**, the last growth item in §4.3.
+
+- **Adaptive sampling: measured limits before any default promotion (RES092).** The
+  luminosity-aware stratifier is implemented, tested, and **opt-in** (`SamplingSpec.strategy
+  = "adaptive"`); `"iid"` remains the default. On the baseline scenario it beats IID on the
+  total yield by ~1.3-5x in Stage-0 particles for a given yield target, and is at **parity**
+  on the resolved spectrum — the spectral residual is dominated by per-cell particle counts,
+  which reallocation does not change, and the refinement criterion `P_m sigma_m` sees
+  luminosity variation rather than Stage-1 cell spread. The per-coordinate latent marginals
+  improve up to ~10x; the radial (chi-squared-6) distribution does not, because a cell whose
+  corner reaches `|d| = inf` spans the whole range of `r^2`. Promoting the default needs the
+  wider scenario bank, and a Stage-1-spread-aware refinement criterion (the pilot already
+  computes `a0_shape` and `chirp_mean`). `scripts/benchmark_adaptive_sampling.py` reports
+  the accuracy-versus-cost table; RES092 records the reasoning.
 
 ---
 

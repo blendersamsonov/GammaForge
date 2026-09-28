@@ -269,11 +269,14 @@ plt.show()
 #   With no overlap, the zero histogram uses a laser-derived display interval. Every slice axis
 #   is auto-ranged by default and can carry a manual override in canonical CGS units; omitted
 #   axes remain automatic. Explicit histogram widths retain their captured photon mass.
-# - **`SamplingSpec`**: Particle count, random seed, and prefilter threshold fraction.
+# - **`SamplingSpec`**: Particle count, random seed, prefilter threshold fraction, and the sampling
+#   `strategy` — `"iid"` (the default) or `"adaptive"`. Both produce an ordinary `Bunch` whose
+#   per-particle weights sum to one; they differ only in *how* the beam's Gaussian is represented.
 # - **`build_interaction()`**: The factory function that samples the bunch, prefilters particles outside the laser pulse, and bundles them.
 
 # %%
 from gammaforge.io.target import Target, OutputKind, OutputRequest
+from gammaforge.io.adaptive_sampling import PilotConfig, build_adaptive_plan
 from gammaforge.io.interaction import SamplingSpec, build_interaction
 from gammaforge.io.results import Axis
 
@@ -303,6 +306,58 @@ print(f"  Physical electron count N_e: {interaction.N_e:.3e}")
 print(f"  Macroparticles in bunch: {interaction.bunch.n_particles}")
 print(f"  Requested outputs: {[out.kind.name for out in interaction.target.outputs]}")
 print(f"  Manual spectrum range [keV]: {[value / 1.602176634e-9 for value in focused_energy_range]}")
+
+# %%
+# ### The two sampling strategies
+# 
+# `strategy` selects *how the same Gaussian bunch is represented*, never *which* Gaussian — both
+# draw from the identical analytic `GaussianElectronBeam` and return an ordinary `Bunch` whose weights
+# sum to one, so every downstream engine is unaware of the choice (RES092).
+# 
+# - `"iid"` (default) draws each macroparticle independently. Simple, and its behaviour never changes.
+# - `"adaptive"` **stratifies**: it partitions the beam's six latent Gaussians into disjoint boxes with
+#   *exact* target mass, draws points inside each box from the *target conditional* with a
+#   low-discrepancy sequence, and gives every particle in a box the same weight `P_m / n_m`. A cheap
+#   pilot then decides how to split the budget, spending expensive trajectories where the luminosity is.
+# 
+# The payoff is variance reduction on the luminosity-weighted total, and the cost is non-uniform
+# weights: `N_eff` (below) is the honest measure of how many equally-weighted particles the set is worth.
+# 
+# Note what does *not* change: the total represented mass is one either way, and the prefilter still
+# refuses to renormalize, so the retained sum honestly records the fraction dropped.
+
+# The default plan has 256 regions and **every region needs at least one particle**, so an
+# adaptive bunch needs a budget at least that large. For this toy example a smaller plan is
+# the readable choice; production runs use the 256-region default.
+small_plan = build_adaptive_plan(beam, laser, seed=42, config=PilotConfig(initial_regions=8, max_regions=8))
+adaptive = build_interaction(
+    beam, laser, target,
+    SamplingSpec(n_particles=100, seed=42, prefilter=1e-3, strategy="adaptive"),
+    plan=small_plan,
+)
+
+print("Strategy comparison (same beam, same seed, same particle budget):")
+for name, bundle in (("iid", interaction.bunch), ("adaptive", adaptive.bunch)):
+    weights = bundle.weight
+    n_eff = float(weights.sum()) ** 2 / float((weights**2).sum())
+    print(
+        f"  {name:>9}: {bundle.n_particles} particles | "
+        f"sum(w) = {weights.sum():.12f} | "
+        f"w in [{weights.min():.3e}, {weights.max():.3e}] | N_eff = {n_eff:.1f}"
+    )
+
+# %%
+# The two represent the *same* physical distribution — the check that matters, and the one a weighted
+# estimator can silently fail. Compare the mass-weighted first moment of gamma against the beam's own
+# analytic value, `gamma0`, rather than comparing sample means (which would be wrong for both, since
+# neither estimator is uniform in the latent coordinates).
+
+def mass_weighted_mean(values, weights):
+    return float((values * weights).sum() / weights.sum())
+
+for name, bundle in (("iid", interaction.bunch), ("adaptive", adaptive.bunch)):
+    estimate = mass_weighted_mean(bundle.gamma, bundle.weight)
+    print(f"  {name:>9}: <gamma> = {estimate:.4f}  vs analytic {beam.gamma0():.4f}")
 
 # %% [markdown]
 # ---

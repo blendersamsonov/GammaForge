@@ -433,6 +433,13 @@ def test_quasi_monochromatic_conforming_laser_runs_without_gaussian_fitter():
         def polarization_axes(self):
             return self._inner.polarization_axes()
 
+        def propagation_direction(self):
+            # Part of the `LaserField` protocol (the encounter factor `1 - v.n0_hat` is a
+            # property of the collision, not of any one pulse model), so a conforming
+            # implementation must state it. Delegates here for the same reason it delegates
+            # `omega0` and `field`: the inner object is the real field.
+            return self._inner.propagation_direction()
+
     laser = QuasiMonochromaticLaser(inner)
     assert isinstance(laser, LaserField)
 
