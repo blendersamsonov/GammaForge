@@ -89,3 +89,27 @@ moment channel, the intensity scaling laws, and the exact one-bin unchirped chir
 - `gammaforge.engines.xigma.stages.integrate_trajectories`
 - xigma five-dimensional shape and retargeted tables
 - DER017
+
+
+## Clarification from DER018
+
+DER018 interprets the carrier factor and the ponderomotive geometry as two distinct
+pieces of the effective-plane-wave phase. The trajectory phase normalization is
+
+$$
+\frac{d\Phi_L}{dt}
+=
+\omega_0F\,C(t),
+$$
+
+while the observer dependence of the nonlinear secular phase is carried by
+\(Q=(1-\mathbf n\cdot\mathbf n_0)/F\). Thus \(C\) changes the encountered carrier
+frequency scale and \(Q\) changes how the nonlinear longitudinal drift projects into a
+requested observation direction. Neither factor should be absorbed into the other.
+
+The scalar \(\rho=\langle a^2\rangle\) used in the ideal plane-wave derivation is not a
+replacement definition for production \(\hat a\). For a finite bounded pulse,
+DER003/this derivation own the scattering-weighted trajectory reduction to
+\(q_{\rm shape}\), \(\hat a\), \(\bar C\), and their correlated moments. DER018 supplies
+the phase/geometric justification for multiplying that raw nonlinear coordinate by
+Stage-2 \(Q\).

@@ -23,3 +23,4 @@ same change as any new derivation file or any status move —
 | DER015 | Observer-dependent ponderomotive incidence | verified | verified/DER015-observer-dependent-ponderomotive-incidence.md |
 | DER016 | Carrier-weighted trajectory moments | verified | verified/DER016-carrier-weighted-trajectory-moments.md |
 | DER017 | Second-order spectral-moment reconstruction | verified | verified/DER017-second-order-spectral-moment-reconstruction.md |
+| DER018 | Effective plane-wave surrogate and radiation-phase origin of ponderomotive incidence | derived | derived/DER018-effective-plane-wave-surrogate-radiation-phase.md |

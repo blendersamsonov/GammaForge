@@ -99,3 +99,20 @@ raw samples and gives an order-independent reconstructed spectrum.
 - `gammaforge.engines.xigma.stages.query_spectral_moments`
 - `gammaforge.engines.xigma.stages.reconstruct_second_order`
 - NumPy and CuPy xigma spectrum queries
+
+
+## Clarification from DER018
+
+The \(Q\) factors in the moment weights are the same observer-dependent phase projection
+derived in DER018. Production intentionally evaluates them at the requested observation
+direction. Approximating \(Q\simeq1\) within each electron's beaming cone would define a
+different, geometry-dependent approximation whose error is \(O(1/\gamma^2)\) in the
+exact head-on case but generically \(O(1/\gamma)\) at oblique incidence.
+
+DER018 also shows why packaging the nominal nonlinear redshift into a plane-wave
+quasi-momentum does not make the nonlinear coordinate unnecessary here. The
+quasi-momentum can encode the line position compactly, but the angle-resolved emission
+weight still depends on the physical electron momentum, while this derivation separately
+needs \(\operatorname{Var}(q)\) and \(\operatorname{Cov}(q,C)\). The existing
+five-dimensional table plus co-shaped moment channels therefore remains the lossless
+representation used by the present second-order reconstruction.

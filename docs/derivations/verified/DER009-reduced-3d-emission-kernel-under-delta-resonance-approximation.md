@@ -334,3 +334,18 @@ The algebraic steps were verified using Sympy:
 > $A=1+Q\hat a$ and $D\bar C$ in the inverse/Jacobian (DER015). DER009's displayed
 > formulas are the $D=Q=\bar C=1$ limit. DER017 adds the two finite-line spectral moment
 > channels without changing the base-kernel normalization.
+
+
+> **2026-09-28 — Resonance reparameterization does not by itself reduce the physical
+> table dimension.** DER018 shows that the nonlinear line-centre shift can be packaged
+> into a plane-wave quasi-momentum, so the *resonance position* may be written in terms
+> of an effective momentum. That does not remove the information carried by \(\hat a\)
+> from the full angle-resolved kernel. The factor
+> \(\gamma^2/(1+\gamma^2\theta^2)^2\), together with the polarization geometry, depends
+> on the physical electron momentum. Normalizing the quasi-momentum to an effective
+> velocity discards its invariant norm \(q^2=m^2(1+\rho)\), so the physical \(p^\mu\)
+> cannot in general be reconstructed. Keeping the full quasi-momentum restores that
+> information but has the same number of degrees of freedom as \((p^\mu,\rho)\).
+> Consequently the current five-dimensional \((\gamma,\theta_{e,x},\theta_{e,y},
+> \hat a,\bar C)\) representation is not made redundant by the DER018 change of
+> variables.

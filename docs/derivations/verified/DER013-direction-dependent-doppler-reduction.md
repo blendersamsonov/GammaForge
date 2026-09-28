@@ -81,3 +81,13 @@ remains a separate validation task (RES074).
 > limit remain current. The nonlinear resonance now uses raw $\hat a$ with the exact
 > observer-dependent $Q=(1-\mathbf n\cdot\mathbf n_0)/(1-\mathbf e\cdot\mathbf n_0)$
 > evaluated in Stage 2, and $D\bar C$ replaces $D$ for a chirped carrier.
+
+
+> **2026-09-28 — Plane-wave phase interpretation supplied by DER018.** DER018 derives
+> the later observer-dependent nonlinear factor from the radiation phase of an effective
+> plane-wave surrogate. It does not alter DER013's direction-Doppler factor \(D\),
+> Jacobian, or linear limit. In that derivation the plane-wave light-front invariant is
+> \(\kappa=\gamma-\mathbf n_0\cdot\mathbf u\), whose ultra-relativistic ballistic limit is
+> \(\kappa\simeq\gamma(1-\mathbf e\cdot\mathbf n_0)\). Combining this with the
+> small electron-observer angular reduction yields DER013's \(D\) in the numerator and
+> DER015's \(Q\) only in the nonlinear denominator.

@@ -32,6 +32,72 @@ Unlike the superseded beaming-cone approximation in DER014, no part of $Q$ is de
 in Stage 1. That stage stores the raw strength-independent nonlinear shape, and
 retargeting produces raw $\hat a$.
 
+
+## Physical origin and approximation hierarchy
+
+DER018 supplies a trajectory-level derivation of this coefficient. For a plane wave with
+fixed propagation direction \(\mathbf n_0\), define dimensionless electron momentum
+\(\mathbf u=\mathbf p/(mc)\) and the light-front invariant
+
+$
+\kappa=\gamma-\mathbf n_0\mathbin{\cdot}\mathbf u.
+$
+
+For an exact plane wave, \(\kappa\) is constant. The radiation phase for a photon of
+frequency \(\omega'\) observed along \(\mathbf n\) obeys
+
+$
+\frac{d\Psi}{d\phi}
+=
+\frac{\omega'}{\omega_L}
+\frac{\gamma-\mathbf n\mathbin{\cdot}\mathbf u}{\kappa}.
+$
+
+The transverse plane-wave motion makes \(\gamma\) and the longitudinal momentum contain
+a cycle-averaged term proportional to the nonlinear strength. Its secular contribution
+to the phase is proportional to
+
+$
+\frac{1-\mathbf n\mathbin{\cdot}\mathbf n_0}{2\kappa^2}.
+$
+
+For a weakly deflected ultra-relativistic electron,
+\(\kappa\simeq\gamma(1-\mathbf e\cdot\mathbf n_0)=\gamma F\), while for an observation
+direction close to the electron direction,
+
+$
+\gamma-\mathbf n\mathbin{\cdot}\mathbf u
+\simeq
+\frac{1+\gamma^2r^2}{2\gamma}.
+$
+
+The cycle-averaged first-harmonic resonance therefore has the structure
+
+$
+\omega_R
+\simeq
+\frac{2\omega_L\gamma^2F}
+{1+\gamma^2r^2+
+ \rho\,\dfrac{1-\mathbf n\cdot\mathbf n_0}{F}},
+$
+
+where \(\rho\) denotes the scalar nonlinear line-centre strength of the surrogate
+plane-wave problem. GammaForge's trajectory averaging supplies this scalar as the raw
+\(\hat a\) defined by DER003/DER016; DER018 derives the geometry multiplying it, not a
+new trajectory weighting. Hence
+
+$
+Q=\frac{1-\mathbf n\cdot\mathbf n_0}{F}.
+$
+
+This separates two approximation layers that are easy to conflate. The dependence of
+the plane-wave secular phase on \(1-\mathbf n\cdot\mathbf n_0\) is exact for the
+surrogate plane wave. Production \(Q\) additionally uses the ballistic \(\beta=1\)
+reduction, a fixed effective laser direction, and the near-electron-direction angular
+reduction already assumed by the xigma emission kernel. The focused pulse itself need
+not be a global plane wave; the surrogate only requires the field restricted to the
+radiation-producing electron trajectory to be sufficiently plane-wave-like.
+
 ## Resonance, inverse, and Jacobian
 
 For the trajectory-averaged carrier correction $\bar C$, observation offset
@@ -74,7 +140,7 @@ external nominal photon-energy scaling.
 
 Xigma evaluates the exact observer-dependent $Q$ in Stage 2 from normalized laser,
 electron, and observation directions. The table remains observer-independent and stores
-raw $\hat a$. Head-on collinear geometry and $\mathbf n=\mathbf e$ both give $Q=1$.
+raw $\hat a$. Fully collinear head-on geometry ($\mathbf n=\mathbf e=-\mathbf n_0$) gives $Q=1$, and more generally $\mathbf n=\mathbf e$ gives $Q=1$ at any nonsingular incidence.
 
 This result supersedes DER014. DER013's direction-Doppler factor and linear limit remain
 current, with $D\bar C$ replacing $D$ in the chirped nonlinear resonance.
@@ -88,6 +154,39 @@ checks the forward resonance against the analytical inverse and the Jacobian aga
 finite difference. Independent direct-particle tests in `tests/test_delta_emission.py`
 pin the observer-dependent nonlinear line centre, while CPU/CUDA agreement and support
 bounds are exercised by the xigma Doppler and sampler suites.
+
+
+## Clarification on freezing \(Q\) inside one beaming cone
+
+DER018 also quantifies a possible *approximation* that is not used by production. Let
+\(\alpha\) be the angle between the electron direction \(\mathbf e\) and laser direction
+\(\mathbf n_0\), and let the observation direction lie an angle \(\vartheta\) from
+\(\mathbf e\). Then
+
+$
+\mathbf n_0\cdot\mathbf n
+=
+\cos\alpha\cos\vartheta
++\sin\alpha\cos\varphi\sin\vartheta,
+$
+
+so
+
+$
+Q-1
+\simeq
+\frac{\tfrac12\cos\alpha\,\vartheta^2
+      -\sin\alpha\cos\varphi\,\vartheta}
+     {1-\cos\alpha}.
+$
+
+Across the relativistic cone \(\vartheta\sim1/\gamma\), the variation is
+\(O(1/\gamma^2)\) for exactly head-on incidence but generically \(O(1/\gamma)\) for an
+oblique collision. It becomes poorly conditioned near co-propagation, where
+\(1-\cos\alpha\) is small. Therefore replacing
+\(\mathbf n_0\cdot\mathbf n\) by \(\mathbf n_0\cdot\mathbf e\) can be a controlled
+high-\(\gamma\) approximation in selected geometries, but it is not an identity and is
+not a reason to remove the exact Stage-2 \(Q\).
 
 ## Used by
 
