@@ -250,6 +250,8 @@ def _define_kernel(capacity=32):
         nominal_inverse,
         ahat_ref,
         chirp_ref,
+        qmc_regular_numerator,
+        qmc_radial_fraction,
     ):
         thread_idx = jit.threadIdx.x
         out_idx = jit.blockIdx.x
@@ -492,8 +494,8 @@ def _define_kernel(capacity=32):
 
                     for di in jit.range(subsampling):
                         subsample_idx = arc_sample_idx * subsampling + di
-                        reg = (subsample_idx + 0.5) / n_arc_samples / subsampling
-                        fib = cp.remainder(subsample_idx * GOLDEN_PHI, 1.0)
+                        reg = qmc_regular_numerator[subsample_idx] / n_arc_samples / subsampling
+                        fib = qmc_radial_fraction[subsample_idx]
 
                         theta_min = arc_r - dr / 2
                         theta_max = theta_min + dr
@@ -712,6 +714,211 @@ def _resonance_radial_bounds(table, theta_x, theta_y, s, n0, doppler_lo, doppler
     )
 
 
+class _PreparedGPUState:
+    """Persistent device/static state for one CUDA observation-grid query."""
+
+    def __init__(
+        self,
+        table: Table,
+        theta_x,
+        theta_y,
+        *,
+        psi_pol: float = 0.0,
+        ellipticity: float = 0.0,
+        theta_xz: float = 0.0,
+        theta_yz: float = 0.0,
+        rings: int = 32,
+        subsampling: int = 32,
+    ) -> None:
+        if not is_gpu_available():
+            raise RuntimeError("CuPy or a CUDA device is not available")
+        if isinstance(rings, bool) or not isinstance(rings, Integral) or not 8 <= rings <= MAX_RINGS:
+            raise ValueError("rings must be an integer in the range 8..64")
+        if (
+            isinstance(subsampling, bool)
+            or not isinstance(subsampling, Integral)
+            or not 1 <= subsampling <= np.iinfo(CP_UINT).max // SAMPLES_TOTAL
+        ):
+            raise ValueError("subsampling must be a positive integer with uint32-safe sample indices")
+
+        self.table = table
+        self.theta_x = np.atleast_1d(np.asarray(theta_x, dtype=CP_FLOAT))
+        self.theta_y = np.atleast_1d(np.asarray(theta_y, dtype=CP_FLOAT))
+        if any(
+            values.ndim != 1 or not np.all(np.isfinite(values))
+            for values in (self.theta_x, self.theta_y)
+        ):
+            raise ValueError("CuPy observation axes must be finite one-dimensional arrays")
+        self.rings = int(rings)
+        self.subsampling = int(subsampling)
+        self._polarization_parameters = _polarization_parameters(
+            psi_pol, ellipticity, theta_xz, theta_yz
+        )
+        self._n0 = _incident_axis(theta_xz, theta_yz)
+        self._doppler_lo, self._doppler_hi = _doppler_bounds(
+            table.theta_x_edges, table.theta_y_edges, self._n0
+        )
+
+        for edges in (table.gamma_edges, table.theta_x_edges, table.theta_y_edges):
+            widths = np.diff(edges)
+            if len(widths) < 2 or not np.allclose(widths, widths[0], rtol=1e-10, atol=0.0):
+                raise ValueError("CuPy requires at least two uniform bins on gamma and angular axes")
+        if table.gamma_centers[0] < 1.0 or table.ahat_edges[0] < 0.0:
+            raise ValueError("CuPy requires gamma >= 1 and nonnegative ahat")
+        if np.any(table.chirp_eval_points <= 0.0):
+            raise ValueError("CuPy requires positive carrier-rate evaluation points")
+        if not np.all(np.isfinite(table.H)) or np.any(table.H < 0.0):
+            raise ValueError("CuPy table density must be finite and nonnegative")
+        moment_channels = (table.H_var_a, table.H_var_chirp, table.H_cov_a_chirp)
+        if any(not np.all(np.isfinite(channel)) for channel in moment_channels):
+            raise ValueError("CuPy moment channels must be finite")
+
+        self._zero = not np.any(table.H)
+        self._kernel = _kernel if rings <= 32 else _kernel64
+        self._observer_x, self._observer_y = np.meshgrid(
+            self.theta_x, self.theta_y, indexing="ij"
+        )
+        self._observer_x_gpu = cp.asarray(self._observer_x)
+        self._observer_y_gpu = cp.asarray(self._observer_y)
+
+        sequence_index = cp.arange(SAMPLES_TOTAL * subsampling, dtype=CP_UINT)
+        self._qmc_regular_numerator = sequence_index + 0.5
+        self._qmc_radial_fraction = cp.remainder(sequence_index * GOLDEN_PHI, 1.0)
+
+        if self._zero:
+            self._scale = 1.0
+            self._static_kernel_args = ()
+            return
+
+        H_max = float(np.max(table.H))
+        self._scale = 1.0 / H_max
+        if any(
+            np.max(np.abs(channel * self._scale)) > np.finfo(CP_FLOAT).max
+            for channel in moment_channels
+        ):
+            raise ValueError("CuPy moment-channel dynamic range exceeds float32")
+
+        H_gpu = cp.asarray(table.H * self._scale, dtype=CP_FLOAT)
+        H_var_a_gpu = cp.asarray(table.H_var_a * self._scale, dtype=CP_FLOAT)
+        H_var_chirp_gpu = cp.asarray(table.H_var_chirp * self._scale, dtype=CP_FLOAT)
+        H_cov_gpu = cp.asarray(table.H_cov_a_chirp * self._scale, dtype=CP_FLOAT)
+        ahat_eval_points = cp.asarray(table.ahat_eval_points, dtype=CP_FLOAT)
+        ahat_widths = cp.asarray(table.ahat_widths, dtype=CP_FLOAT)
+        chirp_eval_points = cp.asarray(table.chirp_eval_points, dtype=CP_FLOAT)
+        chirp_widths = cp.asarray(table.chirp_widths, dtype=CP_FLOAT)
+        cell_widths_gpu = (
+            ahat_widths[None, None, None, :, None]
+            * chirp_widths[None, None, None, None, :]
+        )
+        H_marginal_gpu = (H_gpu * cell_widths_gpu).sum(axis=(0, 3, 4))
+        H_marginal_gpu += CP_FLOAT(PROPOSAL_FLOOR_FRACTION) * H_marginal_gpu.max()
+        H_gamma_gpu = (H_gpu * cell_widths_gpu).sum(axis=(1, 2, 3, 4))
+        H_gamma_gpu /= H_gamma_gpu.max()
+        H_gamma_gpu += CP_FLOAT(PROPOSAL_FLOOR_FRACTION)
+
+        H_scaled = table.H * self._scale
+        ahat_marginal = np.sum(
+            H_scaled * table.chirp_widths[None, None, None, None, :],
+            axis=(0, 1, 2, 4),
+        ) * table.ahat_widths
+        chirp_marginal = np.sum(
+            H_scaled * table.ahat_widths[None, None, None, :, None],
+            axis=(0, 1, 2, 3),
+        ) * table.chirp_widths
+        ahat_ref = float(
+            np.dot(table.ahat_eval_points, ahat_marginal) / ahat_marginal.sum()
+        )
+        chirp_ref = float(
+            np.dot(table.chirp_eval_points, chirp_marginal) / chirp_marginal.sum()
+        )
+        dx = float((table.theta_x_edges[-1] - table.theta_x_edges[0]) / 2)
+        dy = float((table.theta_y_edges[-1] - table.theta_y_edges[0]) / 2)
+        self._static_kernel_args = (
+            H_gpu,
+            H_var_a_gpu,
+            H_var_chirp_gpu,
+            H_cov_gpu,
+            H_marginal_gpu,
+            H_gamma_gpu,
+            CP_FLOAT(table.gamma_edges[0]),
+            CP_FLOAT(table.gamma_edges[1] - table.gamma_edges[0]),
+            CP_UINT(table.H.shape[0]),
+            CP_FLOAT(table.theta_x_edges[0]),
+            CP_FLOAT(table.theta_x_edges[1] - table.theta_x_edges[0]),
+            CP_UINT(table.H.shape[1]),
+            CP_FLOAT(table.theta_y_edges[0]),
+            CP_FLOAT(table.theta_y_edges[1] - table.theta_y_edges[0]),
+            CP_UINT(table.H.shape[2]),
+            ahat_eval_points,
+            ahat_widths,
+            CP_UINT(table.H.shape[3]),
+            chirp_eval_points,
+            chirp_widths,
+            CP_UINT(table.H.shape[4]),
+            CP_FLOAT(dx),
+            CP_FLOAT(dy),
+            *(CP_FLOAT(value) for value in self._polarization_parameters),
+            CP_UINT(rings),
+            CP_UINT(subsampling),
+            *(CP_FLOAT(value) for value in self._n0),
+            CP_FLOAT(1.0 / (1.0 - self._n0[2])),
+            CP_FLOAT(ahat_ref),
+            CP_FLOAT(chirp_ref),
+            self._qmc_regular_numerator,
+            self._qmc_radial_fraction,
+        )
+
+    def evaluate(self, s) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Evaluate raw channels for one batch using the persistent device state."""
+        s_arr = np.atleast_1d(np.asarray(s, dtype=CP_FLOAT))
+        if s_arr.ndim != 1 or not np.all(np.isfinite(s_arr)):
+            raise ValueError("CuPy spectral points must be finite and one-dimensional")
+        output_shape = (self.theta_x.size, self.theta_y.size, s_arr.size)
+        grid_size = int(np.prod(output_shape))
+        if grid_size == 0 or self._zero:
+            zeros = np.zeros(output_shape, dtype=CP_FLOAT)
+            return zeros.copy(), zeros.copy(), zeros.copy()
+
+        s_grid = np.broadcast_to(s_arr, output_shape)
+        tx_grid = np.broadcast_to(self._observer_x[..., None], output_shape)
+        ty_grid = np.broadcast_to(self._observer_y[..., None], output_shape)
+        r_lo_grid, r_hi_grid = _resonance_radial_bounds(
+            self.table,
+            tx_grid,
+            ty_grid,
+            s_grid,
+            self._n0,
+            self._doppler_lo,
+            self._doppler_hi,
+        )
+        params = cp.stack((
+            cp.broadcast_to(self._observer_x_gpu[..., None], output_shape),
+            cp.broadcast_to(self._observer_y_gpu[..., None], output_shape),
+            cp.broadcast_to(cp.asarray(s_arr)[None, None, :], output_shape),
+            cp.asarray(r_lo_grid),
+            cp.asarray(r_hi_grid),
+        ), axis=3).reshape(-1, 5).astype(CP_FLOAT)
+        outputs_gpu = tuple(cp.zeros((grid_size,), dtype=CP_FLOAT) for _ in range(3))
+        self._kernel[grid_size, X_THREADS](
+            *outputs_gpu,
+            params,
+            *self._static_kernel_args,
+        )
+        cp.cuda.Stream.null.synchronize()
+        outputs = tuple(
+            (KERNEL_NORMALIZATION_CONSTANT * channel / self._scale)
+            .reshape(output_shape)
+            .get()
+            for channel in outputs_gpu
+        )
+        if any(not np.all(np.isfinite(channel)) for channel in outputs):
+            raise RuntimeError(
+                "CUDA prepared query produced non-finite samples; use backend='numpy' "
+                "as fallback."
+            )
+        return outputs
+
+
 def calculate_angular_spectral_moments_gpu(
     table: Table,
     theta_x,
@@ -725,172 +932,18 @@ def calculate_angular_spectral_moments_gpu(
     rings: int = 32,
     subsampling: int = 32,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Compute raw ``rho0``, ``rho1``, ``rho2`` cubes with one CUDA QMC sequence.
-
-    Every returned array has shape ``(len(theta_x), len(theta_y), len(s))``.
-    """
-    if isinstance(rings, bool) or not isinstance(rings, Integral) or not 8 <= rings <= MAX_RINGS:
-        raise ValueError("rings must be an integer in the range 8..64")
-    if isinstance(subsampling, bool) or not isinstance(subsampling, Integral) or not 1 <= subsampling <= np.iinfo(CP_UINT).max // SAMPLES_TOTAL:
-        raise ValueError("subsampling must be a positive integer with uint32-safe sample indices")
-    if not is_gpu_available():
-        raise RuntimeError(
-            "calculate_angular_spectral_moments_gpu: CuPy or a CUDA device is not available"
-        )
-    polarization_parameters = _polarization_parameters(
-        psi_pol, ellipticity, theta_xz, theta_yz
-    )
-    n0 = _incident_axis(theta_xz, theta_yz)
-    doppler_lo, doppler_hi = _doppler_bounds(table.theta_x_edges, table.theta_y_edges, n0)
-    for edges in (table.gamma_edges, table.theta_x_edges, table.theta_y_edges):
-        widths = np.diff(edges)
-        if len(widths) < 2 or not np.allclose(widths, widths[0], rtol=1e-10, atol=0.0):
-            raise ValueError("CuPy requires at least two uniform bins on gamma and angular axes")
-    if table.gamma_centers[0] < 1.0 or table.ahat_edges[0] < 0.0:
-        raise ValueError("CuPy requires gamma >= 1 and nonnegative ahat")
-    if np.any(table.chirp_eval_points <= 0.0):
-        raise ValueError("CuPy requires positive carrier-rate evaluation points")
-    if not np.all(np.isfinite(table.H)) or np.any(table.H < 0.0):
-        raise ValueError("CuPy table density must be finite and nonnegative")
-    moment_channels = (table.H_var_a, table.H_var_chirp, table.H_cov_a_chirp)
-    if any(not np.all(np.isfinite(channel)) for channel in moment_channels):
-        raise ValueError("CuPy moment channels must be finite")
-
-    tx = np.atleast_1d(np.asarray(theta_x, dtype=np.float32))
-    ty = np.atleast_1d(np.asarray(theta_y, dtype=np.float32))
-    s_arr = np.atleast_1d(np.asarray(s, dtype=np.float32))
-    if any(values.ndim != 1 or not np.all(np.isfinite(values)) for values in (tx, ty, s_arr)):
-        raise ValueError("CuPy query axes must be finite one-dimensional arrays")
-
-    grid_x = tx.size * ty.size * s_arr.size
-    output_shape = (tx.size, ty.size, s_arr.size)
-    if grid_x == 0 or not np.any(table.H):
-        zeros = np.zeros(output_shape, dtype=CP_FLOAT)
-        return zeros.copy(), zeros.copy(), zeros.copy()
-    tx_grid, ty_grid, s_grid = np.meshgrid(tx, ty, s_arr, indexing="ij")
-    r_lo_grid, r_hi_grid = _resonance_radial_bounds(
-        table, tx_grid, ty_grid, s_grid, n0, doppler_lo, doppler_hi
-    )
-    params = cp.stack(tuple(cp.asarray(values) for values in (
-        tx_grid, ty_grid, s_grid, r_lo_grid, r_hi_grid,
-    )), 3).reshape(-1, 5).astype(CP_FLOAT)
-
-    gamma_min = CP_FLOAT(table.gamma_edges[0])
-    gamma_width = CP_FLOAT(table.gamma_edges[1] - table.gamma_edges[0])
-    n_gamma = CP_UINT(table.H.shape[0])
-
-    theta_x_min = CP_FLOAT(table.theta_x_edges[0])
-    theta_x_width = CP_FLOAT(table.theta_x_edges[1] - table.theta_x_edges[0])
-    n_theta_x = CP_UINT(table.H.shape[1])
-
-    theta_y_min = CP_FLOAT(table.theta_y_edges[0])
-    theta_y_width = CP_FLOAT(table.theta_y_edges[1] - table.theta_y_edges[0])
-    n_theta_y = CP_UINT(table.H.shape[2])
-
-    # Use evaluation points (zeroth bin at ahat=0 for sub-floor/linear mode) instead of centers
-    ahat_eval_points = cp.asarray(table.ahat_eval_points, dtype=CP_FLOAT)
-    ahat_widths = cp.asarray(table.ahat_widths, dtype=CP_FLOAT)
-    n_a0 = CP_UINT(table.H.shape[3])
-
-    chirp_eval_points = cp.asarray(table.chirp_eval_points, dtype=CP_FLOAT)
-    chirp_widths = cp.asarray(table.chirp_widths, dtype=CP_FLOAT)
-    n_chirp = CP_UINT(table.H.shape[4])
-
-    dx = float((table.theta_x_edges[-1] - table.theta_x_edges[0]) / 2)
-    dy = float((table.theta_y_edges[-1] - table.theta_y_edges[0]) / 2)
-
-    # Scale from positive H alone: moment channels must never influence the proposal.
-    H_max = float(np.max(table.H))
-    if H_max > 0:
-        scale = float(1.0) / H_max
-    else:
-        scale = 1.0
-
-    if any(np.max(np.abs(channel * scale)) > np.finfo(CP_FLOAT).max for channel in moment_channels):
-        raise ValueError("CuPy moment-channel dynamic range exceeds float32")
-    H_gpu = cp.asarray(table.H * scale, dtype=CP_FLOAT)
-    H_var_a_gpu = cp.asarray(table.H_var_a * scale, dtype=CP_FLOAT)
-    H_var_chirp_gpu = cp.asarray(table.H_var_chirp * scale, dtype=CP_FLOAT)
-    H_cov_gpu = cp.asarray(table.H_cov_a_chirp * scale, dtype=CP_FLOAT)
-    cell_widths_gpu = (
-        ahat_widths[None, None, None, :, None]
-        * chirp_widths[None, None, None, None, :]
-    )
-    H_marginal_gpu = (H_gpu * cell_widths_gpu).sum(axis=(0, 3, 4))
-    # A coarse zero must not exclude nonzero interpolated target density between cells.
-    H_marginal_gpu += CP_FLOAT(PROPOSAL_FLOOR_FRACTION) * H_marginal_gpu.max()
-
-    # Normalize the energy marginal before multiplying proposal densities (RES080).
-    H_gamma_gpu = (H_gpu * cell_widths_gpu).sum(axis=(1, 2, 3, 4))
-    H_gamma_gpu /= H_gamma_gpu.max()
-    H_gamma_gpu += CP_FLOAT(PROPOSAL_FLOOR_FRACTION)
-    H_scaled = table.H * scale
-    ahat_marginal = np.sum(
-        H_scaled * table.chirp_widths[None, None, None, None, :],
-        axis=(0, 1, 2, 4),
-    ) * table.ahat_widths
-    chirp_marginal = np.sum(
-        H_scaled * table.ahat_widths[None, None, None, :, None],
-        axis=(0, 1, 2, 3),
-    ) * table.chirp_widths
-    ahat_ref = float(np.dot(table.ahat_eval_points, ahat_marginal) / ahat_marginal.sum())
-    chirp_ref = float(
-        np.dot(table.chirp_eval_points, chirp_marginal) / chirp_marginal.sum()
-    )
-
-    rho0 = cp.zeros((grid_x,), dtype=CP_FLOAT)
-    rho1 = cp.zeros((grid_x,), dtype=CP_FLOAT)
-    rho2 = cp.zeros((grid_x,), dtype=CP_FLOAT)
-
-    kernel = _kernel if rings <= 32 else _kernel64
-    kernel[grid_x, X_THREADS](
-        rho0,
-        rho1,
-        rho2,
-        params,
-        H_gpu,
-        H_var_a_gpu,
-        H_var_chirp_gpu,
-        H_cov_gpu,
-        H_marginal_gpu,
-        H_gamma_gpu,
-        gamma_min,
-        gamma_width,
-        n_gamma,
-        theta_x_min,
-        theta_x_width,
-        n_theta_x,
-        theta_y_min,
-        theta_y_width,
-        n_theta_y,
-        ahat_eval_points,
-        ahat_widths,
-        n_a0,
-        chirp_eval_points,
-        chirp_widths,
-        n_chirp,
-        CP_FLOAT(dx),
-        CP_FLOAT(dy),
-        *(CP_FLOAT(value) for value in polarization_parameters),
-        CP_UINT(rings),
-        CP_UINT(subsampling),
-        *(CP_FLOAT(value) for value in n0),
-        CP_FLOAT(1.0 / (1.0 - n0[2])),
-        CP_FLOAT(ahat_ref),
-        CP_FLOAT(chirp_ref),
-    )
-    cp.cuda.Stream.null.synchronize()
-
-    outputs = tuple(
-        (KERNEL_NORMALIZATION_CONSTANT * channel / scale).reshape(output_shape).get()
-        for channel in (rho0, rho1, rho2)
-    )
-    if any(not np.all(np.isfinite(channel)) for channel in outputs):
-        raise RuntimeError(
-            "calculate_angular_spectral_moments_gpu produced non-finite samples; "
-            "use backend='numpy' as fallback."
-        )
-    return outputs
+    """Compute raw ``rho0``, ``rho1``, ``rho2`` with one prepared CUDA query."""
+    return _PreparedGPUState(
+        table,
+        theta_x,
+        theta_y,
+        psi_pol=psi_pol,
+        ellipticity=ellipticity,
+        theta_xz=theta_xz,
+        theta_yz=theta_yz,
+        rings=rings,
+        subsampling=subsampling,
+    ).evaluate(s)
 
 
 def calculate_angular_spectrum_gpu(

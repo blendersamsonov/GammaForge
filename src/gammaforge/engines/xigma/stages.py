@@ -7,9 +7,10 @@ peak-intensity-independent raw ``a0_shape`` axis), the retarget step
 (:func:`spectrum_from_table`,
 :func:`angular_spectrum_from_table`, :func:`spectrum_in_angular_range`) all live here.
 
-**Every stage is a pure function.** State lives in the `Collision` facade (Phase 3a), not
-here, so validation can call these directly and a stage can be reasoned about without
-knowing what cached it.
+**Every stage function is pure.** The explicit :class:`PreparedQuery` is the one query-layer
+state holder: it caches spectral samples and backend resources for adaptive refinement.
+`Collision` owns and reuses prepared queries during ordinary engine execution, while
+validation can still call each stage directly.
 
 **The engine calls the laser; it does not model it** (§4.2, P15). Stage 0 samples
 ``intensity_profile`` — the cycle-averaged ``<a^2>`` — and the explicit additional
@@ -80,9 +81,11 @@ __all__ = [
     "ShapeTable",
     "Table",
     "SpectralMoments",
+    "PreparedQuery",
     "deposit_shape_table",
     "retarget_ahat",
     "query_spectral_moments",
+    "prepare_query",
     "nonuniform_derivative",
     "reconstruct_second_order",
     "spectrum_from_table",
@@ -1766,6 +1769,169 @@ class SpectralMoments:
             raise ValueError("SpectralMoments arrays must have the same shape")
 
 
+class PreparedQuery:
+    """Persistent Stage-2 query for one observation grid and fixed geometry.
+
+    Raw spectral points are cached individually.  The CuPy backend additionally owns
+    the transferred table channels, proposal marginals, static observation data, and
+    reusable low-discrepancy sequence for its entire lifetime.
+    """
+
+    def __init__(
+        self,
+        table: Table,
+        theta_x,
+        theta_y,
+        *,
+        psi_pol: float = 0.0,
+        ellipticity: float = 0.0,
+        theta_xz: float = 0.0,
+        theta_yz: float = 0.0,
+        backend: str = "numpy",
+        rings: int = 32,
+        subsampling: int = 32,
+    ) -> None:
+        self.table = table
+        self.theta_x = np.atleast_1d(np.asarray(theta_x, dtype=float)).copy()
+        self.theta_y = np.atleast_1d(np.asarray(theta_y, dtype=float)).copy()
+        if any(
+            values.ndim != 1 or not np.all(np.isfinite(values))
+            for values in (self.theta_x, self.theta_y)
+        ):
+            raise ValueError("prepared-query observation axes must be finite and one-dimensional")
+        self.theta_x.setflags(write=False)
+        self.theta_y.setflags(write=False)
+        self.psi_pol = float(psi_pol)
+        self.ellipticity = float(ellipticity)
+        self.theta_xz = float(theta_xz)
+        self.theta_yz = float(theta_yz)
+        self.rings = rings
+        self.subsampling = subsampling
+        self.backend = stage2_backend(
+            backend,
+            ellipticity=self.ellipticity,
+            theta_xz=self.theta_xz,
+            theta_yz=self.theta_yz,
+        )
+        self._cache: dict[float, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
+        self._backend_state = None
+        if self.backend == "cupy":
+            from .spectrum_sampler import _PreparedGPUState
+
+            self._backend_state = _PreparedGPUState(
+                table,
+                self.theta_x,
+                self.theta_y,
+                psi_pol=self.psi_pol,
+                ellipticity=self.ellipticity,
+                theta_xz=self.theta_xz,
+                theta_yz=self.theta_yz,
+                rings=rings,
+                subsampling=subsampling,
+            )
+
+    @property
+    def evaluated_s(self) -> np.ndarray:
+        """Sorted normalized-energy points currently held in the raw cache."""
+        return np.asarray(sorted(self._cache), dtype=float)
+
+    def _evaluate_missing(self, s: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        if self._backend_state is not None:
+            return self._backend_state.evaluate(s)
+
+        shape = (self.theta_x.size, self.theta_y.size, s.size)
+        outputs = tuple(np.empty(shape, dtype=float) for _ in range(3))
+        for i, theta_x in enumerate(self.theta_x):
+            for j, theta_y in enumerate(self.theta_y):
+                moments = query_spectral_moments(
+                    self.table,
+                    float(theta_x),
+                    float(theta_y),
+                    s,
+                    psi_pol=self.psi_pol,
+                    ellipticity=self.ellipticity,
+                    theta_xz=self.theta_xz,
+                    theta_yz=self.theta_yz,
+                )
+                outputs[0][i, j] = moments.rho0
+                outputs[1][i, j] = moments.rho1
+                outputs[2][i, j] = moments.rho2
+        return outputs
+
+    def evaluate_raw(self, s_points) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return raw channels, evaluating only normalized-energy cache misses."""
+        s = np.atleast_1d(np.asarray(s_points, dtype=float))
+        if s.ndim != 1 or not np.all(np.isfinite(s)):
+            raise ValueError("prepared-query spectral points must be finite and one-dimensional")
+        keys = tuple(float(value) for value in s)
+        missing = tuple(dict.fromkeys(key for key in keys if key not in self._cache))
+        if missing:
+            computed = self._evaluate_missing(np.asarray(missing, dtype=float))
+            expected = (self.theta_x.size, self.theta_y.size, len(missing))
+            if len(computed) != 3 or any(np.shape(channel) != expected for channel in computed):
+                raise RuntimeError("prepared-query backend returned malformed raw channels")
+            for index, key in enumerate(missing):
+                values = tuple(np.asarray(channel[..., index]).copy() for channel in computed)
+                for value in values:
+                    value.setflags(write=False)
+                self._cache[key] = values
+
+        shape = (self.theta_x.size, self.theta_y.size, 0)
+        if not keys:
+            return tuple(np.empty(shape, dtype=float) for _ in range(3))
+        return tuple(
+            np.stack([self._cache[key][channel] for key in keys], axis=-1)
+            for channel in range(3)
+        )
+
+    def evaluate(self, s_points, *, line_model: str = "delta") -> np.ndarray:
+        """Evaluate the delta line or reconstruct the second-order finite line."""
+        if line_model not in ("delta", "moment2"):
+            raise ValueError("line_model must be 'delta' or 'moment2'")
+        s = np.atleast_1d(np.asarray(s_points, dtype=float))
+        rho0, rho1, rho2 = self.evaluate_raw(s)
+        if line_model == "delta":
+            return rho0
+        corrected = np.empty_like(rho0, dtype=float)
+        for i in range(rho0.shape[0]):
+            for j in range(rho0.shape[1]):
+                corrected[i, j] = reconstruct_second_order(SpectralMoments(
+                    s=s,
+                    rho0=rho0[i, j],
+                    rho1=rho1[i, j],
+                    rho2=rho2[i, j],
+                ))
+        return corrected
+
+
+def prepare_query(
+    table: Table,
+    theta_x,
+    theta_y,
+    *,
+    psi_pol: float = 0.0,
+    ellipticity: float = 0.0,
+    theta_xz: float = 0.0,
+    theta_yz: float = 0.0,
+    backend: str = "numpy",
+    rings: int = 32,
+    subsampling: int = 32,
+) -> PreparedQuery:
+    """Prepare a persistent Stage-2 query for incremental spectral refinement."""
+    return PreparedQuery(
+        table,
+        theta_x,
+        theta_y,
+        psi_pol=psi_pol,
+        ellipticity=ellipticity,
+        theta_xz=theta_xz,
+        theta_yz=theta_yz,
+        backend=backend,
+        rings=rings,
+        subsampling=subsampling,
+    )
+
+
 def nonuniform_derivative(
     x,
     values,
@@ -2030,41 +2196,18 @@ def angular_spectrum_from_table(
     is ``'cupy'`` or ``'auto'`` (and CuPy + CUDA are available). Falls back to the
     NumPy brute-force grid quadrature otherwise.
     """
-    try:
-        psi_pol = float(psi_pol)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("Stage-2 psi_pol must be a real scalar") from exc
-    if not math.isfinite(psi_pol):
-        raise ValueError("Stage-2 psi_pol must be finite")
-    if line_model not in ("delta", "moment2"):
-        raise ValueError("line_model must be 'delta' or 'moment2'")
-    selected_backend = stage2_backend(
-        backend, ellipticity=ellipticity, theta_xz=theta_xz, theta_yz=theta_yz,
-    )
-    if selected_backend == "cupy":
-        from .spectrum_sampler import calculate_angular_spectrum_gpu
-        return calculate_angular_spectrum_gpu(
-            table, theta_x_grid, theta_y_grid, s,
-            psi_pol=psi_pol, ellipticity=ellipticity,
-            theta_xz=theta_xz, theta_yz=theta_yz,
-            rings=rings,
-            subsampling=subsampling,
-            line_model=line_model,
-        )
-
-    tx = np.atleast_1d(np.asarray(theta_x_grid, dtype=float))
-    ty = np.atleast_1d(np.asarray(theta_y_grid, dtype=float))
-    s_arr = np.atleast_1d(np.asarray(s, dtype=float))
-    out = np.empty((tx.size, ty.size, s_arr.size))
-    for i, x in enumerate(tx):
-        for j, y in enumerate(ty):
-            out[i, j, :] = spectrum_from_table(
-                table, float(x), float(y), s_arr,
-                psi_pol=psi_pol, ellipticity=ellipticity,
-                theta_xz=theta_xz, theta_yz=theta_yz,
-                line_model=line_model,
-            )
-    return out
+    return prepare_query(
+        table,
+        theta_x_grid,
+        theta_y_grid,
+        psi_pol=psi_pol,
+        ellipticity=ellipticity,
+        theta_xz=theta_xz,
+        theta_yz=theta_yz,
+        backend=backend,
+        rings=rings,
+        subsampling=subsampling,
+    ).evaluate(s, line_model=line_model)
 
 
 def stage2_backend(

@@ -204,6 +204,19 @@ print(f"  rho1/rho2 finite: {np.isfinite(raw_moments.rho1).all()}, "
 corrected_spectrum = reconstruct_second_order(raw_moments)
 print(f"  moment2 spectrum finite: {np.isfinite(corrected_spectrum).all()}")
 
+# A prepared query keeps the observation geometry and backend state fixed while the
+# spectral grid is refined. Only inserted s-points are evaluated; existing raw channels
+# remain byte-for-byte unchanged and reconstruction always uses the requested final grid.
+prepared = collision.prepare_query([0.0], [0.0], backend="numpy")
+coarse_s = s_probe[::2]
+coarse_channels = prepared.evaluate_raw(coarse_s)
+refined_channels = prepared.evaluate_raw(s_probe)
+assert np.array_equal(refined_channels[0][0, 0, ::2], coarse_channels[0][0, 0])
+assert np.array_equal(prepared.evaluated_s, s_probe)
+prepared_corrected = prepared.evaluate(s_probe, line_model="moment2")
+print(f"  Prepared query cached spectral points: {prepared.evaluated_s.size}")
+print(f"  Incremental reconstruction finite: {np.isfinite(prepared_corrected).all()}")
+
 # Stokes parameters in smooth laboratory observer basis (DER007, RES073)
 stokes = collision.stokes_parameters(theta_x=0.0, theta_y=0.0)
 print(f"  On-axis Stokes: I={stokes.I:.2e}, Q={stokes.Q:.2e}, U={stokes.U:.2e}, V={stokes.V:.2e}")

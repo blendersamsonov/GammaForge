@@ -2,11 +2,11 @@
 
 Owns one fixed `InteractionParameters` + xigma `Parameters` pair and memoizes what its
 stages produce from them — Stage 0's `TrajectorySamples`, Stage 1's `ShapeTable` (at most
-once, peak-a0-agnostic), and Stage 1.5's retargeted `Table` per requested peak a0
-(RES032) — so calling `spectrum`/`angular_spectrum`/`spectrum_in_angular_range`
-more than once, or asking `run()` for several outputs that all need the same table, does
-the expensive work exactly once. `XigmaEngine.run()` (`engine.py`) builds one `Collision`
-per call; notebooks may hold one across several queries.
+once, peak-a0-agnostic), Stage 1.5's retargeted `Table` per requested peak a0 (RES032),
+and prepared Stage-2 contexts per observation/geometry setup — so repeated or adaptively
+refined queries reuse both intermediate tables and individual spectral samples.
+`XigmaEngine.run()` (`engine.py`) builds one `Collision` per call; notebooks may hold one
+across several queries.
 
 **What this does not do.** It does not detect "only field X changed" across *different*
 `InteractionParameters` instances. A `Collision` is cheap to reuse, not smart about being
@@ -27,19 +27,19 @@ from ...io.results import Axis, PhasespaceSlice, Results
 from ...io.schema import Parameters
 from ...io.target import OutputKind, OutputRequest, auto_ranges, slice_axis_values
 from .stages import (
+    PreparedQuery,
     ShapeTable,
     Table,
     TrajectorySamples,
     angle_integrated_spectrum,
-    angular_spectrum_from_table,
     bunch_stokes_parameters,
     deposit_shape_table,
     direction_doppler_factor,
     _check_backend,
     integrate_trajectories,
+    prepare_query as prepare_stage2_query,
     retarget_ahat,
     stage2_backend,
-    spectrum_in_angular_range as _spectrum_in_angular_range,
 )
 
 
@@ -86,6 +86,9 @@ class Collision:
     _overlap_backend: str | None = field(default=None, init=False, repr=False)
     _shape_table: ShapeTable | None = field(default=None, init=False, repr=False)
     _tables: dict[float, Table] = field(default_factory=dict, init=False, repr=False)
+    _prepared_queries: dict[tuple[object, ...], PreparedQuery] = field(
+        default_factory=dict, init=False, repr=False
+    )
 
     def build_overlap(
         self, *, t_edges: np.ndarray | None = None,
@@ -194,17 +197,78 @@ class Collision:
         line_model: str | None = None,
     ) -> np.ndarray:
         """Stage 2, at the pulse's own peak a0: ``d3N / (ds dtheta_x dtheta_y)``."""
-        b = backend or (self.params.get_choice("backend") if "backend" in self.params else "cupy")
         model = line_model or self.params.get_choice("line_model")
-        return angular_spectrum_from_table(
-            self._table(), theta_x, theta_y, s,
+        return self.prepare_query(
+            theta_x,
+            theta_y,
             psi_pol=psi_pol, ellipticity=ellipticity,
             theta_xz=theta_xz, theta_yz=theta_yz,
-            backend=b,
+            backend=backend,
             rings=rings if rings is not None else self.params.get_int("sampler_rings"),
             subsampling=subsampling if subsampling is not None else self.params.get_int("sampler_subsampling"),
-            line_model=model,
+        ).evaluate(s, line_model=model)
+
+    def prepare_query(
+        self,
+        theta_x,
+        theta_y,
+        *,
+        psi_pol: float = 0.0,
+        ellipticity: float = 0.0,
+        theta_xz: float = 0.0,
+        theta_yz: float = 0.0,
+        backend: str | None = None,
+        rings: int | None = None,
+        subsampling: int | None = None,
+    ) -> PreparedQuery:
+        """Return the persistent Stage-2 context for this observation setup."""
+        requested_backend = backend or (
+            self.params.get_choice("backend") if "backend" in self.params else "cupy"
         )
+        selected_backend = stage2_backend(
+            requested_backend,
+            ellipticity=ellipticity,
+            theta_xz=theta_xz,
+            theta_yz=theta_yz,
+        )
+        sampler_rings = rings if rings is not None else self.params.get_int("sampler_rings")
+        sampler_subsampling = (
+            subsampling
+            if subsampling is not None
+            else self.params.get_int("sampler_subsampling")
+        )
+        axis_dtype = np.float32 if selected_backend == "cupy" else float
+        tx = np.atleast_1d(np.asarray(theta_x, dtype=axis_dtype))
+        ty = np.atleast_1d(np.asarray(theta_y, dtype=axis_dtype))
+        table = self._table()
+        key = (
+            id(table),
+            selected_backend,
+            tx.shape,
+            tx.tobytes(),
+            ty.shape,
+            ty.tobytes(),
+            float(psi_pol),
+            float(ellipticity),
+            float(theta_xz),
+            float(theta_yz),
+            sampler_rings,
+            sampler_subsampling,
+        )
+        if key not in self._prepared_queries:
+            self._prepared_queries[key] = prepare_stage2_query(
+                table,
+                tx,
+                ty,
+                psi_pol=psi_pol,
+                ellipticity=ellipticity,
+                theta_xz=theta_xz,
+                theta_yz=theta_yz,
+                backend=selected_backend,
+                rings=sampler_rings,
+                subsampling=sampler_subsampling,
+            )
+        return self._prepared_queries[key]
 
     def spectrum_in_angular_range(
         self,
@@ -223,19 +287,25 @@ class Collision:
         line_model: str | None = None,
     ):
         """The windowed on-demand query (§4.2) — cheap once `build_overlap`/`_table` ran."""
-        b = backend or (self.params.get_choice("backend") if "backend" in self.params else "cupy")
         model = line_model or self.params.get_choice("line_model")
-        return _spectrum_in_angular_range(
-            self._table(),
-            theta_x_range, theta_y_range, s_edges,
-            resolution=resolution,
+        tx = np.linspace(theta_x_range[0], theta_x_range[1], resolution[0])
+        ty = np.linspace(theta_y_range[0], theta_y_range[1], resolution[1])
+        s_edges = np.asarray(s_edges, dtype=float)
+        s_centers = 0.5 * (s_edges[:-1] + s_edges[1:])
+        cube = self.angular_spectrum(
+            s_centers,
+            tx,
+            ty,
             psi_pol=psi_pol, ellipticity=ellipticity,
             theta_xz=theta_xz, theta_yz=theta_yz,
-            backend=b,
+            backend=backend,
             rings=rings if rings is not None else self.params.get_int("sampler_rings"),
             subsampling=subsampling if subsampling is not None else self.params.get_int("sampler_subsampling"),
             line_model=model,
         )
+        dN_ds = np.trapezoid(np.trapezoid(cube, ty, axis=1), tx, axis=0)
+        n_photons = float(np.trapezoid(dN_ds, s_centers))
+        return cube, dN_ds, n_photons
 
     def _laser_polarization_geometry(self) -> dict[str, float]:
         """Extract polarization geometry and base photon energy from the laser."""
