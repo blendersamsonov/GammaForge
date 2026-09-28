@@ -42,7 +42,7 @@ v_{\text{rel}} = c\left(1-\mathbf{v}\cdot\hat{\mathbf{n}}_0\right).
 $$
 
 Head-on ($\hat{\mathbf{n}}_0 = -\hat{\mathbf{z}}$, $\mathbf{v} = \beta\hat{\mathbf{z}}$) gives
-$c(1+\beta)\to 2c$, which is `stages.RELATIVE_VELOCITY = 2.0`. With the geometry `io.laser`
+$c(1+\beta)\to 2c$, which is `stages.relative_velocity(1.0)`. With the geometry `io.laser`
 already pins, $R = R_y(\theta_{xz})R_x(\theta_{yz})$ applied to $-\hat{\mathbf{z}}$:
 
 $$
@@ -181,7 +181,7 @@ the paper's.
 ## Used by
 
 Implemented together per RES034/RES060:
-- `RELATIVE_VELOCITY` carries $1+\beta\cos\theta_{xz}\cos\theta_{yz}$ in `stages.py` (§2.1)
+- `relative_velocity()` carries $1+\beta\cos\theta_{xz}\cos\theta_{yz}$ in `stages.py` (§2.1)
 - `photon_energy` carries $\cos^2(\alpha/2)$ in `collision.py` (§2.2)
 - $\mathbf{u}_i\cdot\mathbf{u}_j$ carries the $\mathbf{v}\cdot\mathbf{e}_i$ terms in `stages.py` and `delta.py` with rotated $\mathbf{e}_0, \mathbf{e}_1$ and per-particle lab-frame velocity $\mathbf{v}_e$ (RES060, DER006)
 - `EMISSION_IS_HEAD_ON` is `False`.
@@ -195,3 +195,7 @@ As noted in §Verification, this implements the manuscript's lab-frame formula; 
 > variable described above. DER014 adds the distinct incidence multiplier
 > $(1-\mathbf e\cdot\mathbf n_0)/2$ when that unchanged $\hat a$ enters the nonlinear
 > resonance denominator.
+
+> **2026-09-28 — Nonlinear incidence correction superseded.** DER015 replaces DER014's
+> electron-direction multiplier with the exact observer-dependent ratio $Q$ in Stage 2.
+> The trajectory definition of raw $\hat a$ remains unchanged.

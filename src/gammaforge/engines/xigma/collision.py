@@ -5,6 +5,9 @@ stages produce from them — Stage 0's `TrajectorySamples`, Stage 1's `ShapeTabl
 once, peak-a0-agnostic), Stage 1.5's retargeted `Table` per requested peak a0 (RES032),
 and prepared Stage-2 contexts per observation/geometry setup — so repeated or adaptively
 refined queries reuse both intermediate tables and individual spectral samples.
+The cached table and prepared contexts implement DER015–DER017/RES090: raw ``ahat`` plus
+carrier moments stay observation-independent, while exact incidence and reconstruction
+remain query operations.
 `XigmaEngine.run()` (`engine.py`) builds one `Collision` per call; notebooks may hold one
 across several queries.
 

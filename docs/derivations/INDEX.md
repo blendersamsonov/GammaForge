@@ -19,4 +19,7 @@ same change as any new derivation file or any status move —
 | DER011 | Closed-form angle-integrated linear Thomson spectrum | verified | verified/DER011-closed-form-angle-integrated-linear-thomson-spectrum.md |
 | DER012 | Physical transverse dipole emission and photon conservation under crossing angle | verified | verified/DER012-physical-transverse-dipole-emission-under-crossing-angle.md |
 | DER013 | Direction-dependent Doppler reduction at ultra-relativistic speed | verified | verified/DER013-direction-dependent-doppler-reduction.md |
-| DER014 | Beaming-cone ponderomotive incidence factor | verified | verified/DER014-beaming-cone-ponderomotive-incidence-factor.md |
+| DER014 | Beaming-cone ponderomotive incidence factor | verified | archived/DER014-beaming-cone-ponderomotive-incidence-factor.md |
+| DER015 | Observer-dependent ponderomotive incidence | verified | verified/DER015-observer-dependent-ponderomotive-incidence.md |
+| DER016 | Carrier-weighted trajectory moments | verified | verified/DER016-carrier-weighted-trajectory-moments.md |
+| DER017 | Second-order spectral-moment reconstruction | verified | verified/DER017-second-order-spectral-moment-reconstruction.md |

@@ -1,13 +1,29 @@
 # Ponderomotive observation-direction factor — physics handoff
 
-Status: resolved by the author on 2026-09-23 and implemented as DER014/RES088. The
-manuscript source still needs synchronization.
+Status: superseded on 2026-09-28 by DER015/RES090. The exact ratio derived below is now
+the production model; the 2026-09-23 beaming-cone resolution is archived as DER014/RES088.
+The manuscript source still needs synchronization.
 
 Date: 2026-09-23
 
-## Resolution (2026-09-23)
+## Current resolution (2026-09-28)
 
-A. Samsonov selected the beaming-cone approximation for production: for each electron,
+Production retains the exact observation-dependent ratio derived in this handoff,
+renamed $Q$ to distinguish it from the carrier correction $C$ introduced later:
+
+$$
+Q=\frac{1-\mathbf n\cdot\mathbf n_0}
+        {1-\mathbf e\cdot\mathbf n_0}.
+$$
+
+Stage 1 stores raw $a_{0,\mathrm{shape}}$, retargeting produces raw $\hat a$, and Stage 2
+evaluates $Q$ from the requested observation direction and table electron direction.
+DER015 records the resonance, inverse, and Jacobian; RES090 records the implementation
+choice.
+
+## Superseded resolution (2026-09-23)
+
+A. Samsonov initially selected the beaming-cone approximation for production: for each electron,
 replace the observation direction in the numerator coefficient by that electron's unit
 velocity direction, $\mathbf n\simeq\mathbf e$. The coefficient multiplying `ahat` is
 therefore
@@ -16,13 +32,9 @@ $$
 P=\frac{1-\mathbf e\cdot\mathbf n_0}{2}.
 $$
 
-This multiplies `ahat` directly; it is not an amplitude correction to $a_0$. The exact
-observer-dependent ratio derived below remains useful provenance but is not the selected
-production contract. DER014 records the adopted approximation and its inverse/Jacobian;
-RES088 records the implementation choice. Stage 1 deposits
-$P a_{0,\mathrm{shape}}$ per trajectory, so the retargeted table coordinate already
-equals $P\hat a$; NumPy and CuPy Stage 2 consume it without reapplying $P$. Direct delta
-references, which do not use the table, apply the same factor per particle.
+This was not an amplitude correction to $a_0$. DER014 and RES088 preserve this historical
+choice and its former Stage-1 placement; both are archived because the production model
+now uses exact $Q$ in Stage 2.
 
 ## Question and conclusion
 
@@ -33,6 +45,7 @@ the projection `n . n0`.
 
 Yes. The current manuscript and GammaForge resonance formula omit an
 observation-direction factor. The exact plane-wave decomposition gives the factor
+(called $C$ in this original note, and $Q$ in current code and DER015)
 
 $$
 C(\mathbf n,\mathbf v,\mathbf n_0)

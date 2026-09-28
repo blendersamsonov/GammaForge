@@ -102,7 +102,7 @@ Both therefore over-state the nonlinear red-shift by a factor of two.
 >
 > **Fixed in RES053.** `stages.ahat_from_shape` is now the single route from
 > `a0_shape` to $\hat a$ and applies `io.laser.CYCLE_AVERAGE_FACTOR` $= 1/2$. The
-> compensating-$2$ worry below was checked and ruled out: `RELATIVE_VELOCITY`, the
+> compensating-$2$ worry below was checked and ruled out: `relative_velocity()`, the
 > $E = 4\hbar\omega_0 s$ convention and `KERNEL_NORMALIZATION_CONSTANT` all live in the
 > photon-**count** path, which §9.1 pins absolutely (RES033), while $\hat a$ lives in the
 > resonance denominator and moves photons along $s$ without changing how many there are.

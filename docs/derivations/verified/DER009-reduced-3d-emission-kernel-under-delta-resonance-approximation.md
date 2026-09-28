@@ -257,7 +257,7 @@ $$
 
 Because Stage 0's macroparticle luminosity $L_i = \int v_{\text{rel}} \sigma_T n_{\text{ph}} dt$
 already folds in $\sigma_T$, the overall kernel normalization constant multiplying the cell
-summation in `stages.py:853` is:
+summation is:
 
 $$
 \boxed{\;\text{KERNEL\_NORMALIZATION\_CONSTANT} = \frac{1.5}{2\pi} \approx 0.238732414637843\; }
@@ -310,12 +310,10 @@ The algebraic steps were verified using Sympy:
 
 ### Code and test suite verification
 
-1. **`stages.py:853` and `stages.py:932-945`**:
-   The table kernel implementation matches this derivation line for line:
-   - `inv_base = 1.0 / s_val - r_sq` and `valid = inv_base > 0.0` implement the support cutoff.
-   - `g = np.where(valid, np.sqrt(g_sq), 0.0)` implements $\Gamma$.
-   - `prefac = np.where(valid, pol_factor * g**5 * gth_sq_inv / (1.0 + a_c), 0.0)` implements $\mathcal{K}$.
-   - Division by `s_val**2` and multiplication by `KERNEL_NORMALIZATION_CONSTANT` apply the Jacobian prefactor.
+1. **`stages.query_spectral_moments`**:
+   The table kernel implements the DER015 generalization of this reduction. Setting
+   $D=Q=\bar C=1$ recovers this derivation's support, inverse, Jacobian, and prefactor,
+   while `KERNEL_NORMALIZATION_CONSTANT` applies the same normalization.
 
 2. **Total yield agreement**:
    In `test_stage1_stage2.py::test_the_table_kernel_angle_integrates_to_stage_0_total`, integrating
@@ -323,7 +321,16 @@ The algebraic steps were verified using Sympy:
    elementary photon count.
 
 3. **Consistency between delta and table engine**:
-   In `test_xigma_engine.py::test_the_two_normalization_paths_inside_one_results_object_agree`,
+   In `test_xigma_engine.py::test_angle_resolved_and_angle_integrated_normalizations_agree`,
    integrating `OutputKind.COLLIMATED_SPECTRUM` (table kernel with `KERNEL_NORMALIZATION_CONSTANT = 1.5 / (2*pi)`)
    over angles agrees with `OutputKind.SPECTRUM` (Stage 0 closed form) within the expected
    angular aperture capture fraction.
+
+## Amendments
+
+> **2026-09-28 — Head-on unchirped reduction of the five-dimensional model.** The
+> normalization and delta-manifold reduction remain current. Production now samples
+> $H(\gamma,\theta_{e,x},\theta_{e,y},\hat a,\bar C)$ and uses
+> $A=1+Q\hat a$ and $D\bar C$ in the inverse/Jacobian (DER015). DER009's displayed
+> formulas are the $D=Q=\bar C=1$ limit. DER017 adds the two finite-line spectral moment
+> channels without changing the base-kernel normalization.

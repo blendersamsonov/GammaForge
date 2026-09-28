@@ -80,3 +80,8 @@ acceptance remains open.
 > encounter flux, Jacobian placement, and linear spectrum remain current. RES088 uses
 > the same electron direction to add the correlated ponderomotive coefficient
 > $P=(1-\mathbf e\cdot\mathbf n_0)/2$ multiplying `ahat`.
+
+> **2026-09-28 — RES088 superseded by RES090.** The Doppler factor, encounter flux,
+> Jacobian placement, and linear spectrum remain current. The nonlinear coefficient is
+> now the exact observer-dependent ratio $Q$ evaluated in Stage 2; chirped resonances use
+> $D\bar C$ without changing RES082's definition of $D$.

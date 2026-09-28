@@ -163,7 +163,7 @@ def resonance_spectrum(
     kernel uses: those extra powers are a ``|dGamma/domega|`` Jacobian for evaluating a
     *smooth, already-binned* distribution at an interpolated gamma, and there is nothing
     interpolated here — every particle contributes at its own exact gamma. For the same
-    reason no ``1 / (1 + P*ahat)`` Jacobian appears: that one comes from the ensemble
+    reason no ``1 / (1 + Q*ahat)`` Jacobian appears: that one comes from the ensemble
     gamma-integral collapse a table lookup performs, and delta never performs it.
 
     The histogram is returned as a density in ``s``, so integrating it over ``s`` and over

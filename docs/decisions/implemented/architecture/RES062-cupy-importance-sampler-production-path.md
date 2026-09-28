@@ -91,3 +91,10 @@ independent comparison must pass on CUDA hardware before either is claimed as ve
 > GPU values for supported points. The port remains explicitly selectable for diagnosis,
 > but `backend="numpy"` is the alpha default, `auto` is an opt-in experimental route,
 > and GPU results carry an actionable warning. *DER008* remains derived.
+
+> **2026-09-28 — Five-dimensional moment sampler is the current implementation.** The
+> ring/annulus architecture remains, but the kernel now traverses separate raw $\hat a$
+> and $\bar C$ axes, evaluates exact observer-dependent $Q$, and accumulates all three
+> DER017 spectral channels with shared QMC samples. CuPy is the selected default after the
+> renewed release gate; NumPy remains the deterministic reference (RES083, RES085,
+> RES090). The original four-dimensional/default/gating details above are historical.

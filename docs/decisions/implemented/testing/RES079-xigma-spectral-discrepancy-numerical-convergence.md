@@ -44,3 +44,12 @@ All three are standard quadrature errors that vanish with resolution. The produc
 - **Validation scope**: Off-axis spectral convergence requires finer shape bins (memory/compute trade-off). The bounded angular-refinement packet in `docs/handoffs/delta-arbitrary-angle-validation-2026-09-09.md` (RES074) should continue with gamma/theta refinement before particle/seed studies.
 - **Production defaults**: Current defaults remain valid for alpha scope (on-axis yield, head-on polarization). Off-axis spectral shape is explicitly excluded from alpha acceptance (RES065, RES072).
 - **Documentation**: Update `PROGRESS.md` open thread to reflect root cause identified; the "independent arbitrary-angle emission validation remains open" refers to convergence + scientific acceptance, not a formula error.
+
+## Amendments
+
+> **2026-09-28 — Numerical values predate the exact-incidence and carrier-moment model.**
+> The convergence conclusion remains relevant, but the table is now five-dimensional and
+> crossed nonlinear spectra deliberately changed when RES090 superseded RES088. The
+> percentages and four-coordinate bin tuples above are historical evidence, not current
+> goldens. Current acceptance must use the direct-particle references and refinement gates
+> against DER015–DER017.

@@ -18,8 +18,8 @@ unfinished or waiting on someone*.
 | 1. Core (`gammaforge.io`) | 🟢 done; `PulseTrainParaxialLaser` temporal modulation and pulse trains landed (RES071) |
 | 2. Validation harness | 🟢 done |
 | 2.5. Stage 0 + minimal delta | 🟢 done |
-| 3a. xigma engineering | 🟢 NumPy/CuPy Stage 0/1 execution with host stage boundaries (RES083), Stage 2, `Collision`, `XigmaEngine`; temporal/spatial source histograms (RES081). CuPy remains the selected default. Gamma-resonance sampling (RES080) improves narrow-energy sample allocation; direction Doppler is consistent through flux, resonance/Jacobian and support (RES082). Stage 1 deposits the correlated beaming-cone nonlinear shape $P a_{0,\mathrm{shape}}$, so the retargeted table already carries $P\hat a$ and Stage 2 does not reapply it (DER014, RES088). The renewed real-CUDA release gate passes after Stage-0/1 CUDA wiring (eight cases); scientific acceptance remains in Phase 3b. |
-| 3b. Physics closure | 🟡 §9.1 closed (RES033). Local transverse-dipole crossing correction and the author-selected ponderomotive incidence approximation are merged (DER012/DER014, RES078/RES088), retaining per-particle lab velocities and Stokes API compatibility; independent arbitrary-angle acceptance/convergence remains open. |
+| 3a. xigma engineering | 🟢 NumPy/CuPy Stage 0/1 execution with host stage boundaries (RES083), five-dimensional shape/physical tables, Stage-2 raw spectral moments, nonuniform second-order reconstruction, persistent adaptive queries, `Collision`, and `XigmaEngine`. Stage 0 accepts carrier phase gradients and accumulates the weighted statistics in DER016; Stage 1 stores raw nonlinear shape and carrier mean with co-shaped moment channels; Stage 2 applies exact observer-dependent $Q$ (DER015/RES090). Gamma-resonance sampling (RES080) retains the ring-shaped proposal while reusing static backend/QMC state. The real-CUDA release gate and NumPy/CuPy moment comparisons pass; scientific acceptance remains in Phase 3b. |
+| 3b. Physics closure | 🟡 §9.1 closed (RES033). Local transverse-dipole crossing correction, direction Doppler, exact observer-dependent nonlinear incidence, and carrier/finite-line moments are implemented (DER012–DER013, DER015–DER017; RES078, RES082, RES090), retaining per-particle lab velocities and Stokes API compatibility; independent arbitrary-angle acceptance/convergence remains open. |
 | 4. analytical engine | 🟢 landed and merged to `main`; general overlap-integral yield, width breakdown, quadrature spectrum, flying focus, crossing angle for the yield. Open: collimated-spectrum construction |
 | 5. kascade port + delta full role | 🟡 minimal `KascadeEngine`, Thomson sanity anchor, and opt-in GUI integration landed (RES059); independent CuPy delta reference with a real-CUDA agreement gate (RES085); four-method validation wiring remains open |
 | 6. GUI | 🟡 NiceGUI local browser UI implemented (RES058, RES089, `docs/UI_SPEC.md`): Inputs/Results, split panes, schema forms, sectional persistent defaults, visible Auto/manual output ranges, preview, worker execution, plots/exports. Cross-run xigma stage reuse remains open; no LAN executor yet. |
@@ -43,10 +43,11 @@ Ordered by who is blocked. Each names the file that carries the detail.
 
 ### Waiting on the author (physics)
 
-- **Synchronize the manuscript resonance derivation.** The author selected
-  $P=(1-\mathbf e\cdot\mathbf n_0)/2$ multiplying `ahat` on 2026-09-23 and the
-  repository now implements it (DER014, RES088). The paper's `xigma.tex` still carries
-  the former unit coefficient and needs the corresponding derivation/text update.
+- **Synchronize the manuscript resonance and finite-line derivations.** The repository
+  now implements the author-supplied exact observer-dependent $Q$, carrier-weighted
+  trajectory moments, and second-order spectral reconstruction (DER015–DER017, RES090).
+  Transcribe the settled formulas into the paper before claiming manuscript-level
+  closure; any formula conflict is blocking under P14.
 
 - **`ahat_decades`.** RES032's grid defaults were tuned against `ahat` values that RES053 later
   halved, so the bank now sits in the grid's coarse floor. Measured centroid bias ~1%,
@@ -62,8 +63,8 @@ Ordered by who is blocked. Each names the file that carries the detail.
 ### Available to pick up (no external dependency)
 
 - **Complete independent arbitrary-angle scientific acceptance.** DER012/RES078's
-  transverse-dipole model, RES082's direction Doppler, and DER014/RES088's beaming-cone
-  ponderomotive coefficient now have matched-bin evidence
+  transverse-dipole model, RES082's direction Doppler, and DER015/RES090's exact
+  observer-dependent nonlinear coefficient now have matched-bin evidence
   for the baseline, low-a0 and near-a0-max bank cases, head-on and small crossed
   geometry, on/off axis. The production runner now measures these plus crossed circular
   polarization, with explicit agreement and refinement gates (RES084). All finest-grid

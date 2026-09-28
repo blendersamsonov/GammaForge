@@ -92,5 +92,6 @@ cross-checks this table against the files on disk.
 | RES084 | Production delta emission gates | testing | implemented | implemented/testing/RES084-production-delta-emission-gates.md |
 | RES085 | Validated CuPy delta emission reference | feature | implemented | implemented/feature/RES085-validated-cupy-delta-reference.md |
 | RES087 | Retire the predecessor validation bridge | simplification | implemented | implemented/simplification/RES087-retire-predecessor-validation-bridge.md |
-| RES088 | Ponderomotive incidence uses the electron beaming direction | bug-fix | implemented | implemented/bug-fix/RES088-ponderomotive-incidence-beaming-cone.md |
+| RES088 | Ponderomotive incidence uses the electron beaming direction | bug-fix | implemented | archived/bug-fix/RES088-ponderomotive-incidence-beaming-cone.md |
 | RES089 | GUI defaults are sectional and output ranges are per-axis Auto or manual | feature | implemented | implemented/feature/RES089-gui-sectional-defaults-and-output-ranges.md |
+| RES090 | Ponderomotive incidence is observer-dependent in Stage 2 | bug-fix | implemented | implemented/bug-fix/RES090-observer-dependent-ponderomotive-incidence.md |

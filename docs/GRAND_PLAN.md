@@ -1,6 +1,6 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.42 — 2026-09-26
+**Status:** draft v0.43 — 2026-09-28
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 
@@ -19,7 +19,7 @@
 - **[10. Open questions](#10-open-questions-resolve-during-implementation)** — Resolved and active design questions
 - **[11. Phases and milestones](#11-phases-and-milestones)** — Phase 0 through 8 exit criteria
 - **[12. Risks and mitigations](#12-risks-and-mitigations)** — Guards C1–C4, risk register
-- **[Changelog](#changelog)** — Plan evolution history (v0.29 down to v0.2)
+- **[Changelog](#changelog)** — Plan evolution history (v0.43 down to v0.2)
 
 ---
 
@@ -36,7 +36,7 @@ Goals, in priority order:
 
 1. **Uniform, clean architecture** with one authoritative physics core and one engine
    interface. No more three different model styles.
-2. **First-class engines:** `xigma` (tabulated 4D-overlap pipeline, GPU/CPU) and
+2. **First-class engines:** `xigma` (tabulated 5D-overlap pipeline, GPU/CPU) and
    `analytical` (closed-form estimates). `kascade` is a *minimal* port kept only as a
    cross-validation method (a better Monte-Carlo will eventually replace it — do not
    invest in it). `delta` is a validation-only reference, never a production model.
@@ -517,8 +517,9 @@ The tabulated-overlap pipeline, restructured into composable stages:
   function; per-particle ballistic trajectory over the laser interaction window, with
   the laser's `LaserField` sampling API (§3.3/P15) evaluated along each trajectory —
   **the engine calls the laser; it does not define the a0 profile or envelope itself**.
-  Produces per-particle `L` (weight contribution), trajectory-averaged a0, temporal/
-  spatial diagnostics. Backends: numpy / cupy / numba. **Chunking: one shared
+  Produces per-particle `L` (weight contribution), raw nonlinear shape, carrier mean,
+  nonlinear/carrier variances and covariance (DER016), plus temporal/spatial diagnostics.
+  Backends: numpy / cupy / numba. **Chunking: one shared
   auto-chunk + OOM-retry utility** (consuming `available_vram_bytes`/
   `available_ram_bytes`) used by *every* chunked stage — the old repo had **three
   inconsistent implementations** (particles.py, spectrum_from_particles.py, and the
@@ -526,11 +527,12 @@ The tabulated-overlap pipeline, restructured into composable stages:
   `_MAX_S_CHUNK` cap history, halve-and-retry policy), not the triplicated code, and
   retire the unwired manual-chunk design.
 - **Stage 1 — shape deposition** (`stages.py::deposit_shape_table`): pure function;
-  nearest/CIC deposition of `(gamma, θx, θy, a0_shape)` into a 4D density table
-  (`ShapeTable.H`) — onto Stage 0's a0-independent `a0_shape`, not onto `ahat` directly, so
-  one deposit serves any peak a0.
+  nearest/CIC deposition of `(gamma, θx, θy, a0_shape, Cbar)` into a 5D density table
+  (`ShapeTable.H`) with three co-shaped luminosity-weighted moment channels — onto Stage
+  0's a0-independent raw `a0_shape`, not onto `ahat` directly, so one deposit serves any
+  peak a0. An exactly constant carrier distribution collapses to one chirp bin.
 - **Retarget — conservative regrid** (`stages.py::retarget_ahat`): pure function; turns a
-  `ShapeTable` plus one peak a0 into the `Table` (`(gamma, θx, θy, ahat)`, Stage 2's actual
+  `ShapeTable` plus one peak a0 into the `Table` (`(gamma, θx, θy, ahat, Cbar)`, Stage 2's actual
   input) via overlap-weighted mass transfer onto a **fixed, non-uniform** `ahat` axis —
   dense near `ahat_max`, coarse toward `ahat_min`, everything below folded into one floor
   bin — because the redshift correction `ahat` drives is only significant near a pulse's
@@ -538,28 +540,24 @@ The tabulated-overlap pipeline, restructured into composable stages:
   than anywhere else. This *is* the predecessor's `retarget_a0`/`a0_kind` regrid, with a
   different target-grid law than its plain `linspace` (`DECISIONS.md` RES032, superseding
   RES028's decision not to port it). Cheap and independent of `n_particles`, so `Collision`
-  caches the shape deposit once and retargets many peak-a0 values from it.
-- **Stage 2 — spectrum queries** (`stages.py::spectrum_from_table`,
-  `angular_spectrum_from_table`, `spectrum_in_angular_range`): pure functions. The numpy
-  path ports the predecessor's brute-force grid quadrature (its validation-only
-  `reference.py`), not its GPU importance sampler — trust-level C in the predecessor's own
-  audit, not something to import as this phase's only implementation (RES029). `cupy`/
-  `numba` are gated like Stage 0's until real kernels exist. **Target shape (v0.18,
-  unscheduled):** the eventual production kernel is a ring/annulus-based importance
-  sampler, built and cross-checked against this brute-force quadrature rather than ported
-  from the predecessor's own audited-noisy one — on **every backend it ships for,
-  including CPU** (not a GPU-exclusive path), same backend set as Stage 0/1. The
-  brute-force quadrature then becomes the validation-only reference, same role
-  `reference.py` already had for the predecessor. **One authoritative
+  caches the shape deposit once and retargets many peak-a0 values from it. The same
+  conservative transfer applies to every moment channel with DER016's intensity scaling;
+  no observation-dependent factor enters deposition or retargeting.
+- **Stage 2 — spectrum queries** (`stages.py::query_spectral_moments`, prepared-query
+  contexts, and spectrum wrappers): NumPy brute-force grid quadrature is the deterministic
+  reference; CuPy uses the validated ring/annulus importance sampler (RES062, RES085).
+  Both evaluate DER015's exact observer-dependent $Q$, traverse the full raw
+  `(ahat, Cbar)` table measure, and return DER017's three raw spectral channels. The
+  host-side reconstruction supports arbitrary strictly increasing energy samples.
+  Prepared contexts retain backend/table/proposal/QMC state and cache individual raw
+  spectral samples so adaptive insertion computes only missing points. **One authoritative
   normalization, isolated in one module-level location**
-  (`stages.KERNEL_NORMALIZATION_CONSTANT`) and arbitrated against delta (§9.1) — the
-  constant itself is pi-free and unchanged from the predecessor's kernel math; the ~2π
-  question is which side of the table-free/table-based split the missing factor belongs
-  to, still open (RES029, §9.1).
+  (`stages.KERNEL_NORMALIZATION_CONSTANT`) and arbitrated against delta (§9.1). The
+  resolved value includes the required `1/(2π)` and is pinned by DER009/RES033.
 - **`Collision` facade** (`collision.py`): the one stateful object. Owns one fixed
   (`InteractionParameters`, xigma `Parameters`) pair and memoizes what its stages produce
   from them. Methods are thin wrappers: `build_overlap()`, `spectrum(s)`,
-  `angular_spectrum(...)`, `spectrum_in_angular_range(...)`,
+  `prepare_query(...)`, `angular_spectrum(...)`, `spectrum_in_angular_range(...)`,
   `run(output_requirements) -> Results`. Caching is **per-instance memoization**, not
   cross-call hash-keyed staleness detection — the latter needs a live consumer that keeps
   one `Collision` across edits and decides what to keep, which is Phase 6's GUI grey-out
@@ -576,8 +574,9 @@ The tabulated-overlap pipeline, restructured into composable stages:
   Calculate cost (§12), not a routine-suite cost (RES031). The validation identity harness
   exercises Stage 1/2 at a suite-appropriate scale instead (§9.1).
 - **Geometry note:** `theta_xz`/`theta_yz`/`psi_focus`/`psi_pol` are first-class schema
-  parameters from day one, but the *physics* of non-head-on geometry is wired as an
-  identity/no-op until §9.3's derivation lands (P14c) — never silently approximate.
+  parameters. The implemented non-head-on model uses per-particle lab directions,
+  transverse dipole projection, direction Doppler, and exact observer incidence
+  (DER012–DER015); independent arbitrary-angle scientific acceptance remains open.
 
 ### 4.3 analytical engine (`engines/analytical/`) — first-class
 
@@ -964,27 +963,32 @@ annotated at both equations.
 
 ### 9.3 Crossing angle and electron direction
 
-**Per-electron Doppler extension (v0.35):** xigma retains its ultra-relativistic
-ballistic speed, beta = 1, while using each electron's normalized direction in
-the encounter factor F = 1 - e dot n0. Stage 0 uses F in the overlap flux. In
-nominally scaled energy s = E / (2 E_laser F0), with F0 = 1 - n0_z, Stage 2 uses
-D = F/F0 in the resonance and its Jacobian. The ponderomotive term uses the
-author-selected beaming-cone approximation n approximately e: its coefficient is
-P = (1 - e dot n0)/2 = F/2, so the inverse resonance is
-gamma² = (1 + P ahat)/(D/s - r²). This substitutes the electron direction for the
-observation direction because one electron's useful radiation is concentrated within
-an O(1/gamma) cone around e; it retains the general-incidence reduction of nonlinear
-redshift without carrying a separate observation-direction coefficient through Stage 2.
-Stage 1 deposits the intensity-independent product P times a0_shape, so retargeting
-produces a table whose `ahat` coordinate already means P times ahat. Stage 2 therefore
-uses that coordinate directly in 1 + ahat_table; it must not reconstruct P from angular
-cell centres or apply the incidence factor a second time.
-NumPy and CuPy use the same convention, and GPU radial support must jointly enclose the
-direction-Doppler factor over its full angular domain. The table-free linear spectrum is
-unchanged because ahat = 0 there. The finite-beta delta diagnostic remains available
-separately; it is not silently substituted for the production approximation. This is
-an ultrarelativistic beaming-cone model, not an exact finite-gamma or unrestricted-angle
-theory (DER013, DER014, RES088).
+**Per-electron Doppler, exact observer incidence, and carrier moments (v0.43):** xigma
+retains its ultra-relativistic ballistic speed, beta = 1, while using each electron's
+normalized direction in the encounter factor F = 1 - e dot n0. Stage 0 uses F in the
+overlap flux. In nominally scaled energy s = E / (2 E_laser F0), with F0 = 1 - n0_z,
+Stage 2 uses D = F/F0 and the exact observer-dependent nonlinear coefficient
+
+Q = (1 - n dot n0) / (1 - e dot n0).
+
+Stage 1 remains observer-independent: it deposits raw normalized nonlinear shape and the
+trajectory-averaged carrier ratio Cbar as separate coordinates, plus three co-shaped
+variance/covariance channels. Retargeting converts only raw shape to raw ahat. Stage 2
+uses the resonance
+
+s_R = D Cbar gamma² / (1 + Q ahat + gamma² r²)
+
+and its matching analytical inverse and Jacobian (DER013, DER015, RES090). Built-in
+lasers return zero additional carrier-phase gradient, giving C = 1 exactly. A conforming
+chirped `LaserField` supplies that gradient through the shared protocol; Stage 0 then
+computes the weighted mean, variances, and covariance in DER016. DER017 reconstructs the
+second-order finite-line spectrum from three raw spectral moment channels on arbitrary
+nonuniform energy samples. NumPy and CuPy use the same five-dimensional convention and
+GPU support bounds enclose D, Cbar, Q, and raw ahat over their full tabulated domains.
+
+The finite-beta delta diagnostic remains available separately; it is not silently
+substituted for the production approximation. This remains an ultrarelativistic,
+near-backscattering model rather than exact finite-gamma or unrestricted-angle theory.
 
 The manuscript's polarization projection is defined with the field-free electron
 velocity. The author confirmed on 2026-09-06 that Stage 2 uses that velocity directly
@@ -1048,8 +1052,8 @@ formula is implemented.
 | **1. Core** | `io/`: schema, units/conventions (CGS), constants; bunch (`Bunch` + `GaussianElectronBeam`); laser (incl. `LaserField` protocol + `GaussianParaxialLaser` as its sole implementation, `fit_gaussian_paraxial`, elliptical+astigmatic model, geometry angles — §3.3/P15); target (auto-ranges + `OutputKind` vocabulary §3.4); interaction (incl. `N_e` scalar + `SamplingSpec` §3.5); sampling + prefilter (§3.2); results contract (incl. `PhotonMacroparticles` §3.6); YAML + `.ele` I/O; HDF5 results writer | Representative serialization round trips; CGS/SI and width/time-convention checks; sampling moments and mass shell; geometry and integral-preservation invariants |
 | **2. Validation harness** | scenarios, runners skeleton, and invariance-test scaffolding (chunk, prefilter, backend, seed — §7). Transitional cross-repository snapshots used during the rebuild were retired once native independent legs covered their useful checks (RES087). | Scenario-bank identities and invariance checks execute without external repositories or generated fixtures |
 | **2.5. Stage 0 + minimal delta** | **Stage 0** (`integrate_trajectories`) and the **shared auto-chunk + OOM-retry utility** (§4.2), pulled forward from 3a because delta needs both; delta itself scoped to Stage-2 normalization arbitration, built on top of Stage 0 (§4.5) | Stage 0 tests green; chunk-invariance holds; delta produces independent spectra on baseline scenarios; identity harness (`kernel` vs `reference` vs `direct binning` vs delta) executable |
-| **3a. xigma engineering** — **landed 2026-08-08** | Stage 1/2 pure functions; Collision facade + stage cache; Engine wrapper; numpy kernel for Stages 1/2, cupy/numba gated like Stage 0 until real kernels exist (**Stage 0 and the chunking utility already built in 2.5**; RES029); geometry/a0/ellipticity parameters wired as explicit identity/no-op placeholders (P14c) | Deposition/retarget conservation, nonlinear redshift, delta agreement, and backend agreement checks green; placeholders documented |
-| **3b. Physics closure** — **§9.1 landed 2026-08-08; §9.2/§9.3 open, non-blocking** | ~2π resolution (§9.1 — **closed**: traced in 2.5, applied in 3b, RES033), crossing-angle derivation (§9.3), ellipticity→a0 (§9.2) — **runs concurrently with Phases 4 and 5, not serially** | §9.1's constant set in Stage 2 and the identity harness re-gated against 1.0 rather than 2π — **met**; §9.2/§9.3 derivations landed if author completes them in parallel (never blocking 4–6) — **outstanding, and the paper contains no formula for either**, so both stay wired as documented no-ops with `validate()` warnings (RES034) |
+| **3a. xigma engineering** — **landed 2026-08-08; extended 2026-09-28** | Stage 0 carrier-weighted trajectory moments; five-dimensional Stage 1/retarget tables with co-shaped moment channels; NumPy/CuPy Stage 2 raw-moment queries; nonuniform second-order reconstruction; persistent adaptive query contexts; Collision facade + engine wrapper | Deposition/retarget conservation, nonlinear redshift, direct-particle delta/moment agreement, backend agreement, and incremental-query reuse checks green |
+| **3b. Physics closure** — **§9.1–§9.3 implemented; scientific acceptance still open** | ~2π resolution (§9.1, RES033), ellipticity and transverse-dipole emission (§9.2/§9.3, DER004–DER007/DER012), direction Doppler and exact observer-dependent nonlinear incidence (DER013/DER015, RES082/RES090), carrier and finite-line moments (DER016–DER017) | Implemented formulas and independent numerical references are green; broader arbitrary-angle convergence and four-method scientific acceptance remain outstanding under RES074 |
 | **4. analytical engine** — **landed 2026-08-09; one growth item open** | estimates + component breakdown; quadrature spectrum; general overlap-integral yield (non-round + displaced foci); remaining growth item (collimated spectrum) | Closed-form limits match — **met** (Thomson-limit anchor *and* the analytic reduction of `overlap_yield` to the round-beam closed form, §7); validation anchor ready — **met** for `TOTAL_YIELD`/`SPECTRUM`; foci displacement + non-round beam — **met** via DER001 (RES039); crossing-angle geometry — **met** for the yield via DER001 §A.6 (RES041), validated against a brute-force Monte Carlo; the width's nonlinearity term — **met** via the luminosity-weighted `<a0²>` (DER001 §A.8, RES042); resolved time/transverse previews — **met** (DER001 §A.9). Outstanding: collimated-spectrum construction, angle-resolved previews (deferred), and `SPECTRUM`'s shape under a crossing angle, which is §9.3's emission kernel rather than overlap geometry |
 | **5. kascade port + delta full role** — **partially landed 2026-09-06** | minimal kascade behind interface **+ its Thomson-limit sanity check (B4)** — **met** (RES059); delta full cross-validation role — **open** | Kascade sanity check passes — **met**; 4-method cross-validation runs — **open** |
 | **6. GUI** | schema-driven two-tab app; overlays + per-engine show/hide; save plots/HDF5; grey-out/release; sketch panel (headless module first) | All planned interactions work; calculation remains behind the public runner boundary (B3) |
@@ -1066,7 +1070,7 @@ derivations (A3).
 | Risk | Mitigation |
 |------|-----------|
 | ~2π normalization turns out to be a paper-level issue | **It did** (Phase 2.5, RES026): `eq:xsec` is missing `1/(2π)`. The mitigation worked as designed — delta arbitrated independently, the paper formula was treated as necessary-not-sufficient, and the constant was isolated to one location, so applying it in Phase 3b was the one-line change it was meant to be (RES033). Residual: the manuscript is annotated, not corrected, so the repo and the typeset equation knowingly differ |
-| Crossing-angle and ellipticity→a0 have **no existing derivation** in the paper (confirmed by audit, not just undocumented) | Open-ended research tasks, not consult-and-implement: parameters are first-class in schema/architecture now; physics wired as explicit identity/no-op until derivations land; derivation runs in parallel (P14c, §9.2/§9.3); never blocks Phases 3a–6 |
+| The manuscript can lag implemented crossing-angle, carrier, and finite-line derivations | Treat a genuine formula conflict as blocking under P14. Keep repository derivations and independent reference tests explicit, and synchronize DER015–DER017 into the paper before claiming manuscript-level closure |
 | Validation implementations share inputs or formulas | Every comparison states which stages it shares; closed-form identities, independent delta emission, convergence, and observable-sensitive distribution checks cover distinct failure modes |
 | Chunking regressions (OOM class) | Chunk-invariance property tests from Phase 2 on; single shared auto-chunk + OOM-retry utility (porting algorithm + constants, not the old triplicated code) |
 | Collimated 3D-slice cost: a deliberate Calculate with the collimated (E,θx,θy) output is inherently slow at high resolution (measured 27 s @ 64 energy bins on CPU in the old repo; linear in n_energy) | **Expected, not a defect** — no live auto-requery exists (engines are Calculate-gated, §5), so the old CPU-pegging mechanism is structurally impossible; the analytical panel stays real-time; per-engine progress indication; cache reuse (`QUERY_ONLY`/`REUSE_INTERMEDIATES`) minimizes repeated cost |
@@ -1080,6 +1084,11 @@ derivations (A3).
 
 ## Changelog
 
+- **v0.43**: Replace the superseded beaming-cone incidence approximation with exact
+  observer-dependent $Q$ in Stage 2; restore raw nonlinear shape in Stage 1; add the
+  carrier-phase protocol, weighted trajectory moments, five-dimensional tables,
+  second-order nonuniform spectral reconstruction, NumPy/CuPy parity, and persistent
+  adaptive query contexts (DER015–DER017, RES090).
 - **v0.42**: Simplify the test strategy around scientific risk. Keep equations, physical
   invariants, conservation/convergence, independent references and backend agreement,
   plus a few representative execution and persistence paths. Retire documentation-format,

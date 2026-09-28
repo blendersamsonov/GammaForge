@@ -131,3 +131,8 @@ count, is a behavior change for any existing config relying on the old default.
 > deposited before retargeting. The cache/regrid architecture and mass-preserving scale
 > remain unchanged; the resulting Table coordinate now represents $P\hat a$ rather than
 > raw $\hat a$.
+
+> **2026-09-28 — RES088 superseded by RES090.** Stage 1 again stores raw
+> $a_{0,\mathrm{shape}}$, and the retargeted coordinate again means raw $\hat a$.
+> Observation-dependent $Q$ is evaluated only in Stage 2. The table is now
+> five-dimensional through a separate $\bar C$ coordinate with co-shaped moment channels.

@@ -2,8 +2,10 @@
 
 The kernel follows GammaForge's Stage-2 contract:
 - Applies `KERNEL_NORMALIZATION_CONSTANT = 1.5 / (2 pi)` (RES033).
-- Traverses the full ``(ahat, chirp)`` quadrature and accumulates the base and both
-  finite-line moment channels with identical QMC samples.
+- Traverses the full ``(ahat, chirp)`` quadrature and accumulates DER017's three raw
+  spectral channels with identical QMC samples.
+- Evaluates DER015's exact observer-dependent nonlinear coefficient at every QMC sample;
+  the table stores raw ``ahat``.
 - Dispatches multi-point angular spectrum queries to GPU rawkernel when CUDA and CuPy
   are available, falling back to NumPy brute-force grid quadrature.
 """

@@ -2,6 +2,11 @@
 
 Status: implemented
 Class: bug-fix
+Archived: 2026-09-28
+
+**Superseded by RES090** (2026-09-28): the nonlinear incidence coefficient is now the
+exact observer-dependent $Q$ evaluated in Stage 2, while Stage 1 again stores raw
+nonlinear shape.
 
 ## Problem
 

@@ -1,6 +1,11 @@
 # DER014 — Beaming-cone ponderomotive incidence factor
 
 Status: verified
+Archived: 2026-09-28
+
+**Superseded by DER015** (2026-09-28): production now evaluates the exact
+observer-dependent coefficient $Q$ in Stage 2 instead of depositing the beaming-cone
+coefficient $P$ in Stage 1.
 
 ## Setup
 

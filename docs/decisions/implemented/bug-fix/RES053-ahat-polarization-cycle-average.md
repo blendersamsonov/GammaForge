@@ -73,7 +73,7 @@ cycle factor, so `ahat_code = 2 ahat_paper`. There is no second convention under
 are right: it is a missing factor.
 
 **The §0 question this closes.** The open worry recorded in DER003 was
-whether a compensating 2 already sat somewhere else — `stages.RELATIVE_VELOCITY = 2.0`,
+whether a compensating 2 already sat somewhere else — `stages.relative_velocity(1.0) = 2.0`,
 the `E = 4 hbar omega0 s` energy convention, or `stages.KERNEL_NORMALIZATION_CONSTANT`. It
 does not, and the reason is structural rather than numerical: all three live in the
 photon-count / normalization path, whose absolute value §9.1 pins against an elementary

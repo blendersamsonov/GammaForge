@@ -6,6 +6,8 @@ peak-intensity-independent raw ``a0_shape`` axis), the retarget step
 ``ahat`` axis for one specific peak intensity — RES032) and Stage 2
 (:func:`spectrum_from_table`,
 :func:`angular_spectrum_from_table`, :func:`spectrum_in_angular_range`) all live here.
+The exact observer incidence, carrier-weighted moments, and finite-line reconstruction
+are recorded in DER015, DER016, and DER017 respectively.
 
 **Every stage function is pure.** The explicit :class:`PreparedQuery` is the one query-layer
 state holder: it caches spectral samples and backend resources for adaptive refinement.
@@ -76,7 +78,6 @@ __all__ = [
     "ahat_from_shape",
     "integrate_trajectories",
     "photon_density_scale",
-    "RELATIVE_VELOCITY",
     "BYTES_PER_PARTICLE_STEP",
     "ShapeTable",
     "Table",
@@ -307,10 +308,6 @@ def doppler_factor_per_particle(
 
     return one_minus_v_dot_n0 / nominal
 
-
-#: Backward-compatible alias for code/docs that still reference the constant name.
-#: ``RELATIVE_VELOCITY = relative_velocity(1.0) == 2.0``
-RELATIVE_VELOCITY = 2.0
 
 #: The table-free spectrum has several live particle-by-energy temporaries. Its work is
 #: partitioned beneath this fixed ceiling even where the host cannot report available RAM;
@@ -818,8 +815,9 @@ class TrajectorySamples:
 
     ``chirp_mean``, ``var_a_shape``, ``var_chirp``, and ``cov_a_chirp_shape`` are the
     strength-independent carrier/intensity moments defined by the chirped resonance
-    model. The variance and covariance of physical ``q`` at another peak intensity follow
-    from :meth:`retargeted_var_a` and :meth:`retargeted_cov_a_chirp`.
+    model (DER016). The variance and covariance of physical ``q`` at another peak
+    intensity follow from :meth:`retargeted_var_a` and
+    :meth:`retargeted_cov_a_chirp`.
 
     ``intensity_peak`` is the peak **cycle-averaged** ``<a^2>``, not a peak ``a0``; nothing
     in this dataclass carries a polarization convention, because ``<a^2>`` at fixed pulse
@@ -1232,7 +1230,8 @@ def _validate_edges_and_shape(edges, H, name: str) -> None:
 class ShapeTable:
     """Stage 1's output: a 5D photon-weight density over ``(gamma, theta_x, theta_y,
     a0_shape, chirp_mean)``. The nonlinear incidence coefficient is observer-dependent
-    and therefore is not part of this deposited coordinate.
+    and therefore is not part of this deposited coordinate (DER015). The three co-shaped
+    channels carry the luminosity-weighted statistics defined by DER016.
 
     Not agnostic in *mass*: ``H`` is deposited with ``samples.luminosity`` at
     ``source_intensity_peak`` (the pulse Stage 0 actually ran), and luminosity scales
@@ -1306,7 +1305,8 @@ class Table:
     ahat, chirp_mean)``, for one specific peak intensity.
 
     The axis stores raw ``ahat``; Stage 2 evaluates the observer-dependent nonlinear
-    coefficient at query time. ``H`` is a **density** (weight per unit cell volume).
+    coefficient at query time (DER015). ``H`` is a **density** (weight per unit cell volume),
+    accompanied by DER016's three luminosity-weighted moment densities.
     Unlike `ShapeTable`, the ``ahat`` axis is generally
     **non-uniform** — :func:`retarget_ahat` builds it dense near
     ``ahat_max`` and coarse toward ``ahat_min`` (RES032), so there is no
@@ -2056,7 +2056,9 @@ def query_spectral_moments(
     ``g``/``prefac`` are recomputed inside the ahat loop implicitly — this function never
     factors ahat out of the resonance condition. The table stores raw ``ahat`` and the
     exact observer-dependent coefficient is evaluated from the same electron and laser
-    geometry as the direction Doppler factor.
+    geometry as the direction Doppler factor (DER015). The two non-base channels apply
+    DER017's centroid and variance weights without dividing the deposited moment densities
+    by ``H``.
 
     The polarization factor now includes ellipticity and crossing angle effects per DER006,
     replacing the head-on linear factor ``cos^2 psi``.

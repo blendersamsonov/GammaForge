@@ -76,3 +76,8 @@ remains a separate validation task (RES074).
 > author-selected beaming-cone model replaces $A=1+\hat a$ by
 > $A_P=1+[(1-\mathbf e\cdot\mathbf n_0)/2]\hat a$; DER014 derives and verifies that
 > extension.
+
+> **2026-09-28 — DER014 superseded by DER015.** The direction-Doppler algebra and linear
+> limit remain current. The nonlinear resonance now uses raw $\hat a$ with the exact
+> observer-dependent $Q=(1-\mathbf n\cdot\mathbf n_0)/(1-\mathbf e\cdot\mathbf n_0)$
+> evaluated in Stage 2, and $D\bar C$ replaces $D$ for a chirped carrier.
