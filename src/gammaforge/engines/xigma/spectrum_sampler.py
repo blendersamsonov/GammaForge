@@ -2,10 +2,8 @@
 
 The kernel follows GammaForge's Stage-2 contract:
 - Applies `KERNEL_NORMALIZATION_CONSTANT = 1.5 / (2 pi)` (RES033).
-- Adapts the ahat quadrature loop to arbitrary non-uniform target grids (RES032),
-  consuming 1D device arrays `ahat_eval_points` and `ahat_widths`. The evaluation
-  points use an explicit zeroth bin at ahat=0 for sub-floor contributions and for
-  the n_bins=1 "ignore nonlinearity" mode.
+- Traverses the full ``(ahat, chirp)`` quadrature and accumulates the base and both
+  finite-line moment channels with identical QMC samples.
 - Dispatches multi-point angular spectrum queries to GPU rawkernel when CUDA and CuPy
   are available, falling back to NumPy brute-force grid quadrature.
 """
@@ -33,13 +31,16 @@ except Exception:
 
 from .stages import (
     KERNEL_NORMALIZATION_CONSTANT,
+    SpectralMoments,
     _incident_axis,
     physical_transverse_axes,
+    reconstruct_second_order,
     rotated_laser_axes,
 )
 
 __all__ = [
     "is_gpu_available",
+    "calculate_angular_spectral_moments_gpu",
     "calculate_angular_spectrum_gpu",
     "gamma_bracket",
 ]
@@ -159,6 +160,29 @@ else:
     _polarization_factor_device = None
 
 
+if _HAS_CUPY:
+    @jit.rawkernel(device=True)
+    def _interp_channel_5d(channel, gi, xi, yi, ai, ci, gw, xw, yw):
+        """Trilinear gamma/electron-angle interpolation at one ``(ahat, chirp)`` cell."""
+        h000 = channel[gi, xi, yi, ai, ci]
+        h100 = channel[gi + 1, xi, yi, ai, ci]
+        h010 = channel[gi, xi + 1, yi, ai, ci]
+        h110 = channel[gi + 1, xi + 1, yi, ai, ci]
+        h001 = channel[gi, xi, yi + 1, ai, ci]
+        h101 = channel[gi + 1, xi, yi + 1, ai, ci]
+        h011 = channel[gi, xi + 1, yi + 1, ai, ci]
+        h111 = channel[gi + 1, xi + 1, yi + 1, ai, ci]
+        h_yi = (h000 * (CP_ONE - xw) + h010 * xw) * (CP_ONE - yw) + (
+            h001 * (CP_ONE - xw) + h011 * xw
+        ) * yw
+        h_yi1 = (h100 * (CP_ONE - xw) + h110 * xw) * (CP_ONE - yw) + (
+            h101 * (CP_ONE - xw) + h111 * xw
+        ) * yw
+        return h_yi * (CP_ONE - gw) + h_yi1 * gw
+else:
+    _interp_channel_5d = None
+
+
 def is_gpu_available() -> bool:
     """Return True if CuPy is importable and at least one CUDA device is accessible."""
     if not _HAS_CUPY:
@@ -182,10 +206,15 @@ def _define_kernel(capacity=32):
     CUM_WEIGHTS_SIZE = MAX_ARCS * PHI_EDGES
 
     @jit.rawkernel()
-    def _spectrum_kernel_4d_impl(
-        output,
+    def _spectrum_kernel_5d_impl(
+        output0,
+        output1,
+        output2,
         params_Arr,
         H,
+        H_var_a,
+        H_var_chirp,
+        H_cov_a_chirp,
         H_marginal,
         H_gamma_marginal,
         gamma_min,
@@ -199,11 +228,10 @@ def _define_kernel(capacity=32):
         n_theta_y,
         ahat_eval_points,
         ahat_widths,
-        ahat_min,
-        ahat_max,
         n_a0,
-        gamma_lo,
-        gamma_hi,
+        chirp_eval_points,
+        chirp_widths,
+        n_chirp,
         dx,
         dy,
         e0x,
@@ -220,9 +248,8 @@ def _define_kernel(capacity=32):
         n0y,
         n0z,
         nominal_inverse,
-        doppler_lo,
-        doppler_hi,
         ahat_ref,
+        chirp_ref,
     ):
         thread_idx = jit.threadIdx.x
         out_idx = jit.blockIdx.x
@@ -237,19 +264,14 @@ def _define_kernel(capacity=32):
         x0 = params_Arr[out_idx, 0]
         y0 = params_Arr[out_idx, 1]
         s = params_Arr[out_idx, 2]
+        rmin_g = params_Arr[out_idx, 3]
+        rmax_g = params_Arr[out_idx, 4]
         box_x0 = x0 - (theta_x_min + theta_x_width * n_theta_x / 2)
         box_y0 = y0 - (theta_y_min + theta_y_width * n_theta_y / 2)
 
         if s <= CP_ZERO:
             skip = True
         else:
-            rmin_g = cp.sqrt(cp.maximum(
-                CP_ZERO, doppler_lo / s - (CP_ONE + ahat_max) / gamma_lo**2
-            ))
-            rmax_g = cp.sqrt(cp.maximum(
-                CP_ZERO, doppler_hi / s - (CP_ONE + ahat_min) / gamma_hi**2
-            ))
-
             rmin_r = cp.sqrt(max(cp.abs(box_x0) - dx, CP_ZERO) ** 2 + max(cp.abs(box_y0) - dy, CP_ZERO) ** 2)
 
             diam = 2 * cp.sqrt(dx**2 + dy**2)
@@ -385,10 +407,16 @@ def _define_kernel(capacity=32):
                         px = x0 + radius * cp.cos(phi)
                         py = y0 + radius * cp.sin(phi)
                         direction = (CP_ONE - (n0x * px + n0y * py + n0z) / cp.sqrt(CP_ONE + px*px + py*py)) * nominal_inverse
-                        inverse = direction / s - radius * radius
+                        observer_relative = (
+                            CP_ONE
+                            - (n0x * x0 + n0y * y0 + n0z)
+                            / cp.sqrt(CP_ONE + x0*x0 + y0*y0)
+                        ) * nominal_inverse
+                        q_factor = observer_relative / direction
+                        inverse = direction * chirp_ref / s - radius * radius
                         marginal = CP_FLOAT(PROPOSAL_FLOOR_FRACTION)
                         if inverse > CP_ZERO:
-                            root = cp.sqrt((CP_ONE + ahat_ref) / inverse)
+                            root = cp.sqrt((CP_ONE + q_factor * ahat_ref) / inverse)
                             gf = (root - gamma_min) / gamma_width - CP_FLOAT(0.5)
                             if gf >= CP_ZERO and gf <= CP_FLOAT(n_gamma - 1):
                                 gi = min(CP_INT(cp.floor(gf)), CP_INT(n_gamma - 2))
@@ -445,7 +473,9 @@ def _define_kernel(capacity=32):
                         cur_thread = (cur_thread + CP_UINT(1)) % X_THREADS
             jit.syncthreads()
 
-            f_tot = CP_ZERO
+            f0_tot = CP_ZERO
+            f1_tot = CP_ZERO
+            f2_tot = CP_ZERO
             n_thread_samples = thread_samples[thread_idx * THREAD_STRIDE + 0]
             for thread_sample_idx in jit.range(CP_UINT(SAMPLES_REPEAT)):
                 if thread_sample_idx < n_thread_samples:
@@ -503,57 +533,78 @@ def _define_kernel(capacity=32):
                             yw = Yf - CP_FLOAT(yj2)
 
                             doppler = (CP_ONE - (n0x * x + n0y * y + n0z) / cp.sqrt(CP_ONE + x*x + y*y)) * nominal_inverse
-                            inv_base = doppler / s - theta_sq
-                            h_sum = CP_ZERO
-                            if inv_base > CP_ZERO:
-                                for ai2 in jit.range(CP_INT(n_a0)):
+                            observer_relative = (
+                                CP_ONE
+                                - (n0x * x0 + n0y * y0 + n0z)
+                                / cp.sqrt(CP_ONE + x0*x0 + y0*y0)
+                            ) * nominal_inverse
+                            q_factor = observer_relative / doppler
+                            h0_sum = CP_ZERO
+                            h1_sum = CP_ZERO
+                            h2_sum = CP_ZERO
+                            for ai2 in jit.range(CP_INT(n_a0)):
+                                for ci2 in jit.range(CP_INT(n_chirp)):
                                     a0_val = ahat_eval_points[ai2]
                                     a0_width = ahat_widths[ai2]
-                                    A = CP_ONE + a0_val
-                                    g_sq = A / inv_base
-                                    g = cp.sqrt(g_sq)
+                                    chirp_val = chirp_eval_points[ci2]
+                                    chirp_width = chirp_widths[ci2]
+                                    inv_base = doppler * chirp_val / s - theta_sq
+                                    if inv_base > CP_ZERO:
+                                        A = CP_ONE + q_factor * a0_val
+                                        g_sq = A / inv_base
+                                        g = cp.sqrt(g_sq)
+                                        if g >= gamma_min + gamma_width / 2 and g <= gamma_min + gamma_width * (CP_FLOAT(n_gamma) - CP_FLOAT(0.5)):
+                                            gth_sq_inv = CP_ONE / (CP_ONE + theta_sq * g_sq) ** 2
+                                            B = A + theta_sq * g_sq
+                                            # Stable per-particle lab-vector projection (RES060, RES069).
+                                            pol_factor = _polarization_factor_device(
+                                                g, x, y, x0, y0,
+                                                e0x, e0y, e0z, e1x, e1y, e1z,
+                                                xi00, xi11,
+                                            )
+                                            # Energy scaling precedes H multiplication to avoid overflow (RES069).
+                                            prefac = doppler * chirp_val * (g**5 / (s * s)) * pol_factor * gth_sq_inv / A
 
-                                    if g >= gamma_min + gamma_width / 2 and g <= gamma_min + gamma_width * (CP_FLOAT(n_gamma) - CP_FLOAT(0.5)):
-                                        gth_sq_inv = CP_ONE / (CP_ONE + theta_sq * g_sq) ** 2
-                                        # Stable per-particle lab-vector projection (RES060, RES069).
-                                        pol_factor = _polarization_factor_device(
-                                            g, x, y, x0, y0,
-                                            e0x, e0y, e0z, e1x, e1y, e1z,
-                                            xi00, xi11,
-                                        )
-                                        # Energy scaling precedes H multiplication to avoid overflow (RES069).
-                                        prefac = doppler * (g**5 / (s * s)) * pol_factor * gth_sq_inv / A
+                                            Gf = (g - gamma_min) / gamma_width - CP_FLOAT(0.5)
+                                            gi2 = CP_INT(cp.floor(Gf))
+                                            gi2 = min(max(gi2, CP_INT(0)), CP_INT(n_gamma - 2))
+                                            gw = min(max(Gf - CP_FLOAT(gi2), CP_ZERO), CP_ONE)
 
-                                        Gf = (g - gamma_min) / gamma_width - CP_FLOAT(0.5)
-                                        gi2 = CP_INT(cp.floor(Gf))
-                                        gi2 = min(max(gi2, CP_INT(0)), CP_INT(n_gamma - 2))
-                                        gw = min(max(Gf - CP_FLOAT(gi2), CP_ZERO), CP_ONE)
+                                            h_val = _interp_channel_5d(
+                                                H, gi2, xi2, yj2, ai2, ci2, gw, xw, yw
+                                            )
+                                            h_var_a_val = _interp_channel_5d(
+                                                H_var_a, gi2, xi2, yj2, ai2, ci2, gw, xw, yw
+                                            )
+                                            h_var_chirp_val = _interp_channel_5d(
+                                                H_var_chirp, gi2, xi2, yj2, ai2, ci2, gw, xw, yw
+                                            )
+                                            h_cov_val = _interp_channel_5d(
+                                                H_cov_a_chirp, gi2, xi2, yj2, ai2, ci2, gw, xw, yw
+                                            )
+                                            measure = a0_width * chirp_width
+                                            w1 = s * (
+                                                q_factor*q_factor * h_var_a_val / (B*B)
+                                                - q_factor * h_cov_val / (B * chirp_val)
+                                            )
+                                            w2 = s*s * (
+                                                h_var_chirp_val / (chirp_val*chirp_val)
+                                                + q_factor*q_factor * h_var_a_val / (B*B)
+                                                - CP_FLOAT(2) * q_factor * h_cov_val / (B * chirp_val)
+                                            )
+                                            h0_sum += h_val * measure * prefac
+                                            h1_sum += w1 * measure * prefac
+                                            h2_sum += w2 * measure * prefac
 
-                                        h000 = H[gi2, xi2, yj2, ai2]
-                                        h100 = H[gi2 + 1, xi2, yj2, ai2]
-                                        h010 = H[gi2, xi2 + 1, yj2, ai2]
-                                        h110 = H[gi2 + 1, xi2 + 1, yj2, ai2]
-                                        h001 = H[gi2, xi2, yj2 + 1, ai2]
-                                        h101 = H[gi2 + 1, xi2, yj2 + 1, ai2]
-                                        h011 = H[gi2, xi2 + 1, yj2 + 1, ai2]
-                                        h111 = H[gi2 + 1, xi2 + 1, yj2 + 1, ai2]
+                            f0_tot += h0_sum * sample_area
+                            f1_tot += h1_sum * sample_area
+                            f2_tot += h2_sum * sample_area
 
-                                        h_yj = (h000 * (CP_ONE - xw) + h010 * xw) * (CP_ONE - yw) + (
-                                            h001 * (CP_ONE - xw) + h011 * xw
-                                        ) * yw
-                                        h_yj1 = (h100 * (CP_ONE - xw) + h110 * xw) * (CP_ONE - yw) + (
-                                            h101 * (CP_ONE - xw) + h111 * xw
-                                        ) * yw
-                                        h_val = h_yj * (CP_ONE - gw) + h_yj1 * gw
+            jit.atomic_add(output0, out_idx, f0_tot)
+            jit.atomic_add(output1, out_idx, f1_tot)
+            jit.atomic_add(output2, out_idx, f2_tot)
 
-                                        h_sum += h_val * a0_width * prefac
-
-                            f = h_sum
-                            f_tot += f * sample_area
-
-            jit.atomic_add(output, out_idx, f_tot)
-
-    return _spectrum_kernel_4d_impl
+    return _spectrum_kernel_5d_impl
 
 
 _kernel = _define_kernel(32)
@@ -562,7 +613,11 @@ _kernel64 = _define_kernel(64)
 
 def gamma_bracket(table: Table, q: float = 1e-4) -> tuple[float, float]:
     """Lowest and highest gamma populated in `table.H` by quantile."""
-    marginal = table.H.sum(axis=(1, 2, 3))
+    cell_widths = (
+        table.ahat_widths[None, None, None, :, None]
+        * table.chirp_widths[None, None, None, None, :]
+    )
+    marginal = np.sum(table.H * cell_widths, axis=(1, 2, 3, 4))
     total = marginal.sum()
     if total <= 0:
         return float(table.gamma_edges[0]), float(table.gamma_edges[-1])
@@ -626,7 +681,38 @@ def _doppler_bounds(x_edges, y_edges, n0):
     return max(0., low - padding), high + padding
 
 
-def calculate_angular_spectrum_gpu(
+def _resonance_radial_bounds(table, theta_x, theta_y, s, n0, doppler_lo, doppler_hi):
+    """Conservative Step-F support bounds from the settled ``D*C`` and ``Q`` extrema."""
+    if doppler_lo <= 0.0 or doppler_hi < doppler_lo:
+        raise ValueError("positive ordered Doppler bounds are required")
+    tx, ty, energy = np.broadcast_arrays(theta_x, theta_y, s)
+    observer_norm = np.sqrt(1.0 + tx**2 + ty**2)
+    nominal_inverse = 1.0 / (1.0 - n0[2])
+    observer_relative = (
+        1.0 - (n0[0] * tx + n0[1] * ty + n0[2]) / observer_norm
+    ) * nominal_inverse
+    q_min = observer_relative / doppler_hi
+    q_max = observer_relative / doppler_lo
+    chirp_min = float(np.min(table.chirp_eval_points))
+    chirp_max = float(np.max(table.chirp_eval_points))
+    ahat_min = float(np.min(table.ahat_eval_points))
+    ahat_max = float(np.max(table.ahat_eval_points))
+    dc_min = doppler_lo * chirp_min
+    dc_max = doppler_hi * chirp_max
+    A_min = 1.0 + q_min * ahat_min
+    A_max = 1.0 + q_max * ahat_max
+    positive_s = energy > 0.0
+    safe_s = np.where(positive_s, energy, 1.0)
+    gamma_lo, gamma_hi = table.gamma_centers[[0, -1]]
+    r_lo_sq = np.maximum(0.0, dc_min / safe_s - A_max / gamma_lo**2)
+    r_hi_sq = np.maximum(0.0, dc_max / safe_s - A_min / gamma_hi**2)
+    return (
+        np.where(positive_s, np.sqrt(r_lo_sq), 0.0),
+        np.where(positive_s, np.sqrt(r_hi_sq), 0.0),
+    )
+
+
+def calculate_angular_spectral_moments_gpu(
     table: Table,
     theta_x,
     theta_y,
@@ -638,17 +724,19 @@ def calculate_angular_spectrum_gpu(
     theta_yz: float = 0.0,
     rings: int = 32,
     subsampling: int = 32,
-) -> np.ndarray:
-    """Compute `d3N / (ds dtheta_x dtheta_y)` on CUDA device via importance sampling.
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Compute raw ``rho0``, ``rho1``, ``rho2`` cubes with one CUDA QMC sequence.
 
-    Output shape: `(len(theta_x), len(theta_y), len(s))`.
+    Every returned array has shape ``(len(theta_x), len(theta_y), len(s))``.
     """
     if isinstance(rings, bool) or not isinstance(rings, Integral) or not 8 <= rings <= MAX_RINGS:
         raise ValueError("rings must be an integer in the range 8..64")
     if isinstance(subsampling, bool) or not isinstance(subsampling, Integral) or not 1 <= subsampling <= np.iinfo(CP_UINT).max // SAMPLES_TOTAL:
         raise ValueError("subsampling must be a positive integer with uint32-safe sample indices")
     if not is_gpu_available():
-        raise RuntimeError("calculate_angular_spectrum_gpu: CuPy or a CUDA device is not available")
+        raise RuntimeError(
+            "calculate_angular_spectral_moments_gpu: CuPy or a CUDA device is not available"
+        )
     polarization_parameters = _polarization_parameters(
         psi_pol, ellipticity, theta_xz, theta_yz
     )
@@ -660,12 +748,13 @@ def calculate_angular_spectrum_gpu(
             raise ValueError("CuPy requires at least two uniform bins on gamma and angular axes")
     if table.gamma_centers[0] < 1.0 or table.ahat_edges[0] < 0.0:
         raise ValueError("CuPy requires gamma >= 1 and nonnegative ahat")
+    if np.any(table.chirp_eval_points <= 0.0):
+        raise ValueError("CuPy requires positive carrier-rate evaluation points")
     if not np.all(np.isfinite(table.H)) or np.any(table.H < 0.0):
         raise ValueError("CuPy table density must be finite and nonnegative")
-
-    # Step C adds the carrier-rate axis before Step F teaches the CUDA kernel to traverse
-    # it. Integrating the density over that axis exactly preserves the pre-chirp kernel.
-    H = np.sum(table.H * table.chirp_widths[None, None, None, None, :], axis=4)
+    moment_channels = (table.H_var_a, table.H_var_chirp, table.H_cov_a_chirp)
+    if any(not np.all(np.isfinite(channel)) for channel in moment_channels):
+        raise ValueError("CuPy moment channels must be finite")
 
     tx = np.atleast_1d(np.asarray(theta_x, dtype=np.float32))
     ty = np.atleast_1d(np.asarray(theta_y, dtype=np.float32))
@@ -674,11 +763,17 @@ def calculate_angular_spectrum_gpu(
         raise ValueError("CuPy query axes must be finite one-dimensional arrays")
 
     grid_x = tx.size * ty.size * s_arr.size
-    if grid_x == 0 or not np.any(H):
-        return np.zeros((tx.size, ty.size, s_arr.size), dtype=CP_FLOAT)
-    params = cp.stack(
-        cp.meshgrid(cp.asarray(tx), cp.asarray(ty), cp.asarray(s_arr), indexing="ij"), 3
-    ).reshape(-1, 3).astype(CP_FLOAT)
+    output_shape = (tx.size, ty.size, s_arr.size)
+    if grid_x == 0 or not np.any(table.H):
+        zeros = np.zeros(output_shape, dtype=CP_FLOAT)
+        return zeros.copy(), zeros.copy(), zeros.copy()
+    tx_grid, ty_grid, s_grid = np.meshgrid(tx, ty, s_arr, indexing="ij")
+    r_lo_grid, r_hi_grid = _resonance_radial_bounds(
+        table, tx_grid, ty_grid, s_grid, n0, doppler_lo, doppler_hi
+    )
+    params = cp.stack(tuple(cp.asarray(values) for values in (
+        tx_grid, ty_grid, s_grid, r_lo_grid, r_hi_grid,
+    )), 3).reshape(-1, 5).astype(CP_FLOAT)
 
     gamma_min = CP_FLOAT(table.gamma_edges[0])
     gamma_width = CP_FLOAT(table.gamma_edges[1] - table.gamma_edges[0])
@@ -695,43 +790,68 @@ def calculate_angular_spectrum_gpu(
     # Use evaluation points (zeroth bin at ahat=0 for sub-floor/linear mode) instead of centers
     ahat_eval_points = cp.asarray(table.ahat_eval_points, dtype=CP_FLOAT)
     ahat_widths = cp.asarray(table.ahat_widths, dtype=CP_FLOAT)
-    ahat_min = CP_FLOAT(table.ahat_edges[0])
-    ahat_max = CP_FLOAT(table.ahat_edges[-1])
     n_a0 = CP_UINT(table.H.shape[3])
 
-    # Match the NumPy interpolator's center-domain support without cutting gamma tails.
-    gamma_lo, gamma_hi = table.gamma_centers[[0, -1]]
+    chirp_eval_points = cp.asarray(table.chirp_eval_points, dtype=CP_FLOAT)
+    chirp_widths = cp.asarray(table.chirp_widths, dtype=CP_FLOAT)
+    n_chirp = CP_UINT(table.H.shape[4])
+
     dx = float((table.theta_x_edges[-1] - table.theta_x_edges[0]) / 2)
     dy = float((table.theta_y_edges[-1] - table.theta_y_edges[0]) / 2)
 
-    # Scale table.H to avoid float32 overflow (max ~3.4e38). The density values can
-    # exceed this due to small bin volumes. We scale by the max value and
-    # compensate in the output. Compute scale in float64 to avoid overflow.
-    H_max = float(H.max())
+    # Scale from positive H alone: moment channels must never influence the proposal.
+    H_max = float(np.max(table.H))
     if H_max > 0:
         scale = float(1.0) / H_max
     else:
         scale = 1.0
 
-    H_gpu = cp.asarray(H * scale, dtype=CP_FLOAT)
-    H_marginal_gpu = (H_gpu * ahat_widths[None, None, None, :]).sum(axis=(0, 3))
+    if any(np.max(np.abs(channel * scale)) > np.finfo(CP_FLOAT).max for channel in moment_channels):
+        raise ValueError("CuPy moment-channel dynamic range exceeds float32")
+    H_gpu = cp.asarray(table.H * scale, dtype=CP_FLOAT)
+    H_var_a_gpu = cp.asarray(table.H_var_a * scale, dtype=CP_FLOAT)
+    H_var_chirp_gpu = cp.asarray(table.H_var_chirp * scale, dtype=CP_FLOAT)
+    H_cov_gpu = cp.asarray(table.H_cov_a_chirp * scale, dtype=CP_FLOAT)
+    cell_widths_gpu = (
+        ahat_widths[None, None, None, :, None]
+        * chirp_widths[None, None, None, None, :]
+    )
+    H_marginal_gpu = (H_gpu * cell_widths_gpu).sum(axis=(0, 3, 4))
     # A coarse zero must not exclude nonzero interpolated target density between cells.
     H_marginal_gpu += CP_FLOAT(PROPOSAL_FLOOR_FRACTION) * H_marginal_gpu.max()
 
     # Normalize the energy marginal before multiplying proposal densities (RES080).
-    H_gamma_gpu = (H_gpu * ahat_widths[None, None, None, :]).sum(axis=(1, 2, 3))
+    H_gamma_gpu = (H_gpu * cell_widths_gpu).sum(axis=(1, 2, 3, 4))
     H_gamma_gpu /= H_gamma_gpu.max()
     H_gamma_gpu += CP_FLOAT(PROPOSAL_FLOOR_FRACTION)
-    ahat_marginal = (H * scale).sum(axis=(0, 1, 2)) * table.ahat_widths
+    H_scaled = table.H * scale
+    ahat_marginal = np.sum(
+        H_scaled * table.chirp_widths[None, None, None, None, :],
+        axis=(0, 1, 2, 4),
+    ) * table.ahat_widths
+    chirp_marginal = np.sum(
+        H_scaled * table.ahat_widths[None, None, None, :, None],
+        axis=(0, 1, 2, 3),
+    ) * table.chirp_widths
     ahat_ref = float(np.dot(table.ahat_eval_points, ahat_marginal) / ahat_marginal.sum())
+    chirp_ref = float(
+        np.dot(table.chirp_eval_points, chirp_marginal) / chirp_marginal.sum()
+    )
 
-    spec = cp.zeros((grid_x,), dtype=CP_FLOAT)
+    rho0 = cp.zeros((grid_x,), dtype=CP_FLOAT)
+    rho1 = cp.zeros((grid_x,), dtype=CP_FLOAT)
+    rho2 = cp.zeros((grid_x,), dtype=CP_FLOAT)
 
     kernel = _kernel if rings <= 32 else _kernel64
     kernel[grid_x, X_THREADS](
-        spec,
+        rho0,
+        rho1,
+        rho2,
         params,
         H_gpu,
+        H_var_a_gpu,
+        H_var_chirp_gpu,
+        H_cov_gpu,
         H_marginal_gpu,
         H_gamma_gpu,
         gamma_min,
@@ -745,11 +865,10 @@ def calculate_angular_spectrum_gpu(
         n_theta_y,
         ahat_eval_points,
         ahat_widths,
-        ahat_min,
-        ahat_max,
         n_a0,
-        CP_FLOAT(gamma_lo),
-        CP_FLOAT(gamma_hi),
+        chirp_eval_points,
+        chirp_widths,
+        n_chirp,
         CP_FLOAT(dx),
         CP_FLOAT(dy),
         *(CP_FLOAT(value) for value in polarization_parameters),
@@ -757,16 +876,63 @@ def calculate_angular_spectrum_gpu(
         CP_UINT(subsampling),
         *(CP_FLOAT(value) for value in n0),
         CP_FLOAT(1.0 / (1.0 - n0[2])),
-        CP_FLOAT(doppler_lo),
-        CP_FLOAT(doppler_hi),
         CP_FLOAT(ahat_ref),
+        CP_FLOAT(chirp_ref),
     )
     cp.cuda.Stream.null.synchronize()
 
-    out = (KERNEL_NORMALIZATION_CONSTANT * spec / scale).reshape((tx.size, ty.size, s_arr.size)).get()
-    if not np.all(np.isfinite(out)):
+    outputs = tuple(
+        (KERNEL_NORMALIZATION_CONSTANT * channel / scale).reshape(output_shape).get()
+        for channel in (rho0, rho1, rho2)
+    )
+    if any(not np.all(np.isfinite(channel)) for channel in outputs):
         raise RuntimeError(
-            "calculate_angular_spectrum_gpu produced non-finite samples; use backend='numpy' "
-            "as fallback."
+            "calculate_angular_spectral_moments_gpu produced non-finite samples; "
+            "use backend='numpy' as fallback."
         )
-    return out
+    return outputs
+
+
+def calculate_angular_spectrum_gpu(
+    table: Table,
+    theta_x,
+    theta_y,
+    s,
+    *,
+    psi_pol: float = 0.0,
+    ellipticity: float = 0.0,
+    theta_xz: float = 0.0,
+    theta_yz: float = 0.0,
+    rings: int = 32,
+    subsampling: int = 32,
+    line_model: str = "delta",
+) -> np.ndarray:
+    """Compute a delta or second-order angular spectrum from shared raw CUDA moments."""
+    if line_model not in ("delta", "moment2"):
+        raise ValueError("line_model must be 'delta' or 'moment2'")
+    rho0, rho1, rho2 = calculate_angular_spectral_moments_gpu(
+        table,
+        theta_x,
+        theta_y,
+        s,
+        psi_pol=psi_pol,
+        ellipticity=ellipticity,
+        theta_xz=theta_xz,
+        theta_yz=theta_yz,
+        rings=rings,
+        subsampling=subsampling,
+    )
+    if line_model == "delta":
+        return rho0
+
+    s_arr = np.atleast_1d(np.asarray(s, dtype=float))
+    corrected = np.empty_like(rho0, dtype=float)
+    for i in range(rho0.shape[0]):
+        for j in range(rho0.shape[1]):
+            corrected[i, j] = reconstruct_second_order(SpectralMoments(
+                s=s_arr,
+                rho0=rho0[i, j],
+                rho1=rho1[i, j],
+                rho2=rho2[i, j],
+            ))
+    return corrected

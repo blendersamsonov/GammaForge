@@ -58,6 +58,6 @@ def test_public_engine_crossed_release_smoke(crossed_interaction, rings, n_steps
     slice_ = results.photon_slices[OutputKind.COLLIMATED_SPECTRUM]
     assert slice_.distr.shape == (9, 9, 16)
     assert np.all(np.isfinite(slice_.distr))
-    assert np.all(slice_.distr >= 0.0)
     assert np.any(slice_.distr > 0.0)
+    assert results.model_specific["line_model"] == "moment2"
     assert results.model_specific["stage2_backend"] == "cupy"

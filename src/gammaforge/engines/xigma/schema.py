@@ -122,7 +122,7 @@ XIGMA_SPECS: tuple[FieldSpec, ...] = (
         label="Single-electron line model",
         kind=FieldKind.CHOICE,
         unit=DIMENSIONLESS,
-        default="delta",
+        default="moment2",
         choices=("delta", "moment2"),
     ),
     FieldSpec(

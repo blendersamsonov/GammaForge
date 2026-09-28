@@ -178,12 +178,14 @@ print(f"  Carrier evaluation points: {table.chirp_eval_points}")
 assert table.H_var_a.shape == table.H_var_chirp.shape == table.H_cov_a_chirp.shape == table.H.shape
 assert table.H.shape[-1] == 1
 
-# Stage 2's CPU primitive evaluates all five table axes and returns the unbroadened
-# spectrum rho0 plus the first two raw finite-line moment channels. The moment-density
+# Stage 2 evaluates all five table axes on both CPU and CUDA and returns the unbroadened
+# spectrum rho0 plus the first two raw finite-line moment channels. Both backends traverse
+# the carrier-rate axis and use the same observer-dependent Q factor. The moment-density
 # tables are already luminosity-weighted, so the query consumes them directly; it never
-# divides by H. Reconstruction needs a positive, strictly increasing stencil of at least
-# three points; a scalar query therefore returns raw moments only and never silently falls
-# back to the delta line.
+# divides by H. ``moment2`` is the default public line model; select ``delta`` explicitly
+# when the unbroadened line is wanted. Reconstruction needs a positive, strictly increasing
+# stencil of at least three points; a scalar query therefore returns raw moments only and
+# never silently falls back to the delta line.
 from gammaforge.engines.xigma.stages import query_spectral_moments, reconstruct_second_order
 
 s_probe = np.linspace(0.75, 1.05, 32) * samples.gamma.mean() ** 2

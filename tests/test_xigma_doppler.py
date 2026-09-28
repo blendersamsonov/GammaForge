@@ -186,6 +186,57 @@ def test_gpu_bounds_enclose_all_directions(crossing):
         assert low <= exact.min() <= exact.max() <= high
 
 
+def test_five_dimensional_gpu_support_bounds_enclose_every_valid_resonance():
+    from gammaforge.engines.xigma.spectrum_sampler import (
+        _doppler_bounds,
+        _resonance_radial_bounds,
+    )
+
+    gamma_edges = np.linspace(800.0, 1200.0, 17)
+    x_edges = np.linspace(-0.08, 0.12, 9)
+    y_edges = np.linspace(-0.09, 0.07, 9)
+    ahat_edges = np.array([0.0, 0.1, 0.3, 0.6])
+    chirp_edges = np.array([0.75, 0.9, 1.05, 1.25])
+    shape = (16, 8, 8, 3, 3)
+    H = np.ones(shape)
+    table = Table(
+        gamma_edges, x_edges, y_edges, ahat_edges, chirp_edges,
+        H, np.zeros(shape), np.zeros(shape), np.zeros(shape), 1.0, "support-bounds",
+    )
+    observer_x, observer_y = 0.03, -0.02
+    crossing = (0.7, -0.25)
+    n0 = laser_axis(*crossing)
+    doppler_lo, doppler_hi = _doppler_bounds(x_edges, y_edges, n0)
+
+    rng = np.random.default_rng(20260928)
+    electron_x = rng.uniform(x_edges[0], x_edges[-1], 500)
+    electron_y = rng.uniform(y_edges[0], y_edges[-1], 500)
+    gamma = rng.uniform(table.gamma_centers[0], table.gamma_centers[-1], 500)
+    ahat = rng.choice(table.ahat_eval_points, 500)
+    chirp = rng.choice(table.chirp_eval_points, 500)
+    doppler = stages.direction_doppler_factor(
+        electron_x, electron_y, crossing[0], crossing[1]
+    )
+    q_factor = stages.observer_ponderomotive_factor(
+        electron_x, electron_y, observer_x, observer_y, crossing[0], crossing[1]
+    )
+    radius = np.sqrt((electron_x - observer_x)**2 + (electron_y - observer_y)**2)
+    energy = doppler * chirp * gamma**2 / (
+        1.0 + q_factor * ahat + gamma**2 * radius**2
+    )
+    lower, upper = _resonance_radial_bounds(
+        table,
+        np.full_like(energy, observer_x),
+        np.full_like(energy, observer_y),
+        energy,
+        n0,
+        doppler_lo,
+        doppler_hi,
+    )
+    assert np.all(lower <= radius)
+    assert np.all(radius <= upper)
+
+
 @pytest.mark.gpu
 def test_cuda_keeps_support_above_the_old_nominal_edge():
     from gammaforge.engines.xigma import spectrum_sampler as sampler
@@ -209,6 +260,46 @@ def test_cuda_keeps_support_above_the_old_nominal_edge():
     gpu = stages.angular_spectrum_from_table(table, [tx], [ty], energy, theta_xz=cross, backend='cupy', rings=64, subsampling=128)
     assert np.all(gpu > 0)
     np.testing.assert_allclose(gpu, cpu, rtol=.05)
+
+
+@pytest.mark.gpu
+def test_cuda_five_dimensional_support_keeps_chirped_off_axis_resonances():
+    from gammaforge.engines.xigma import spectrum_sampler as sampler
+    if not sampler.is_gpu_available():
+        pytest.skip("requires actual CUDA")
+
+    electron_x, observer_x, crossing = 0.4, 0.3997, 1.0
+    gamma_edges = np.linspace(990.0, 1010.0, 17)
+    x_edges = np.linspace(electron_x - 0.0004, electron_x + 0.0004, 97)
+    y_edges = np.linspace(-0.0004, 0.0004, 97)
+    ahat_edges = np.array([0.0, 0.05, 0.1])
+    chirp_edges = np.array([1.0, 1.2, 1.4])
+    H = np.ones((16, 96, 96, 2, 2))
+    table = Table(
+        gamma_edges, x_edges, y_edges, ahat_edges, chirp_edges,
+        H, np.zeros_like(H), np.zeros_like(H), np.zeros_like(H),
+        1.0, "five-dimensional-support-check",
+    )
+    doppler = stages.direction_doppler_factor(electron_x, 0.0, crossing, 0.0)
+    q_factor = stages.observer_ponderomotive_factor(
+        electron_x, 0.0, observer_x, 0.0, crossing, 0.0
+    )
+    radius_sq = (electron_x - observer_x) ** 2
+    energy = np.array([
+        doppler * 1.3 * 1000.0**2
+        / (1.0 + q_factor * 0.025 + 1000.0**2 * radius_sq)
+    ])
+    cpu = stages.angular_spectrum_from_table(
+        table, [observer_x], [0.0], energy,
+        theta_xz=crossing, backend="numpy",
+    )
+    gpu = stages.angular_spectrum_from_table(
+        table, [observer_x], [0.0], energy,
+        theta_xz=crossing, backend="cupy", rings=64, subsampling=256,
+    )
+    assert np.all(cpu > 0.0)
+    assert np.all(gpu > 0.0)
+    np.testing.assert_allclose(gpu, cpu, rtol=0.08)
 
 
 @pytest.mark.symbolic

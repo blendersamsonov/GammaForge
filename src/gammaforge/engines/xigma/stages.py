@@ -2042,10 +2042,6 @@ def angular_spectrum_from_table(
         backend, ellipticity=ellipticity, theta_xz=theta_xz, theta_yz=theta_yz,
     )
     if selected_backend == "cupy":
-        if line_model == "moment2":
-            raise NotImplementedError(
-                "line_model='moment2' requires the NumPy Stage-2 backend until Step F"
-            )
         from .spectrum_sampler import calculate_angular_spectrum_gpu
         return calculate_angular_spectrum_gpu(
             table, theta_x_grid, theta_y_grid, s,
@@ -2053,6 +2049,7 @@ def angular_spectrum_from_table(
             theta_xz=theta_xz, theta_yz=theta_yz,
             rings=rings,
             subsampling=subsampling,
+            line_model=line_model,
         )
 
     tx = np.atleast_1d(np.asarray(theta_x_grid, dtype=float))

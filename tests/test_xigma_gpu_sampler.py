@@ -100,8 +100,9 @@ def test_xigma_engine_run_with_backend_cupy():
 
     assert ang.distr.shape == (5, 5)
     assert col.distr.shape == (8, 4, 4)
-    assert np.all(ang.distr >= 0.0)
-    assert np.all(col.distr >= 0.0)
+    assert np.all(np.isfinite(ang.distr))
+    assert np.all(np.isfinite(col.distr))
+    assert results.model_specific["line_model"] == "moment2"
     assert results.model_specific["stage2_backend"] == "cupy"
     assert results.model_specific["stage2_sampler"]["cdf_inversion"] == "exact_binary_search"
     assert results.model_specific["stage2_sampler"]["proposal_floor_fraction"] == 1e-3

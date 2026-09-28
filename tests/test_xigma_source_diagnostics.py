@@ -95,7 +95,9 @@ def test_outputs_use_requested_grid_and_explicit_measure(interaction):
 
 
 def test_results_record_line_model_and_chirp_treatment(interaction):
-    params = XigmaEngine.schema.with_values(n_steps=32, line_model="moment2")
+    params = XigmaEngine.schema.with_values(
+        n_steps=32, line_model="moment2", backend="numpy"
+    )
     result = Collision(interaction, params).run(requests())
     assert result.model_specific["line_model"] == "moment2"
     assert result.model_specific["chirp_treatment"] == "trajectory_mean_and_second_moments"
