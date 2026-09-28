@@ -110,6 +110,7 @@ __all__ = [
     "fit_gaussian_paraxial",
     "rotation_matrix",
     "lab_frame_axes",
+    "laser_propagation_direction",
     "validate",
     "ELLIPTICITY_IS_NOOP",
     "EMISSION_IS_HEAD_ON",
@@ -182,6 +183,19 @@ class LaserField(Protocol):
 
     def omega0(self) -> float:
         """Reference carrier angular frequency in radians per second."""
+        ...
+
+    def propagation_direction(self) -> np.ndarray:
+        """Unit propagation direction ``n0_hat = k0 / |k0|`` in the lab frame.
+
+        Part of the sampling contract, not of any one pulse model: the encounter factor
+        ``1 - v.n0_hat`` and the Doppler denominator are properties of *the collision*,
+        and the §2.2 convention already fixes this vector as a laser-owned fact (head-on
+        is ``-z``). Anything that computes an encounter rate needs it, so it belongs here
+        rather than being re-derived from ``theta_xz``/``theta_yz`` by each caller — a
+        second copy of the two-plane rotation convention is exactly the kind of quiet
+        disagreement that P13 exists to prevent.
+        """
         ...
 
     def a0_profile(self, x, y, z, t):
@@ -287,6 +301,28 @@ def lab_frame_axes(
     y_hat = rot @ np.array([0.0, 1.0, 0.0])
     c, s = math.cos(psi), math.sin(psi)
     return k_hat, c * x_hat + s * y_hat, -s * x_hat + c * y_hat
+
+
+def laser_propagation_direction(laser) -> np.ndarray:
+    """``laser``'s lab-frame unit propagation direction, whatever its implementation.
+
+    The one place this question is answered. A :class:`LaserField` states it directly
+    (:meth:`LaserField.propagation_direction`); anything else — a duck-typed field, or a
+    future non-paraxial source — is routed through :func:`fit_gaussian_paraxial`, which
+    extracts descriptive metrics from *any* implementation (§3.3). Callers that
+    re-derive ``k_hat`` from ``theta_xz``/``theta_yz`` themselves are duplicating the
+    §2.2 two-plane rotation convention, and a second copy of it is a silent-disagreement
+    risk rather than a convenience.
+    """
+    if hasattr(laser, "propagation_direction"):
+        direction = np.asarray(laser.propagation_direction(), dtype=float)
+    else:
+        direction = np.asarray(fit_gaussian_paraxial(laser).propagation_direction(), dtype=float)
+    if direction.shape != (3,) or not np.all(np.isfinite(direction)) or not np.isclose(
+        np.dot(direction, direction), 1.0
+    ):
+        raise ValueError("laser propagation direction must be a finite unit vector")
+    return direction
 
 
 # ---------------------------------------------------------------------------
@@ -525,6 +561,10 @@ class SeparableParaxialLaser:
     def focusing_axes(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Lab-frame ``(k_hat, f1, f2)``: propagation direction and focusing axes."""
         return lab_frame_axes(self.m("theta_xz"), self.m("theta_yz"), self.m("psi_focus"))
+
+    def propagation_direction(self) -> np.ndarray:
+        """Lab-frame unit propagation direction; head-on is ``-z`` (§2.2)."""
+        return self.focusing_axes()[0]
 
     def polarization_axes(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Lab-frame ``(k_hat, p1, p2)``: propagation direction and polarization axes."""

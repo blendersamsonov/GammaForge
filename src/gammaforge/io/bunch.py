@@ -489,6 +489,71 @@ def _substream_deviates(seed: int, n_particles: int) -> dict[str, np.ndarray]:
     }
 
 
+def _bunch_from_standard_deviates(
+    beam: GaussianElectronBeam,
+    deviates: np.ndarray,
+    weight: np.ndarray,
+    *,
+    meta: Mapping | None = None,
+) -> Bunch:
+    """The one latent-deviates -> physical-bunch map, shared by every sampling strategy.
+
+    ``deviates`` is an ``(n, 6)`` array of independent standard normals in
+    :data:`SAMPLED_VARIABLES` order, so the physical bunch is a deterministic linear map
+    ``X = T_beam(d)`` of the latent coordinates. Momentum is not sampled here: it is
+    derived afterwards by :func:`momenta`, which is what makes the mass shell exact by
+    construction (see the module docstring).
+
+    **This exists so there is exactly one implementation of the map.** The IID sampler
+    (`sample_gaussian_bunch`) and the adaptive stratified sampler
+    (`gammaforge.io.adaptive_sampling`) both call it. Two independent copies of the Twiss
+    tilt and the `gamma_coefficients` algebra would be free to drift apart, and the
+    resulting bug would be invisible from either side — a sampler that quietly disagreed
+    about ``alpha`` would still produce a plausible-looking bunch.
+
+    ``meta`` is copied into the returned bunch; pass ``gaussian_fit=beam`` semantics by
+    hand if a caller needs something other than the analytic description attached.
+    """
+    deviates = np.asarray(deviates, dtype=float)
+    if deviates.ndim != 2 or deviates.shape[1] != len(SAMPLED_VARIABLES):
+        raise ValueError(
+            f"_bunch_from_standard_deviates: deviates must be (n, {len(SAMPLED_VARIABLES)}) "
+            f"in SAMPLED_VARIABLES order, got {deviates.shape}"
+        )
+    # Strided column views, not copies: the arithmetic below is elementwise either way, so
+    # the result is bit-for-bit what sampling each variable separately would have given.
+    d_x, d_y, d_z, d_thx, d_thy, d_gamma = (deviates[:, i] for i in range(len(SAMPLED_VARIABLES)))
+
+    # Unpack to plain CGS floats once; everything below is raw numpy (§2.1).
+    x = beam.m("sigma_x") * d_x
+    y = beam.m("sigma_y") * d_y
+    z = beam.m("sigma_z") * d_z
+
+    # Twiss tilt: at a slice with alpha != 0 the position and angle are correlated,
+    # rho = -alpha / sqrt(1 + alpha^2), with the angle drawn conditionally on the position
+    # so the position stream stays untouched by alpha.
+    thx = _tilted_angle(beam.divergence_x(), beam.alpha_x, d_x, d_thx)
+    thy = _tilted_angle(beam.divergence_y(), beam.alpha_y, d_y, d_thy)
+
+    # gamma is drawn conditionally on all five, which keeps its marginal spread exactly
+    # sigma_gamma however strong the correlations are (see `gamma_coefficients`).
+    a_x, a_y, a_z, a_thx, a_thy, residual = gamma_coefficients(beam)
+    gamma = beam.gamma0() + beam.sigma_gamma() * (
+        a_x * d_x
+        + a_y * d_y
+        + a_z * d_z
+        + a_thx * d_thx
+        + a_thy * d_thy
+        + math.sqrt(residual) * d_gamma
+    )
+
+    return Bunch._from_owned(
+        x=x, y=y, z=z, thx=thx, thy=thy, gamma=gamma, weight=np.asarray(weight, dtype=float),
+        meta=dict(meta or {}),
+        gaussian_fit=beam,
+    )
+
+
 def sample_gaussian_bunch(beam: GaussianElectronBeam, n_particles: int, seed: int) -> Bunch:
     """Draw ``n_particles`` macroparticles from ``beam`` using ``seed``.
 
@@ -500,41 +565,23 @@ def sample_gaussian_bunch(beam: GaussianElectronBeam, n_particles: int, seed: in
 
     "Same seed" means "same seed + same beam parameters + same ``n_particles`` ⇒ identical
     bunch" (§3.5), not "same bunch regardless of parameters".
+
+    This is the **IID** strategy and remains bit-for-bit what it has always been. The
+    latent-to-physical map now lives in :func:`_bunch_from_standard_deviates` so the
+    adaptive sampler can share it; that refactor is value-preserving and the pinned
+    per-variable substreams above are untouched.
     """
     if n_particles < 1:
         raise ValueError(f"n_particles must be >= 1, got {n_particles}")
     validate(beam)
 
     d = _substream_deviates(seed, n_particles)
-
-    # Unpack to plain CGS floats once; everything below is raw numpy (§2.1).
-    x = beam.m("sigma_x") * d["x"]
-    y = beam.m("sigma_y") * d["y"]
-    z = beam.m("sigma_z") * d["z"]
-
-    # Twiss tilt: at a slice with alpha != 0 the position and angle are correlated,
-    # rho = -alpha / sqrt(1 + alpha^2), with the angle drawn conditionally on the position
-    # so the position stream stays untouched by alpha.
-    thx = _tilted_angle(beam.divergence_x(), beam.alpha_x, d["x"], d["thx"])
-    thy = _tilted_angle(beam.divergence_y(), beam.alpha_y, d["y"], d["thy"])
-
-    # gamma is drawn conditionally on all five, which keeps its marginal spread exactly
-    # sigma_gamma however strong the correlations are (see `gamma_coefficients`).
-    a_x, a_y, a_z, a_thx, a_thy, residual = gamma_coefficients(beam)
-    gamma = beam.gamma0() + beam.sigma_gamma() * (
-        a_x * d["x"]
-        + a_y * d["y"]
-        + a_z * d["z"]
-        + a_thx * d["thx"]
-        + a_thy * d["thy"]
-        + math.sqrt(residual) * d["gamma"]
-    )
-
     weight = np.full(n_particles, 1.0 / n_particles)
-    return Bunch._from_owned(
-        x=x, y=y, z=z, thx=thx, thy=thy, gamma=gamma, weight=weight,
+    return _bunch_from_standard_deviates(
+        beam,
+        np.column_stack([d[name] for name in SAMPLED_VARIABLES]),
+        weight,
         meta={"seed": seed, "n_particles": n_particles},
-        gaussian_fit=beam,
     )
 
 

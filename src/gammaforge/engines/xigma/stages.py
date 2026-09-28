@@ -48,7 +48,7 @@ except ImportError:
     _HAS_CUPY = False
 
 from ...io.bunch import Bunch, illumination_window, overlap_time_window
-from ...io.laser import LaserField, fit_gaussian_paraxial
+from ...io.laser import LaserField, fit_gaussian_paraxial, laser_propagation_direction
 from ...io.units import C_CGS, E_ESU, HBAR_CGS, ME_CGS, SIGMA_T_CGS
 from . import chunking
 from .chunking import run_in_chunks
@@ -987,11 +987,11 @@ def integrate_trajectories(
     velocity = (C_CGS * bunch.thx / norm, C_CGS * bunch.thy / norm, C_CGS / norm)
     if hasattr(laser, "focusing_axes"):
         k_hat, _, _ = laser.focusing_axes()
-    elif hasattr(laser, "m") and hasattr(laser, "theta_xz") and hasattr(laser, "theta_yz"):
-        k_hat = _incident_axis(laser.m("theta_xz"), laser.m("theta_yz"))
     else:
-        metrics = fit_gaussian_paraxial(laser)
-        k_hat = _incident_axis(metrics.m("theta_xz"), metrics.m("theta_yz"))
+        # One place answers "which way does the laser propagate" for every LaserField
+        # implementation, including a future non-paraxial one (P15) — see
+        # `io.laser.laser_propagation_direction`.
+        k_hat = laser_propagation_direction(laser)
     # Use the same per-electron encounter factor as the resonance (DER013, RES082).
     rel_vel = (1.0 - k_hat[2]) * direction_doppler_factor(bunch.thx, bunch.thy, k_hat=k_hat)
     if np.any(rel_vel <= 64.0 * np.finfo(float).eps):

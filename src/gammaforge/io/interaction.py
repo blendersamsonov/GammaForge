@@ -21,18 +21,41 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import math
 import numbers
+from typing import TYPE_CHECKING
 
 from .bunch import Bunch, GaussianElectronBeam, prefilter_bunch, sample_gaussian_bunch
 from .laser import LaserField
 from .target import Target
 from .units import Quantity
 
-__all__ = ["SamplingSpec", "InteractionParameters", "build_interaction", "PREFILTER_OFF"]
+if TYPE_CHECKING:  # imported for the type only; the module is not needed to build a bunch
+    from .adaptive_sampling import AdaptiveSamplingPlan
+
+__all__ = [
+    "SamplingSpec",
+    "InteractionParameters",
+    "build_interaction",
+    "PREFILTER_OFF",
+    "SAMPLING_STRATEGIES",
+    "IID",
+    "ADAPTIVE",
+]
 
 #: A prefilter threshold of zero keeps every particle — the "off" setting, expressed as a
 #: value of the same numeric field rather than as a separate boolean, so the GUI renders
 #: one control and the invariance test (§7) sweeps one axis.
 PREFILTER_OFF = 0.0
+
+#: The two ways a bunch can be drawn. `IID` is the historical sampler and stays the
+#: default: the adaptive strategy is opt-in until its benchmarks justify making it the
+#: default, and until then an unexpected regime must keep the behaviour users already rely
+#: on. `ADAPTIVE` is the luminosity-aware stratifier (RES092) — the *same* Gaussian bunch,
+#: represented with non-uniform weights, at a lower cost for the same Stage-1/Stage-2
+#: accuracy. Both produce an ordinary `Bunch` with relative per-particle weights summing to
+#: one, so no engine can tell them apart except by inspecting `sampling.strategy`.
+IID = "iid"
+ADAPTIVE = "adaptive"
+SAMPLING_STRATEGIES = (IID, ADAPTIVE)
 
 
 @dataclass(frozen=True)
@@ -45,11 +68,23 @@ class SamplingSpec:
     ``prefilter`` is the active-region threshold as a fraction of peak a0 (§3.2), with
     :data:`PREFILTER_OFF` disabling it. Because the prefilter is a pure optimization,
     changing it must not change results — a tested invariant, not an intention (§7).
+
+    ``strategy`` selects between the IID sampler and the luminosity-aware adaptive
+    stratifier. It is a level-level choice like ``prefilter``, not an engine knob: both
+    strategies are interaction-level (§3.5) because every engine in a run is given the
+    *same* bunch, and a per-engine sampling strategy would be meaningless for the same
+    reason a per-engine ``n_mc`` is.
+
+    The adaptive strategy's tuning constants are deliberately **not** here. They live in
+    `gammaforge.io.adaptive_sampling.PilotConfig` as module defaults until a benchmark
+    defends a different value; surfacing a dozen provisional numbers in the GUI would
+    advertise a precision the numbers do not have (§22).
     """
 
     n_particles: int = 100_000
     seed: int = 0
     prefilter: float = 1e-3
+    strategy: str = IID
 
     def __post_init__(self) -> None:
         if isinstance(self.n_particles, bool) or not isinstance(self.n_particles, numbers.Integral):
@@ -66,6 +101,10 @@ class SamplingSpec:
             raise ValueError(
                 f"SamplingSpec: prefilter must be in [0, 1) — a fraction of peak a0, with "
                 f"0 meaning off — got {self.prefilter}"
+            )
+        if self.strategy not in SAMPLING_STRATEGIES:
+            raise ValueError(
+                f"SamplingSpec: strategy must be one of {SAMPLING_STRATEGIES}, got {self.strategy!r}"
             )
 
 
@@ -106,6 +145,8 @@ def build_interaction(
     laser: LaserField,
     target: Target,
     sampling: SamplingSpec | None = None,
+    *,
+    plan: "AdaptiveSamplingPlan | None" = None,
 ) -> InteractionParameters:
     """Sample and prefilter the bunch, and bundle everything an engine needs.
 
@@ -116,9 +157,27 @@ def build_interaction(
     edits must not: they do not affect the sampled distribution, and rebuilding for them
     would needlessly invalidate every engine cache keyed on the bunch. Use
     :meth:`InteractionParameters.with_charge` and `dataclasses.replace` for those.
+
+    **The prefilter is applied identically to both strategies and renormalizes neither.**
+    For the adaptive strategy that matters more than it looks: the regional weights
+    ``P_m / n_m`` already sum to exactly one, and renormalizing after a discard would
+    quietly convert "the fraction of the population this represents" into "one",
+    inflating every result by the discarded fraction (§3.2, RES092).
+
+    ``plan`` is the adaptive strategy's reuse hook. A plan depends only on
+    ``(beam, laser, seed)``, so passing one back skips the pilot entirely — which is what
+    makes a particle-count sweep affordable, and what lets a caller hold the plan that
+    :func:`build_interaction` used. It is ignored by the IID strategy, which has no plan.
     """
     sampling = sampling or SamplingSpec()
-    bunch = sample_gaussian_bunch(beam, sampling.n_particles, sampling.seed)
+    if sampling.strategy == ADAPTIVE:
+        from .adaptive_sampling import build_adaptive_bunch
+
+        bunch, _plan = build_adaptive_bunch(
+            beam, laser, sampling.n_particles, sampling.seed, plan=plan
+        )
+    else:
+        bunch = sample_gaussian_bunch(beam, sampling.n_particles, sampling.seed)
     if sampling.prefilter > PREFILTER_OFF:
         bunch = prefilter_bunch(bunch, laser, sampling.prefilter)
     return InteractionParameters(
