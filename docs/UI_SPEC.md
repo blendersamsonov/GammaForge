@@ -95,10 +95,12 @@ Every row below spans the available pane width.
 - Always visible below Target/Outputs. Show total yield, peak `a0`, total spectral width,
   and the existing collimation, emittance, energy-spread, and nonlinearity width components.
   Peak `a0` occupies its own row beneath the total-yield/width row.
-- Re-evaluate after valid input edits using the existing analytical engine; no large
-  bunch sampling for a preview. Coalesce edits and discard obsolete preview responses.
+- Re-evaluate after beam, laser, or collimation edits using the existing analytical
+  engine; sampling, output, and selected-engine settings do not affect the preview.
+  No large bunch sampling for a preview. Coalesce edits and discard obsolete responses.
 - Preview computation also stays off the event loop: exact quadrature and flying-focus
-  cases are not guaranteed instantaneous. A pending preview must not look current.
+  cases are not guaranteed instantaneous. Keep the previous numbers visible and dimmed
+  while the new preview runs or its relevant inputs are invalid.
 - Analytical is not a checkboxable calculation engine. At Calculate, preserve its
   result for that input snapshot as an optional overlay in Results.
 
