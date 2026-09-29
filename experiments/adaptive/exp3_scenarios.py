@@ -58,7 +58,7 @@ def arms():
     ]
 
 
-def run_scenario(scenario, bins, scheme="nearest"):
+def run_scenario(scenario, bins, scheme="nearest"):  # noqa: D401
     beam0, laser0, target = scen.BASELINE.beam, scen.BASELINE.laser, scen.BASELINE.target
     beam, laser = H.build(scenario, laser0, beam0)
     grid = H.spectral_grid(beam, laser, target)
@@ -67,7 +67,8 @@ def run_scenario(scenario, bins, scheme="nearest"):
         beam, laser, target, SamplingSpec(n_particles=REF_N, seed=REF_SEEDS[0])
     )
     probe_samples = integrate_trajectories(
-        probe.bunch, laser, probe.N_e, n_steps=H.STAGE0_STEPS, threshold=1e-3
+        probe.bunch, laser, probe.N_e, n_steps=H.STAGE0_STEPS, threshold=1e-3,
+        chunk=H.CHUNK,
     )
     edges = H.reference_edges(probe_samples, bins)
     ref = H.make_reference(None, beam, laser, target, REF_N, REF_SEEDS, edges,
@@ -90,6 +91,12 @@ def main():
                              "plain QMC s=1, which isolates the *allocation* from the "
                              "stratification; use --control iid to ask the different question of "
                              "whether the whole scheme beats plain sampling")
+    parser.add_argument("--chunk-mb", type=float, default=2000.0,
+                        help="peak MiB per worker for Stage 0's (particle x step) temporaries "
+                             "(default 2000). Without a cap the engine sizes each chunk from "
+                             "machine-wide free RAM at 50%%, which bounds one process and no "
+                             "aggregate; the arms run at 20-40k and are negligible, so this is "
+                             "governed by --ref-n")
     parser.add_argument("--budgets", type=int, nargs="*", default=None)
     parser.add_argument("--only", nargs="*", default=None)
     parser.add_argument("--bins", default="reduced", choices=["reduced", "production", "both"])
@@ -99,6 +106,7 @@ def main():
     import preflight
     preflight.check()
 
+    H.CHUNK = H.chunk_for_mb(args.chunk_mb)
     REF_N = args.ref_n
     REF_SEEDS = tuple(3 + 8 * i for i in range(args.ref_seeds))
     SEEDS = H.arm_seeds(args.replicates)

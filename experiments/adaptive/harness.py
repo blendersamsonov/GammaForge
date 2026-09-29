@@ -37,6 +37,7 @@ from gammaforge.io.adaptive_sampling import PilotConfig, build_adaptive_plan
 from gammaforge.io.interaction import ADAPTIVE, IID, SamplingSpec, build_interaction
 from gammaforge.io.results import Axis
 from gammaforge.io.target import OutputKind, auto_ranges
+from gammaforge.engines.xigma.stages import BYTES_PER_PARTICLE_STEP
 from gammaforge.io.units import C_CGS
 
 # Stage-0 quadrature for a run. Held fixed across every variant so the cost per particle is
@@ -55,6 +56,28 @@ REDUCED_BINS = (24, 16, 16, 32, 8)
 #: makes every arm look better than it is, with the effect largest for the arm that shares the
 #: most structure with the reference (IID). Arm seeds are now offset clear of reference seeds.
 ARM_SEED_OFFSET = 900
+
+#: Particles per Stage-0 chunk, or None to let the engine auto-size. Set via
+#: :func:`chunk_for_mb` from the experiment scripts' ``--chunk-mb``.
+#:
+#: Left unset, the engine's own auto-chunker budgets ``free_ram * 0.5`` for a *single*
+#: process -- it has no notion of how many workers are running. Stage 0's inner loop holds
+#: ~25 live float64 temporaries per (particle, step), so that is 40 KB per particle at
+#: n_steps=200, and a 4M-particle reference is a ~1.5M-particle chunk and ~60 GB. With a
+#: fan-out of workers each sizing off the same machine-wide figure, the "safety" fraction
+#: bounds nothing in aggregate. Chunking cannot change the answer (particles are
+#: independent), so a fixed per-worker cap is free of correctness risk and costs only speed.
+CHUNK = None
+
+
+def chunk_for_mb(mb: float, n_steps: int = STAGE0_STEPS) -> int:
+    """Particles per Stage-0 chunk for a target peak of ``mb`` MiB *per worker*.
+
+    Expressed in megabytes because that is the thing a user can budget: the particle count
+    that fills a given memory depends on ``n_steps`` and on the engine's calibrated
+    bytes-per-particle-step, both of which are implementation detail.
+    """
+    return max(1, int(mb * 1024 ** 2 / (n_steps * BYTES_PER_PARTICLE_STEP)))
 
 
 def arm_seeds(n: int) -> tuple[int, ...]:
@@ -375,7 +398,8 @@ def run(variant: Variant, beam, laser, target, n_particles, seed, edges, *,
     start = time.perf_counter()
     interaction = variant.interaction(beam, laser, target, n_particles, seed, prefilter)
     samples = integrate_trajectories(
-        interaction.bunch, laser, interaction.N_e, n_steps=STAGE0_STEPS, threshold=prefilter
+        interaction.bunch, laser, interaction.N_e, n_steps=STAGE0_STEPS,
+        threshold=prefilter, chunk=CHUNK,
     )
     shape_table = deposit_fixed(samples, edges, scheme=scheme)
     table = retarget_ahat(shape_table, float(samples.intensity_peak))
