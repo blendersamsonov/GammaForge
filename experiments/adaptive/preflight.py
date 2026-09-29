@@ -8,6 +8,12 @@ that look entirely normal, so every entry point checks three things before doing
 2. ``gammaforge.io.adaptive_sampling`` is importable at all (it does not exist on ``main``);
 3. the allocation bug fixed in 970e0f9 is actually fixed in the imported code.
 
+It also *warns* about any other live GammaForge checkout on ``sys.path``. That is the trap
+check 1 exists to survive: a venv synced between machines ends up carrying two absolute src
+paths (each machine's, the loser kept as a ``sync-conflict-<stamp>`` ``.pth``), so a bare
+``python`` in it imports whichever one comes first -- a different tree, with numbers that
+look entirely normal.
+
 That last one is the non-obvious check. ``build_adaptive_plan`` used to leave every region's
 pilot second moment at zero, which collapsed the allocation to ``B_m`` for every lambda --
 and the shipped defaults would then look like a working ``lambda = 0.75`` experiment while
@@ -59,6 +65,27 @@ def check(strict_path: bool = True) -> None:
             "STALE CODE: lambda=0 and lambda=1 give the same allocation, which is the "
             "signature of the inert-allocation bug (pre-970e0f9)."
         )
+
+    # Foreign checkouts on sys.path. Check 1 above already proved *this* tree won, so this is
+    # a warning, not a failure -- but it names the booby trap for anyone who later runs a bare
+    # `python` instead of the wrapper, where the wrong tree would silently win instead.
+    #
+    # The usual source is a venv synced between machines: each writes its own
+    # `_editable_impl_gammaforge.pth`, the loser survives as a `sync-conflict-<stamp>` file, and
+    # the result is a venv carrying two absolute src paths, one of which is a different checkout
+    # (or does not exist at all on the machine reading it).
+    foreign = []
+    for entry in sys.path:
+        src = pathlib.Path(entry or ".").resolve()
+        if src == here / "src" or not (src / "gammaforge" / "__init__.py").exists():
+            continue
+        foreign.append(src)
+    if foreign:
+        print("WARNING: other GammaForge checkouts are live on sys.path:")
+        for src in foreign:
+            print(f"           {src}")
+        print("         This run is fine (PYTHONPATH wins, verified above), but a bare")
+        print("         `python` in this venv would import one of those instead.")
 
     print(f"preflight ok: gammaforge from {root}")
     print(f"              adaptive_sampling importable, allocation responds to lambda")
