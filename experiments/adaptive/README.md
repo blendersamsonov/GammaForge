@@ -5,6 +5,43 @@ here is production code** — the shipped module is `src/gammaforge/io/adaptive_
 and these scripts do not modify it. Everything lives outside `src/`, takes its configuration
 from CLI flags, and writes JSON.
 
+## Memory: `--chunk-mb` is the knob that works
+
+Stage 0's inner loop holds ~25 live float64 temporaries per `(particle, step)`, calibrated by
+the engine as `BYTES_PER_PARTICLE_STEP = 200`. At `n_steps=200` that is **40 KB per
+particle**, so a run's peak is set by the *largest single* run -- the reference, not the
+arms:
+
+```
+--ref-n 4,000,000  ->  4e6 x 40 KB = 160 GB of temporaries if run in one piece
+```
+
+Left uncapped, the engine's auto-chunker budgets `free_ram * 0.5` for a single process. It has
+no notion of how many workers are running, so `N` workers each size off the same
+machine-wide figure and the "safety" fraction bounds nothing in aggregate. With 120 GB free
+that is a ~1.5M-particle chunk, ~60 GB, per worker -- which is how a 14-worker run spikes to
+120 GB in its first seconds.
+
+`--chunk-mb` sets the cap **per worker**, in megabytes because that is the budgetable thing:
+
+```
+--chunk-mb  500 ->  13,107 particles/chunk
+--chunk-mb 1000 ->  26,214 particles/chunk
+--chunk-mb 2000 ->  52,428 particles/chunk
+```
+
+Chunking is over particles, whose trajectories are independent, so the partition cannot change
+the answer -- a fixed cap is free of correctness risk and costs only speed. It also makes peak
+*predictable* rather than racy, which the auto path is not.
+
+Sizing: total peak is roughly `workers x chunk-mb`, plus the per-arm replicate tables
+(`7 arms x replicates x 12.6 MB` at reduced bins, `680 MB` each at production bins). On a
+128 GB box that is comfortable at `--workers 4 --chunk-mb 2000`.
+
+`--ref-n` cannot substitute for this: when the whole run fits in one chunk, per-worker peak is
+`ref-n x 40 KB` with no way to reduce it, so a 3 GB/worker cap would need `--ref-n ~75000` and
+a reference so weak you would need ~100 seeds. Lower the chunk, not the reference.
+
 ## Reading the results: the floor is not an error bar
 
 This is the thing worth knowing before you read any table here.

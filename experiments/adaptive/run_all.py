@@ -83,6 +83,13 @@ def main() -> int:
                              "cannot, and comparing an arm to the floor is a category error")
     parser.add_argument("--control", default="strat-s1",
                         help="control arm for the paired comparison (scenarios only)")
+    parser.add_argument("--chunk-mb", type=float, default=2000.0,
+                        help="peak MiB PER WORKER for Stage 0's (particle x step) temporaries. "
+                             "This is the memory knob that actually works: left uncapped, the "
+                             "engine sizes each chunk from machine-wide free RAM at 50%%, which "
+                             "bounds a single process and not the sum, so W workers can each "
+                             "claim half the machine. Total peak is roughly workers x chunk-mb "
+                             "plus the per-arm replicate tables")
     parser.add_argument("--stage", default="scenarios",
                         choices=["scenarios", "ablation", "cell-aware", "all"],
                         help="which experiment to run. 'all' exists because the stages write to "
@@ -108,7 +115,8 @@ def main() -> int:
     common = []
     if args.quick:
         common += ["--quick"]
-    common += ["--ref-n", str(args.ref_n), "--ref-seeds", str(args.ref_seeds)]
+    common += ["--ref-n", str(args.ref_n), "--ref-seeds", str(args.ref_seeds),
+               "--chunk-mb", str(args.chunk_mb)]
     # --only is deliberately NOT in `common`: each per-scenario child gets its own single
     # --only below, and passing it twice makes argparse keep only the last, which silently
     # reduced `--only a b` to a single scenario.
@@ -120,6 +128,8 @@ def main() -> int:
           f"({'quick' if args.quick else 'full'})")
     print(f"replicates: {args.replicates} seeds/arm, paired against control "
           f"{args.control!r}")
+    print(f"memory: Stage-0 chunk capped at {args.chunk_mb:.0f} MiB/worker "
+          f"(~{args.workers * args.chunk_mb / 1000:.0f} GB across {args.workers} workers)")
     print(f"results -> {RESULTS}\n", flush=True)
 
     # exp1 and exp5 are single-process, not per-scenario, so they are run here directly rather

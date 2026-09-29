@@ -38,11 +38,15 @@ def main():
     parser.add_argument("--control", default=CONTROL,
                         help="arm every other arm is compared against, seed by seed. Default is "
                              "plain QMC s=1 (no allocation), which isolates the allocation")
+    parser.add_argument("--chunk-mb", type=float, default=2000.0,
+                        help="peak MiB for Stage 0's (particle x step) temporaries; see "
+                             "harness.chunk_for_mb")
     parser.add_argument("--budgets", type=int, nargs="*", default=None)
     args = parser.parse_args()
 
     import preflight
     preflight.check()
+    H.CHUNK = H.chunk_for_mb(args.chunk_mb)
     REF_N = args.ref_n
     REF_SEEDS = tuple(3 + 8 * i for i in range(args.ref_seeds))
     SEEDS = H.arm_seeds(args.replicates)
@@ -70,7 +74,7 @@ def _run():
         beam, laser, target, SamplingSpec(n_particles=REF_N, seed=REF_SEEDS[0])
     )
     probe_samples = integrate_trajectories(
-        probe.bunch, laser, probe.N_e, n_steps=H.STAGE0_STEPS, threshold=1e-3
+        probe.bunch, laser, probe.N_e, n_steps=H.STAGE0_STEPS, threshold=1e-3, chunk=H.CHUNK
     )
     edges = H.reference_edges(probe_samples, H.REDUCED_BINS)
     print(f"reference edges from one {REF_N}-particle run ({time.perf_counter()-start:.0f}s)",

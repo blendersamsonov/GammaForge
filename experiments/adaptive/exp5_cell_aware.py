@@ -169,7 +169,7 @@ def cell_aware_scores(plan, beam, laser, edges, *, oracle_samples=64, seed=0,
             beam, big, np.full(n_oracle, 1.0 / n_oracle)
         )
         samples = integrate_trajectories(
-            probe_big, laser, 1.0, n_steps=200, threshold=1e-3
+            probe_big, laser, 1.0, n_steps=200, threshold=1e-3, chunk=H.CHUNK
         )
         flat_o, inside_o = cell_of(
             {
@@ -234,11 +234,15 @@ def main():
                         help="independent seeds per arm; the paired spread against the current "
                              "allocation is what decides whether cell-aware differs at all")
     parser.add_argument("--only", nargs="*", default=None)
+    parser.add_argument("--chunk-mb", type=float, default=2000.0,
+                        help="peak MiB for Stage 0's (particle x step) temporaries; see "
+                             "harness.chunk_for_mb")
     parser.add_argument("--budgets", type=int, nargs="*", default=None)
     args = parser.parse_args()
 
     import preflight
     preflight.check()
+    H.CHUNK = H.chunk_for_mb(args.chunk_mb)
 
     beam0, laser0, target = scen.BASELINE.beam, scen.BASELINE.laser, scen.BASELINE.target
     bins = H.REDUCED_BINS
@@ -271,7 +275,7 @@ def main():
         probe = build_interaction(
             beam, laser, target, SamplingSpec(n_particles=ref_n, seed=3)
         )
-        ps = integrate_trajectories(probe.bunch, laser, probe.N_e, n_steps=200, threshold=1e-3)
+        ps = integrate_trajectories(probe.bunch, laser, probe.N_e, n_steps=200, threshold=1e-3, chunk=H.CHUNK)
         edges = H.reference_edges(ps, bins)
         ref = H.make_reference(None, beam, laser, target, ref_n, ref_seeds, edges, grid=grid)
         print(f"\n=== {scenario.name} ===")
@@ -357,7 +361,7 @@ def main():
                             variant_plan = builder(per_seed[seed])
                             it = build_interaction(beam, laser, target, sp, plan=variant_plan)
                             s = integrate_trajectories(it.bunch, laser, it.N_e,
-                                                       n_steps=200, threshold=1e-3)
+                                                       n_steps=200, threshold=1e-3, chunk=H.CHUNK)
                             st = H.deposit_fixed(s, edges)
                             tb = __import__(
                                 "gammaforge.engines.xigma.stages", fromlist=["retarget_ahat"]
