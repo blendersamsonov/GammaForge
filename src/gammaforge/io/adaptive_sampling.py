@@ -999,6 +999,22 @@ def build_adaptive_plan(
                 beam, laser, config, seed,
             )
 
+    # Write the pilot moments onto the regions *before* the allocation is computed.
+    # `_allocation_shares` reads `pilot_second_moment` off the regions, so computing the
+    # shares first and patching only the probability afterwards would leave every region
+    # reporting a zero second moment — which makes the importance score identically zero,
+    # sends `_allocation_shares` down its `total <= 0` fallback, and quietly reduces the whole
+    # scheme to uniform allocation over `B_m` for every `luminosity_fraction`. The refinement
+    # priority below reads the same dict, so only the *splitting* was ever luminosity-driven.
+    regions = [
+        replace(
+            region,
+            pilot_mean=moments[region.id][0],
+            pilot_second_moment=moments[region.id][1],
+            pilot_std=moments[region.id][2],
+        )
+        for region in regions
+    ]
     share = _allocation_shares(regions, config.luminosity_fraction)
     final = tuple(
         replace(region, allocation_probability=float(share[i]))
