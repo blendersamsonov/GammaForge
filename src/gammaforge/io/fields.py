@@ -151,6 +151,11 @@ SAMPLING_FIELDS: tuple[FieldSpec, ...] = (
               value_range=(0, 2**31 - 1), integer=True),
     FieldSpec("prefilter", "Prefilter threshold (fraction of peak a0)", FieldKind.SCALAR,
               DIMENSIONLESS, 1e-3, value_range=(0.0, 0.999)),
+    # IID stays the default until the adaptive strategy's benchmarks justify promoting it;
+    # see `gammaforge.io.adaptive_sampling`. A CHOICE rather than a boolean so adding a
+    # third strategy later cannot silently reinterpret a saved request.
+    FieldSpec("strategy", "Sampling strategy", FieldKind.CHOICE, DIMENSIONLESS, "iid",
+              choices=("iid", "adaptive")),
 )
 
 

@@ -97,3 +97,4 @@ cross-checks this table against the files on disk.
 | RES090 | Ponderomotive incidence is observer-dependent in Stage 2 | bug-fix | implemented | implemented/bug-fix/RES090-observer-dependent-ponderomotive-incidence.md |
 | RES091 | Emission-supported single-bin reductions | bug-fix | implemented | implemented/bug-fix/RES091-emission-supported-single-bin-reductions.md |
 | RES092 | Bounded production refinement | testing | implemented | implemented/testing/RES092-bounded-production-refinement.md |
+| RES093 | Luminosity-aware adaptive sampling as an opt-in bunch strategy | feature | implemented | implemented/feature/RES093-luminosity-aware-adaptive-sampling.md |
