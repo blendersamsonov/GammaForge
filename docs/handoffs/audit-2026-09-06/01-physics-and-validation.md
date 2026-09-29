@@ -1,6 +1,6 @@
 # 01 — Physics review and trustworthy validation
 
-Read [coordination rules](README.md) first. Covers A01, A02, A12 and the
+Read the [audit index](README.md) first. Covers A01, A02, A12 and the
 physics-dependent part of A18. Two separate deliverables: make validation reporting
 trustworthy now; resolve emission physics only after the author's review.
 
@@ -47,14 +47,16 @@ under this particular partial rotation**.
 3. Add distribution-sensitive checks, not just integrated counts: e.g. centroid,
    edge and angular structure within each method's documented common validity
    regime. Do not require agreement where methods deliberately approximate
-   different physics. Coordinate histogram integration with 02 and timing with 04.
+   different physics. Use the implemented slice measure (RES061) and kascade
+   event-time conventions.
 4. Make symbolic claims executable: failed comparisons must produce failure;
    fix selector matching against Path names; test unknown selectors and failing
    subprocesses. Resolve absent numerical-script claims by locating actual evidence
    or correcting the claim, never by adding an unconditional “verified” stub.
 5. After author approval only, implement the approved convention consistently.
    Preserve an independent reference calculation; sharing the production factor
-   does not independently validate it. Coordinate `stages.py` with 03/06.
+   does not independently validate it. Respect the current Stage 0/1 and input
+   ownership contracts (RES064).
 
 ## Acceptance and limits
 
@@ -69,8 +71,8 @@ under this particular partial rotation**.
   tolerances, or overwrite goldens. An explicitly reported unresolved check is
   unfinished science, even if harness unit tests pass.
 
-Ask 08 to provide symbolic/test dependencies. Supply 09 with verified facts about
-derivation status; don't promote or demote confidence based on prose alone. A
+Use the current symbolic/test dependencies and documentation guards; don't promote
+or demote derivation confidence based on prose alone. A
 postmortem may be warranted after the cause is settled; follow its actual criteria.
 
 Starting checks: `.venv/bin/pytest -q tests/test_validation.py tests/test_stage0_delta.py`,

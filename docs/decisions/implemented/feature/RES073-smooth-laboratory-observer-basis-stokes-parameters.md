@@ -32,4 +32,4 @@ The smooth basis $(\mathbf{m}_x, \mathbf{m}_y)$ satisfies every required physica
 - `gammaforge.engines.xigma.stages` exports `rotated_laser_axes`, `compute_stokes_components`, `stokes_parameters_vectorized`, and `bunch_stokes_parameters`.
 - `gammaforge.engines.xigma.collision` exports `BunchStokes` and `Collision.stokes_parameters`.
 - `spectrum_sampler._polarization_parameters` reuses `rotated_laser_axes`, consolidating 3D rotation trigonometry across CPU and GPU pipelines.
-- Unit tests in `tests/test_xigma_stokes.py` verify all acceptance criteria from `der007-fixed-basis-stokes-implementation.md`.
+- Unit tests in `tests/test_xigma_stokes.py` verify the smooth-basis limits and bunch polarization invariants of DER007.

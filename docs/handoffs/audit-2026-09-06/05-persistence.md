@@ -1,7 +1,7 @@
 # 05 — Lossless supported results and reproducible run export
 
-Read [coordination rules](README.md). Covers A05. Inspect now; land after 02's
-slice measure and 06's calculation snapshot/ownership interfaces settle.
+Read the [audit index](README.md). Covers A05. The slice measure (RES061) and
+calculation snapshot/ownership contracts (RES064) have landed.
 
 ## Entry points and evidence
 
@@ -24,7 +24,7 @@ loader. Existing slice round-trip tests miss these omissions.
    and actual results. Update the plan first if this changes its HDF5/YAML layout.
    Keep `Results.cfg` absent: provenance belongs to the run record, not a mutable
    engine back-reference.
-2. Preserve slices including 02's integration metadata, axis order and canonical
+2. Preserve slices including RES061's integration metadata, axis order and canonical
    units; photon arrays; and the currently supported final-electron Bunch fields
    and relevant metadata. Do not decide the future final-electron class merely
    to serialize today's data.
@@ -46,7 +46,7 @@ loader. Existing slice round-trip tests miss these omissions.
 - Round-trip nondefault target, requested resolutions, sampling seed and engine
   parameters through the run-record API. Where reproducible, rerun the loaded
   request and compare outputs with appropriate deterministic/MC expectations.
-- Preserve 02's one-bin/nonuniform measure and integrate/project identities after
+- Preserve the one-bin/nonuniform measure and integrate/project identities after
   loading. Test old unversioned files and unsupported future versions explicitly.
 - A form edit during/after calculation cannot change the exported request that
   produced the displayed result. Failure paths leave no misleading complete file.

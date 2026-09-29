@@ -1,4 +1,4 @@
-"""Tests for PulseTrainParaxialLaser (handoff: temporal-modulation-laser-2026-09-08.md).
+"""Tests for PulseTrainParaxialLaser (RES071).
 
 Covers:
 - Protocol adherence (LaserField)
