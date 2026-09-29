@@ -26,3 +26,4 @@ same change as any new derivation file or any status move —
 | DER018 | Effective plane-wave surrogate and radiation-phase origin of ponderomotive incidence | derived | derived/DER018-effective-plane-wave-surrogate-radiation-phase.md |
 | DER019 | Deterministic Gaussian source reductions for semi-analytical Compton spectra | derived | derived/DER019-deterministic-gaussian-source-reductions.md |
 | DER020 | Higher-harmonic onset and first-harmonic validity diagnostic | derived | derived/DER020-higher-harmonic-onset-first-harmonic-validity.md |
+| DER021 | Uniform raw-`ahat` retargeting from resonance sensitivity | derived | derived/DER021-uniform-raw-ahat-retargeting-from-resonance-sensitivity.md |
