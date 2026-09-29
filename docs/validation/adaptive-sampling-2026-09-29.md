@@ -1,9 +1,9 @@
 # Luminosity-Aware Adaptive Sampling — Implementation Report
 
 **Branch:** `feature/luminosity-aware-adaptive-sampling` (worktree `../GammaForge-adaptive-sampling`)
-**Commit:** `66cb3bd` — *Add opt-in luminosity-aware adaptive sampling*
-**Base:** `main` @ `4540929`
-**Implements:** `docs/handoffs/luminosity-aware-adaptive-sampling.md` (RES092)
+**Commit:** `9e33374` — *Add opt-in luminosity-aware adaptive sampling*
+**Base:** `main` @ `181afd6`
+**Implements:** `docs/handoffs/luminosity-aware-adaptive-sampling.md` (RES093)
 
 > **Read this for the gain, not the method.** The sampling method is implemented as specified
 > and works. The *measured* benefit is much smaller than the handoff anticipated, and two of
@@ -255,5 +255,5 @@ Worth recording because each is the kind that ships silently.
 - **Adding `propagation_direction()` to the `LaserField` protocol broke a conforming
   implementation** in `tests/test_laser.py`. That is the protocol doing its job (a second
   implementation must state its propagation direction), but it is a reminder that extending a
-  `@runtime_checkable` Protocol is a breaking change for external implementers. RES092
+  `@runtime_checkable` Protocol is a breaking change for external implementers. RES093
   records it; a future non-Gaussian laser will need to supply it.

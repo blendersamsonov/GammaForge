@@ -1,4 +1,4 @@
-"""Benchmark luminosity-aware adaptive sampling against IID (RES092).
+"""Benchmark luminosity-aware adaptive sampling against IID (RES093).
 
 The question this answers is the handoff's, and it is deliberately *not* "is adaptive better
 at equal N":

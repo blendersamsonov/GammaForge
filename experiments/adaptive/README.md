@@ -1,6 +1,6 @@
-# Adaptive-sampling experiments (RES092 follow-up)
+# Adaptive-sampling experiments (RES093 follow-up)
 
-Diagnostics for `docs/handoffs/luminosity-aware-adaptive-sampling.md` and RES092. **Nothing
+Diagnostics for `docs/handoffs/luminosity-aware-adaptive-sampling.md` and RES093. **Nothing
 here is production code** — the shipped module is `src/gammaforge/io/adaptive_sampling.py`
 and these scripts do not modify it. Everything lives outside `src/`, takes its configuration
 from CLI flags, and writes JSON.

@@ -1,4 +1,4 @@
-"""Shared machinery for the adaptive-sampling experiments (RES092 follow-up).
+"""Shared machinery for the adaptive-sampling experiments (RES093 follow-up).
 
 Not production code and not committed: this is the harness for the ablation, the lambda and
 proposal-scale sweeps, the wider scenario bank, the production-resolution check, and the
