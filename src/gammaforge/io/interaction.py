@@ -49,7 +49,7 @@ PREFILTER_OFF = 0.0
 #: The two ways a bunch can be drawn. `IID` is the historical sampler and stays the
 #: default: the adaptive strategy is opt-in until its benchmarks justify making it the
 #: default, and until then an unexpected regime must keep the behaviour users already rely
-#: on. `ADAPTIVE` is the luminosity-aware stratifier (RES092) — the *same* Gaussian bunch,
+#: on. `ADAPTIVE` is the luminosity-aware stratifier (RES093) — the *same* Gaussian bunch,
 #: represented with non-uniform weights, at a lower cost for the same Stage-1/Stage-2
 #: accuracy. Both produce an ordinary `Bunch` with relative per-particle weights summing to
 #: one, so no engine can tell them apart except by inspecting `sampling.strategy`.
@@ -162,7 +162,7 @@ def build_interaction(
     For the adaptive strategy that matters more than it looks: the regional weights
     ``P_m / n_m`` already sum to exactly one, and renormalizing after a discard would
     quietly convert "the fraction of the population this represents" into "one",
-    inflating every result by the discarded fraction (§3.2, RES092).
+    inflating every result by the discarded fraction (§3.2, RES093).
 
     ``plan`` is the adaptive strategy's reuse hook. A plan depends only on
     ``(beam, laser, seed)``, so passing one back skips the pilot entirely — which is what

@@ -1,4 +1,4 @@
-"""Luminosity-aware adaptive sampling: the same Gaussian bunch, more cheaply (RES092).
+"""Luminosity-aware adaptive sampling: the same Gaussian bunch, more cheaply (RES093).
 
 **The problem.** :func:`~gammaforge.io.bunch.sample_gaussian_bunch` draws macroparticles
 IID from the beam's six latent standard normals and then runs Xigma Stage 0 — one
@@ -57,7 +57,7 @@ costs :math:`O(N \\times 200)`.
 
 **Observer independence.** Nothing here knows about Stage 2. The plan depends on the beam,
 the laser and the seed only; the exact observer-dependent ponderomotive coefficient
-:math:`Q` stays in Stage 2, so one plan serves every observation direction (RES092).
+:math:`Q` stays in Stage 2, so one plan serves every observation direction (RES093).
 
 **Defaults are numerical, not physical.** The values in :data:`DEFAULT_PILOT_CONFIG` are
 starting points to be tuned against measured Stage-1/Stage-2 convergence, not physics

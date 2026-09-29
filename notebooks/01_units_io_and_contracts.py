@@ -312,7 +312,7 @@ print(f"  Manual spectrum range [keV]: {[value / 1.602176634e-9 for value in foc
 # 
 # `strategy` selects *how the same Gaussian bunch is represented*, never *which* Gaussian — both
 # draw from the identical analytic `GaussianElectronBeam` and return an ordinary `Bunch` whose weights
-# sum to one, so every downstream engine is unaware of the choice (RES092).
+# sum to one, so every downstream engine is unaware of the choice (RES093).
 # 
 # - `"iid"` (default) draws each macroparticle independently. Simple, and its behaviour never changes.
 # - `"adaptive"` **stratifies**: it partitions the beam's six latent Gaussians into disjoint boxes with
