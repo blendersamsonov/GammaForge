@@ -47,6 +47,20 @@ STAGE0_STEPS = 200
 PRODUCTION_BINS = (48, 48, 48, 96, 8)
 REDUCED_BINS = (24, 16, 16, 32, 8)
 
+#: Arms must not reuse the reference's seeds.
+#:
+#: They used to: `SEEDS = REF_SEEDS[:2]`, so an IID arm at seed 3 drew the *same* particle
+#: stream as the reference at seed 3 -- the arm's 40k particles are literally the first 40k of
+#: the reference's 4M. That correlates each arm with the thing it is being scored against and
+#: makes every arm look better than it is, with the effect largest for the arm that shares the
+#: most structure with the reference (IID). Arm seeds are now offset clear of reference seeds.
+ARM_SEED_OFFSET = 900
+
+
+def arm_seeds(n: int) -> tuple[int, ...]:
+    """``n`` arm seeds, disjoint from the reference's."""
+    return tuple(ARM_SEED_OFFSET + 8 * i for i in range(n))
+
 
 # ---------------------------------------------------------------------------
 # Variants
@@ -444,6 +458,20 @@ def errors(result, reference) -> dict:
     return out
 
 
+def merge(runs: list[dict]) -> dict:
+    """Average replicates into the single result the errors are scored against.
+
+    The *merged* result is what an R-seed estimator actually produces, so it is the honest
+    point estimate. It is not, however, a measure of uncertainty -- for that see `stats`.
+    """
+    return {
+        "yield": float(np.mean([r["yield"] for r in runs])),
+        "H": np.mean([r["H"] for r in runs], axis=0),
+        "spectrum": np.mean([r["spectrum"] for r in runs], axis=0),
+        "centroid": float(np.mean([r["centroid"] for r in runs])),
+    }
+
+
 def make_reference(variant_name, beam, laser, target, n_particles, seeds, edges, **kw):
     """Mean reference over several independent IID runs, with the spread that bounds it."""
     runs = [
@@ -455,6 +483,11 @@ def make_reference(variant_name, beam, laser, target, n_particles, seeds, edges,
         "H": np.mean([r["H"] for r in runs], axis=0),
         "spectrum": np.mean([r["spectrum"] for r in runs], axis=0),
         "centroid": float(np.mean([r["centroid"] for r in runs])),
+        # Provenance. Without these the tables printed "reference: ? particles", because a
+        # floor is meaningless without the run that produced it -- a floor measured at 400k and
+        # one measured at 4M differ by more than most of the effects being measured.
+        "n_particles": int(n_particles),
+        "seeds": [int(s) for s in seeds],
         "yield_spread": float(
             (max(r["yield"] for r in runs) - min(r["yield"] for r in runs))
             / np.mean([r["yield"] for r in runs])

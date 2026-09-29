@@ -5,6 +5,45 @@ here is production code** — the shipped module is `src/gammaforge/io/adaptive_
 and these scripts do not modify it. Everything lives outside `src/`, takes its configuration
 from CLI flags, and writes JSON.
 
+## Reading the results: the floor is not an error bar
+
+This is the thing worth knowing before you read any table here.
+
+`--ref-n` sets the **floor**: the spread of the reference across its own seeds. It answers
+"how well does the reference converge?" It is **not** the uncertainty of an arm. A 40k arm's
+seed-to-seed spread is several times the 4M reference's, so an error that sits above the
+floor is not thereby significant, and one below it is not thereby noise. Comparing an arm to
+the floor is a category error, and doing it is how a 10% difference got read as a result.
+
+What decides an arm-vs-arm comparison is the **paired** difference. Every arm sees the same
+`--replicates` seeds, so differencing seed by seed cancels the common random-number
+correlation, and `--replicates` sets how many seeds that estimate rests on:
+
+```
+spectrum      6.44e-03±4e-04     mean ± standard error over replicates
+Δ spectrum   -2.29e-03±6e-04     paired difference vs the control arm
+verdict      RESOLVED better     |Δ| > 2σ, so the difference is not seed noise
+```
+
+The **control** is chosen, not implicit, because which control you pick changes the question:
+
+| control | question it answers |
+|---|---|
+| `strat-s1` (default) | does the *allocation* help, holding stratification fixed? |
+| `iid` | does the whole scheme beat plain sampling? |
+
+Both are worth asking; they are not the same question, and the λ/scale arms only mean
+something relative to the first.
+
+`--stage all` exists because the three experiments write to different files. Running only
+`scenarios` leaves exp1 and exp5 sitting at whatever reference strength they were last run
+with -- which is how a stale "no benefit for cell-aware" conclusion survives a re-run that was
+supposed to revisit it. Each table now prints the reference size and replicate count it was
+produced with, so a stale file announces itself.
+
+Old result files have no replicate block; `summarize` still reads them, marks them
+`not measured`, and says so in the header rather than quietly printing bare point estimates.
+
 ## Running
 
 **Use `./python.sh`.** It exists because two silent-failure modes make a bare `python` run
@@ -35,7 +74,8 @@ cd <repo>/experiments/adaptive
 ./python.sh run_all.py --quick                 # smoke test
 ./python.sh run_all.py                         # full bank, parallel
 ./python.sh run_all.py --skip-completed        # resume
-./python.sh run_all.py --ref-n 1500000 --ref-seeds 5
+./python.sh run_all.py --ref-n 4000000 --replicates 8
+./python.sh run_all.py --stage all             # scenarios + ablation + cell-aware
 ./python.sh summarize.py                       # print the tables
 ./python.sh preflight.py                       # verify tree + code freshness
 ```

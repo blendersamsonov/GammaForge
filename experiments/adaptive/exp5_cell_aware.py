@@ -39,6 +39,7 @@ import time
 import numpy as np
 
 import harness as H
+import stats as S
 from gammaforge.engines.xigma.stages import integrate_trajectories
 from gammaforge.io.adaptive_sampling import (
     AdaptiveSamplingPlan,
@@ -229,6 +230,9 @@ def main():
     parser.add_argument("--quick", action="store_true")
     parser.add_argument("--ref-n", type=int, default=400_000)
     parser.add_argument("--ref-seeds", type=int, default=2)
+    parser.add_argument("--replicates", type=int, default=8,
+                        help="independent seeds per arm; the paired spread against the current "
+                             "allocation is what decides whether cell-aware differs at all")
     parser.add_argument("--only", nargs="*", default=None)
     parser.add_argument("--budgets", type=int, nargs="*", default=None)
     args = parser.parse_args()
@@ -239,11 +243,14 @@ def main():
     beam0, laser0, target = scen.BASELINE.beam, scen.BASELINE.laser, scen.BASELINE.target
     bins = H.REDUCED_BINS
     ref_n = args.ref_n
-    seeds = tuple(3 + 8 * i for i in range(args.ref_seeds))[:2]
+    ref_seeds = tuple(3 + 8 * i for i in range(args.ref_seeds))
+    seeds = H.arm_seeds(args.replicates)
     budgets = tuple(args.budgets) if args.budgets else (20_000, 40_000)
     if args.quick:
         budgets = (5_000, 10_000)
-        seeds = seeds[:1]
+        # --quick shrinks the budgets and the reference, but keeps the requested
+        # replicate count: a smoke test that skips the pairing cannot catch a broken one.
+        seeds = H.arm_seeds(min(args.replicates, 2))
 
     # Built through the harness so the unit conversions match the scenario bank exactly.
     wanted = {"baseline", "focus_3um", "tight_focus", "wide_bunch"}
@@ -266,8 +273,10 @@ def main():
         )
         ps = integrate_trajectories(probe.bunch, laser, probe.N_e, n_steps=200, threshold=1e-3)
         edges = H.reference_edges(ps, bins)
-        ref = H.make_reference(None, beam, laser, target, ref_n, seeds, edges, grid=grid)
+        ref = H.make_reference(None, beam, laser, target, ref_n, ref_seeds, edges, grid=grid)
         print(f"\n=== {scenario.name} ===")
+        print(f"  reference: {ref['n_particles']} particles x {len(ref['seeds'])} seeds; "
+              f"{len(seeds)} replicates/arm")
         print("  floor: yield {:.1e} | marg worst {:.1e} mean {:.1e} | spectrum {:.1e}".format(
             ref["yield_spread"], ref["marg_worst_spread"], ref["marg_mean_spread"],
             ref["spectrum_spread"]), flush=True)
@@ -328,58 +337,82 @@ def main():
                 float(np.corrcoef(pilot_share, naive)[0, 1])), flush=True)
 
             header = (f"    {'variant':>22} {'N':>7} {'yield':>10} {'marg_worst':>11} "
-                      f"{'marg_mean':>10} {'spectrum':>10} {'N_eff':>7}")
+                      f"{'marg_mean':>10} {'spectrum':>17} {'N_eff':>7}  "
+                      f"{'Δ spectrum':>18}  verdict")
             print(header)
-            for label, builder in (
+            allocations = (
                 ("current (P sqrt(M2))", lambda pl: pl),
                 ("cell-aware pilot", pilot_plan),
                 ("cell-aware oracle", oracle_plan),
-            ):
-                for n in budgets:
+            )
+            for n in budgets:
+                # All three allocations at this budget first, so the cell-aware ones can be
+                # paired seed-by-seed against the current rule rather than merely compared.
+                per_alloc = {}
+                for label, builder in allocations:
                     runs = []
                     for seed in seeds:
-                        sp = SamplingSpec(n_particles=n, seed=seed, prefilter=1e-3,
-                                          strategy="adaptive")
-                        variant_plan = builder(per_seed[seed])
-                        it = build_interaction(beam, laser, target, sp, plan=variant_plan)
-                        s = integrate_trajectories(it.bunch, laser, it.N_e,
-                                                   n_steps=200, threshold=1e-3)
-                        st = H.deposit_fixed(s, edges)
-                        tb = __import__(
-                            "gammaforge.engines.xigma.stages", fromlist=["retarget_ahat"]
-                        ).retarget_ahat(st, float(s.intensity_peak))
-                        spec = __import__(
-                            "gammaforge.engines.xigma.stages", fromlist=["spectrum_from_table"]
-                        ).spectrum_from_table(tb, 0.0, 0.0, grid)
-                        runs.append({
-                            "yield": float(np.sum(s.luminosity)), "H": st.H.copy(),
-                            "spectrum": spec,
-                            "centroid": float(np.sum(grid * spec) / np.sum(spec)),
-                            "n_eff": float((it.bunch.weight.sum() ** 2)
-                                           / np.sum(it.bunch.weight ** 2)),
-                        })
-                    merged = {
-                        "yield": float(np.mean([r["yield"] for r in runs])),
-                        "H": np.mean([r["H"] for r in runs], axis=0),
-                        "spectrum": np.mean([r["spectrum"] for r in runs], axis=0),
-                        "centroid": float(np.mean([r["centroid"] for r in runs])),
-                    }
-                    err = H.errors(merged, ref)
-                    row = {"scenario": scenario.name, "plan": plan_name, "variant": label,
-                           "n": n, "yield": err["yield"], "marg_worst": err["marg_worst"],
-                           "marg_mean": err["marg_mean"], "spectrum": err["spectrum"],
-                           "centroid": err["centroid"],
-                           "n_eff": float(np.mean([r["n_eff"] for r in runs])),
-                           "floor_spectrum": ref["spectrum_spread"],
-                           "floor_marg_worst": ref["marg_worst_spread"]}
-                    out.append(row)
+                            sp = SamplingSpec(n_particles=n, seed=seed, prefilter=1e-3,
+                                              strategy="adaptive")
+                            variant_plan = builder(per_seed[seed])
+                            it = build_interaction(beam, laser, target, sp, plan=variant_plan)
+                            s = integrate_trajectories(it.bunch, laser, it.N_e,
+                                                       n_steps=200, threshold=1e-3)
+                            st = H.deposit_fixed(s, edges)
+                            tb = __import__(
+                                "gammaforge.engines.xigma.stages", fromlist=["retarget_ahat"]
+                            ).retarget_ahat(st, float(s.intensity_peak))
+                            spec = __import__(
+                                "gammaforge.engines.xigma.stages",
+                                fromlist=["spectrum_from_table"]
+                            ).spectrum_from_table(tb, 0.0, 0.0, grid)
+                            runs.append({
+                                "yield": float(np.sum(s.luminosity)), "H": st.H.copy(),
+                                "spectrum": spec,
+                                "centroid": float(np.sum(grid * spec) / np.sum(spec)),
+                                "n_eff": float((it.bunch.weight.sum() ** 2)
+                                               / np.sum(it.bunch.weight ** 2)),
+                            })
+                    per_alloc[label] = runs
+                control_runs = per_alloc["current (P sqrt(M2))"]
+                for label, _builder in allocations:
+                    runs = per_alloc[label]
+                    is_control = label == "current (P sqrt(M2))"
+                    err = H.errors(H.merge(runs), ref)
+                    block = S.replicate_block(
+                        runs, ref, None if is_control else control_runs,
+                        control_name="current (P sqrt(M2))", label=label,
+                    )
+                    out.append({
+                        "scenario": scenario.name, "plan": plan_name, "variant": label,
+                        "n": n, "is_control": is_control,
+                        "yield": err["yield"], "marg_worst": err["marg_worst"],
+                        "marg_mean": err["marg_mean"], "spectrum": err["spectrum"],
+                        "centroid": err["centroid"],
+                        "n_eff": float(np.mean([r["n_eff"] for r in runs])),
+                        "floor_spectrum": ref["spectrum_spread"],
+                        "floor_marg_worst": ref["marg_worst_spread"],
+                        "reference_n": ref["n_particles"],
+                        "replicate_seeds": list(seeds),
+                        "replicates": block,
+                    })
                     print(f"    {label:>22} {n:>7} {err['yield']:>10.2e} "
                           f"{err['marg_worst']:>11.2e} {err['marg_mean']:>10.2e} "
-                          f"{err['spectrum']:>10.2e} {row['n_eff']:>7.0f}", flush=True)
+                          f"{S.fmt(block, 'spectrum', 17):>17} "
+                          f"{np.mean([r['n_eff'] for r in runs]):>7.0f}  "
+                          f"{_delta(block):>18}  {block['verdict']}", flush=True)
     RESULTS.mkdir(exist_ok=True)
     with open(RESULTS / "exp5_cell_aware.json", "w") as handle:
         json.dump(out, handle, indent=2)
     print(f"\nwrote results/exp5_cell_aware.json ({len(out)} rows)")
+
+
+def _delta(block) -> str:
+    """The paired spectrum difference vs the current allocation, or a marker for the control."""
+    entry = block.get("delta", {}).get("spectrum")
+    if not entry or not np.isfinite(entry["sem"]):
+        return "(control)"
+    return f"{entry['mean']:+.2e}±{entry['sem']:.0e}"
 
 
 if __name__ == "__main__":
