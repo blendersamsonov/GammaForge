@@ -876,9 +876,19 @@ def test_xigma_stage_zero_consumes_adaptive_weights_particle_by_particle():
     from gammaforge.engines.xigma.stages import integrate_trajectories
 
     beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    # An explicit, deliberately non-uniform config rather than DEFAULT_PILOT_CONFIG. This test
+    # needs a weight vector with real spread to perturb; taking whatever spread the default
+    # happens to produce couples a physics test to a numerical default, and that coupling is
+    # not hypothetical -- when 970e0f9 corrected the allocation the default's spread fell from
+    # 4.8 to 1.39 and this test started failing, having previously passed *because of* the bug
+    # it was written to exist independently of. Pure luminosity allocation gives ~2.4-2.8
+    # across seeds, so the margin is real rather than marginal.
+    config = PilotConfig(luminosity_fraction=1.0)
+    plan = build_adaptive_plan(beam, laser, seed=3, config=config)
     interaction = build_interaction(
         beam, laser, scenarios.BASELINE.target,
         SamplingSpec(n_particles=8_000, seed=3, prefilter=1e-3, strategy=ADAPTIVE),
+        plan=plan,
     )
     bunch = interaction.bunch
     # Non-uniform to begin with, or there is nothing to perturb coherently.
