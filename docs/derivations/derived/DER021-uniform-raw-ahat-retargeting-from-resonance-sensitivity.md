@@ -1,4 +1,4 @@
-# DER021 — Uniform raw-ahat retargeting from resonance sensitivity
+# DER021 — Uniform raw-`ahat` retargeting from resonance sensitivity
 
 Status: derived
 
