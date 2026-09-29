@@ -1,70 +1,114 @@
 #!/usr/bin/env bash
-# Run a command with the right interpreter and the right GammaForge, without relying on
-# `source activate` having worked.
+# Run a command with a working interpreter and the right GammaForge.
 #
-# Why this exists: the venv is created with `python3 -> /usr/bin/python3`, so if the checkout
-# is copied to a machine whose Python lives elsewhere, `.venv/bin/python` becomes a
-# dangling symlink. `which python` then silently reports the *system* interpreter, and
-# `source .venv/bin/activate` appears to succeed while changing nothing usable. Meanwhile
-# the venv's editable install points at whichever checkout it was created from, so a run can
-# import the wrong GammaForge and produce numbers that look fine.
+# Two silent-failure modes make a bare `python` run produce plausible numbers from the wrong
+# code, and this script exists to close both:
 #
-# Usage:  ./python.sh run_all.py --quick
-#         ./python.sh summarize.py
-#         ./python.sh -c "import gammaforge; print(gammaforge.__file__)"
+# 1. A venv is created with `python3 -> /usr/bin/python3`. Copied to a machine whose Python
+#    lives elsewhere, `.venv/bin/python` is a *dangling* symlink — non-executable, so `which
+#    python` keeps reporting the system interpreter and `source activate` appears to succeed
+#    while changing nothing usable.
+# 2. The venv's editable install points at whichever checkout it was created from, and
+#    `PYTHONPATH` loses to it unless set. A run then measures a *different* GammaForge.
+#
+# So rather than guess a venv path, this **tests candidates for the capability it needs**
+# (a Python that can import the project's dependencies) and forces this checkout's `src`
+# onto `PYTHONPATH` on top. Selecting by capability is what makes it work across a real
+# worktree, a bundle clone sitting next to the real repo, and a machine where the venv was
+# never created at all.
+#
+# Usage:
+#   ./python.sh preflight.py              # verify tree + code freshness
+#   ./python.sh run_all.py --quick
+#   ./python.sh summarize.py
+#   ./python.sh --show-env                # report what was selected, then exit
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
 
-# Locate a venv. A git worktree has no `.venv` of its own -- the real one lives in the main
-# checkout, whose path is recoverable from the worktree's git common dir. So: this checkout
-# first, then the main checkout, then whatever GAMMAFORGE_VENV names.
-venv=""
-for candidate in "$repo/.venv" "$(cd "$repo" 2>/dev/null && git rev-parse --git-common-dir 2>/dev/null | xargs -r dirname)/.venv"; do
-    [[ -n "$candidate" && -d "$candidate" ]] && { venv="$candidate"; break; }
-done
-[[ -z "$venv" ]] && venv="${GAMMAFORGE_VENV:-$repo/.venv}"
+# Print a candidate only if the directory looks like a venv.
+looks_like_venv() { [[ -f "$1/pyvenv.cfg" ]]; }
 
-# Pick an interpreter: the venv's if it actually executes, else the venv's python3, else
-# whatever python3 is on PATH (and say so, loudly).
-interpreter=""
-for candidate in "$venv/bin/python" "$venv/bin/python3" python3 python; do
-    if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c "pass" >/dev/null 2>&1; then
-        interpreter="$candidate"
-        break
-    fi
-done
-if [[ -z "$interpreter" ]]; then
-    echo "no usable python3 found; set GAMMAFORGE_VENV or put python3 on PATH" >&2
-    exit 1
+candidates=()
+[[ -n "${GAMMAFORGE_VENV:-}" ]] && candidates+=("$GAMMAFORGE_VENV")
+candidates+=("$repo/.venv")
+
+# The main checkout, when this is a real worktree of it.
+common="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+if [[ -n "$common" ]]; then
+    candidates+=("$(dirname "$common")/.venv")
 fi
-if [[ "$interpreter" != "$venv/bin/python" ]]; then
-    echo "note: '$venv/bin/python' is not usable; falling back to $interpreter" >&2
-    if [[ ! -d "$venv" ]]; then
-        cat >&2 <<EOF
-      No venv found at '$venv'. Either create one, or point at an existing one:
 
-        export GAMMAFORGE_VENV=/path/to/venv
-        # or:  python3 -m venv '$venv' && '$venv/bin/pip' install -e '$repo'
-        # or:  pip install -e '$repo'   (into whatever python3 you are using)
-EOF
-    elif [[ ! -x "$venv/bin/python" ]]; then
-        cat >&2 <<EOF
-      That venv was almost certainly created on a different machine: its bin/python is a
-      symlink to an interpreter that does not exist here, so 'which python' keeps reporting
-      the system one. Either
+# Sibling checkouts: a bundle clone or a worktree is usually a sibling of the main repo, and
+# that is where its venv will be. This is the case the git lookup above cannot see, because
+# a bundle clone is its own repository rather than a worktree of anything.
+for sibling in "$repo"/../*/.venv; do
+    [[ -e "$sibling" ]] && candidates+=("$sibling")
+done
+# And a few levels up, for a venv kept at a project root above the checkout.
+probe="$repo"
+for _ in 1 2 3; do
+    probe="$(dirname "$probe")"
+    candidates+=("$probe/.venv")
+done
 
-        (a) point at a working venv:      export GAMMAFORGE_VENV=/path/to/venv
-        (b) rebuild this one:            rm -rf '$venv' && python3 -m venv '$venv' \\
-                                           && '$venv/bin/pip' install -e '$repo'
-        (c) just use a python that has the deps:
-                                            pip install -e '$repo'
+interpreter=""
+chosen_venv=""
+for venv in "${candidates[@]}"; do
+    looks_like_venv "$venv" || continue
+    for exe in "$venv/bin/python" "$venv/bin/python3"; do
+        # The test that matters: can this interpreter import the project's dependencies?
+        if [[ -x "$exe" ]] && "$exe" -c "import pint, numpy" >/dev/null 2>&1; then
+            interpreter="$exe"
+            chosen_venv="$venv"
+            break 2
+        fi
+    done
+done
+
+# Nothing usable among the venvs: fall back to a python3 on PATH that has the deps.
+if [[ -z "$interpreter" ]]; then
+    for exe in python3 python; do
+        if command -v "$exe" >/dev/null 2>&1 \
+           && "$exe" -c "import pint, numpy" >/dev/null 2>&1; then
+            interpreter="$exe"
+            chosen_venv="(none: using $exe from PATH)"
+            break
+        fi
+    done
+fi
+
+if [[ -z "$interpreter" ]]; then
+    cat >&2 <<EOF
+No Python with the project's dependencies was found.
+
+Looked for a venv at:
+$(printf '  %s\n' "${candidates[@]}" | sort -u)
+and for a python3/python on PATH able to 'import pint, numpy'.
+
+Either point at a working one:
+    export GAMMAFORGE_VENV=/path/to/venv
+or create one from this checkout:
+    python3 -m venv <venv> && <venv>/bin/pip install -e '$repo'
+or install into whichever python3 you already use:
+    pip install -e '$repo'
+
+Then re-run ./python.sh preflight.py
 EOF
-    fi
+    exit 1
 fi
 
 # Force this checkout's source ahead of whatever the editable install points at.
 export PYTHONPATH="$repo/src${PYTHONPATH:+:$PYTHONPATH}"
 cd "$here"
+
+if [[ "${1:-}" == "--show-env" ]]; then
+    echo "interpreter : $interpreter"
+    echo "venv        : $chosen_venv"
+    echo "PYTHONPATH  : $PYTHONPATH"
+    "$interpreter" -c "import gammaforge, sys; print('gammaforge  :', gammaforge.__file__)"
+    exit 0
+fi
+
 exec "$interpreter" "$@"

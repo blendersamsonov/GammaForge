@@ -17,9 +17,17 @@ produce plausible numbers from the wrong code:
 2. The venv's editable install points at whichever checkout it was created from, and
    `PYTHONPATH` loses to it unless set. A run then measures a *different* GammaForge.
 
-`python.sh` picks a working interpreter (this checkout's venv, else the main checkout's —
-a git worktree has none of its own — else a `python3` with the deps), forces
-`PYTHONPATH=$repo/src`, and says loudly when it had to fall back.
+`python.sh` selects an interpreter **by capability, not by path**: it collects candidate
+venvs (this checkout, the main checkout via `git rev-parse --git-common-dir`, any
+*neighbouring* checkout, and a few levels up), keeps the first whose interpreter can
+`import pint, numpy`, and falls back to a `python3` on `PATH` that can. It then forces
+`PYTHONPATH=$repo/src` on top.
+
+The capability test is what makes it work in the three layouts that actually occur: a real
+worktree (venv in the main checkout), a **bundle clone sitting next to the main repo** (the
+git lookup points at the clone itself and cannot see the sibling venv — this is the case
+that bit), and a machine where the venv was never created. `./python.sh --show-env` prints
+what it selected and why.
 
 ```bash
 cd <repo>/experiments/adaptive
