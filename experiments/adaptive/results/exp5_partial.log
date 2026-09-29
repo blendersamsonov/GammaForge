@@ -1,0 +1,38 @@
+
+=== baseline ===
+  floor: yield 1.3e-04 | marg worst 1.7e-02 mean 5.7e-03 | spectrum 3.1e-03
+  [s1.41-lam0.75] allocation comparison (4s)
+    share spread: current 4.79 | cell-aware(pilot) 10.16 | cell-aware(oracle) 8.96
+    cells/region: pilot mean 7.6 | oracle mean 62.5 (of 1572864 cells)
+    corr(cell-aware_pilot, P_m sqrt(M2)) = 0.998
+                   variant       N      yield  marg_worst  marg_mean   spectrum   N_eff
+      current (P sqrt(M2))   20000   1.95e-04    7.44e-02   1.99e-02   1.18e-02   19800
+      current (P sqrt(M2))   40000   3.47e-04    5.19e-02   1.32e-02   8.29e-03   39580
+          cell-aware pilot   20000   4.51e-06    7.48e-02   1.93e-02   1.28e-02   18776
+          cell-aware pilot   40000   2.13e-04    5.11e-02   1.27e-02   7.79e-03   37447
+         cell-aware oracle   20000   3.23e-04    7.57e-02   1.97e-02   1.25e-02   18546
+         cell-aware oracle   40000   2.02e-04    5.09e-02   1.27e-02   7.56e-03   36968
+  [s1] allocation comparison (5s)
+    share spread: current 1.00 | cell-aware(pilot) 2.19 | cell-aware(oracle) 2.01
+    cells/region: pilot mean 7.2 | oracle mean 62.7 (of 1572864 cells)
+    corr(cell-aware_pilot, P_m sqrt(M2)) = 0.987
+                   variant       N      yield  marg_worst  marg_mean   spectrum   N_eff
+      current (P sqrt(M2))   20000   4.04e-04    7.36e-02   1.93e-02   1.14e-02   20000
+      current (P sqrt(M2))   40000   3.91e-04    5.64e-02   1.33e-02   7.26e-03   40000
+          cell-aware pilot   20000   1.64e-04    7.36e-02   1.90e-02   1.17e-02   19141
+          cell-aware pilot   40000   2.15e-04    5.52e-02   1.33e-02   7.55e-03   38261
+         cell-aware oracle   20000   2.44e-04    7.54e-02   1.89e-02   1.16e-02   18946
+         cell-aware oracle   40000   2.72e-04    5.46e-02   1.31e-02   7.08e-03   37863
+
+=== focus_3um ===
+  floor: yield 3.8e-04 | marg worst 2.2e-02 mean 7.0e-03 | spectrum 3.9e-03
+  [s1.41-lam0.75] allocation comparison (3s)
+    share spread: current 8.56 | cell-aware(pilot) 26.08 | cell-aware(oracle) 19.00
+    cells/region: pilot mean 7.5 | oracle mean 54.0 (of 1572864 cells)
+    corr(cell-aware_pilot, P_m sqrt(M2)) = 0.998
+                   variant       N      yield  marg_worst  marg_mean   spectrum   N_eff
+      current (P sqrt(M2))   20000   4.18e-04    8.38e-02   2.14e-02   2.30e-02   17852
+      current (P sqrt(M2))   40000   7.84e-04    5.93e-02   1.54e-02   1.31e-02   35609
+          cell-aware pilot   20000   7.84e-04    8.00e-02   2.09e-02   2.01e-02   14151
+          cell-aware pilot   40000   5.86e-04    5.59e-02   1.52e-02   1.16e-02   28035
+         cell-aware oracle   20000   4.10e-04    7.91e-02   2.14e-02   1.94e-02   14213

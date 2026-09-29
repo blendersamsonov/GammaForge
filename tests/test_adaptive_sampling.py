@@ -1336,3 +1336,79 @@ def test_the_benchmark_reports_a_real_accuracy_versus_cost_table():
         assert module.main() == 0
     finally:
         sys.argv = saved
+
+
+def test_luminosity_fraction_actually_changes_the_allocation():
+    """`Q_m` must respond to `luminosity_fraction`, and the pilot moments must be real.
+
+    A regression for a shipped bug: `build_adaptive_plan` constructed every `SamplingRegion`
+    with a *placeholder* zero second moment and tracked the real pilot statistics in a
+    separate dict that was only ever read for the split priority. `_allocation_shares` reads
+    `pilot_second_moment` off the regions, so the importance score `P_m sqrt(M2_m)` was
+    identically zero, its `total <= 0` fallback fired, and `Q_m` collapsed to `B_m` — for
+    **every** `luminosity_fraction`. Only the region *splitting* was ever luminosity-driven.
+
+    The symptom was subtle enough to be worth pinning: the scheme still produced exactly
+    correct weights and still beat IID on the yield (that came from stratification and the
+    luminosity-driven split), so every invariant and the headline test passed while the
+    documented allocation was inert. `lambda` having no effect is the assertion that fails
+    first.
+    """
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    allocations, second_moments = [], []
+    for value in (0.0, 0.5, 1.0):
+        config = PilotConfig(
+            initial_regions=32, max_regions=32, pilot_points_per_region=6,
+            pilot_quad_nodes=64, pilot_quad_panels=2, luminosity_fraction=value,
+        )
+        plan = build_adaptive_plan(beam, laser, seed=3, config=config)
+        share = np.array([r.allocation_probability for r in plan.regions])
+        allocations.append(share / share.min())
+        second_moments.append(np.array([r.pilot_second_moment for r in plan.regions]))
+        assert share.sum() == pytest.approx(1.0, rel=1e-12)
+        # The regions must carry their own pilot statistics, not a placeholder.
+        assert np.all(second_moments[-1] > 0.0), "pilot second moments are still zero"
+        assert np.any(np.array([r.pilot_mean for r in plan.regions]) > 0.0)
+
+    # Monotone, and strictly ordered: lambda=0 is the pure B_m (uniform-over-volume) limit.
+    assert np.allclose(allocations[0], 1.0), "lambda=0 must allocate purely by B_m"
+    assert allocations[1].max() > allocations[0].max()
+    assert allocations[2].max() > allocations[1].max()
+    # The shape is preserved as lambda grows: a larger weight on the same importance score
+    # rescales the allocation, it does not re-rank it. (Only compared between the two
+    # non-degenerate cases -- lambda=0 is exactly uniform, so its correlation is undefined.)
+    assert np.corrcoef(allocations[1], allocations[2])[0, 1] > 0.9, (
+        "the allocation's shape changed with lambda, not just its spread"
+    )
+
+
+def test_allocation_is_driven_by_luminosity_not_only_volume():
+    """The allocation must track luminosity, which volume-proportional allocation cannot do.
+
+    Compares the realized allocation against the pilot's own second moments. On a
+    localized interaction the two differ visibly; if the allocation were still `B_m` — the
+    inert state this guards — it could not follow the luminosity at all.
+
+    The measured spreads are modest, and that is a property of the scheme rather than a
+    weak premise: a 6D Gaussian's region-to-region luminosity ratio grows only slowly even
+    for a tight focus, because a region's *volume* varies over the same range and
+    `A_m = P_m sqrt(M2_m)` mixes the two. Measured second-moment spreads on the baseline
+    scenario are ~1.4x, rising to ~20x for a 1.5 um spot. `luminosity_fraction` is therefore
+    a gentle knob by construction, not a mis-tuned one.
+    """
+    laser = replace(scenarios.BASELINE.laser, sigma_x=Q(1.5, "um"), sigma_y=Q(1.5, "um"))
+    beam = scenarios.BASELINE.beam
+    config = PilotConfig(
+        initial_regions=64, max_regions=64, pilot_points_per_region=16,
+        pilot_quad_nodes=128, pilot_quad_panels=2, luminosity_fraction=1.0,
+    )
+    plan = build_adaptive_plan(beam, laser, seed=3, config=config)
+    share = np.array([r.allocation_probability for r in plan.regions])
+    second = np.array([r.pilot_second_moment for r in plan.regions])
+
+    # A tight focus makes the luminosity vary by more than an order of magnitude, so the
+    # importance score and the volume cannot be proportional.
+    assert second.max() / second.min() > 10.0, "test premise: luminosity must vary"
+    assert share.max() / share.min() > 2.0
+    # And the brightest region really is allocated the most.
+    assert int(np.argmax(share)) == int(np.argmax(second))
