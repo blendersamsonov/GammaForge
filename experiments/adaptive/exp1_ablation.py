@@ -14,9 +14,11 @@ import time
 import numpy as np
 
 import harness as H
+import stats as S
 from gammaforge.io.interaction import IID
 from gammaforge.validation import scenarios
 
+CONTROL = "strat-s1-lam0"
 BUDGETS = (10_000, 20_000, 40_000)
 SEEDS = (3, 11)
 REF_N = 800_000
@@ -25,11 +27,17 @@ RESULTS = pathlib.Path(__file__).resolve().parent / "results"
 
 
 def main():
-    global BUDGETS, SEEDS, REF_N, REF_SEEDS
+    global BUDGETS, SEEDS, REF_N, REF_SEEDS, CONTROL
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--quick", action="store_true")
     parser.add_argument("--ref-n", type=int, default=REF_N)
     parser.add_argument("--ref-seeds", type=int, default=3)
+    parser.add_argument("--replicates", type=int, default=8,
+                        help="independent seeds per arm; the paired spread against the control "
+                             "is what decides whether an arm differs")
+    parser.add_argument("--control", default=CONTROL,
+                        help="arm every other arm is compared against, seed by seed. Default is "
+                             "plain QMC s=1 (no allocation), which isolates the allocation")
     parser.add_argument("--budgets", type=int, nargs="*", default=None)
     args = parser.parse_args()
 
@@ -37,12 +45,15 @@ def main():
     preflight.check()
     REF_N = args.ref_n
     REF_SEEDS = tuple(3 + 8 * i for i in range(args.ref_seeds))
-    SEEDS = REF_SEEDS[:2] if len(REF_SEEDS) >= 2 else REF_SEEDS
+    SEEDS = H.arm_seeds(args.replicates)
+    CONTROL = CONTROL
     if args.budgets:
         BUDGETS = tuple(args.budgets)
     if args.quick:
         BUDGETS = (5_000, 10_000)
-        SEEDS = (3,)
+        # --quick shrinks the budgets and the reference, but keeps the requested
+        # replicate count: a smoke test that skips the pairing cannot catch a broken one.
+        SEEDS = H.arm_seeds(min(args.replicates, 2))
     return _run()
 
 
@@ -87,31 +98,41 @@ def _run():
              f" {'w_spread':>9} {'N_eff':>8} {'s':>6}"
     print(header)
     print("-" * len(header))
+    by_name = {arm.name: arm for arm in unique}
+    if CONTROL not in by_name:
+        raise SystemExit(f"--control {CONTROL!r} is not an arm; choose from {sorted(by_name)}")
     results = []
-    for arm in unique:
-        for n in BUDGETS:
-            runs = [
-                H.run(arm, beam, laser, target, n, seed, edges, grid=grid)
-                for seed in SEEDS
-            ]
-            merged = {
-                "yield": float(np.mean([r["yield"] for r in runs])),
-                "H": np.mean([r["H"] for r in runs], axis=0),
-                "spectrum": np.mean([r["spectrum"] for r in runs], axis=0),
-                "centroid": float(np.mean([r["centroid"] for r in runs])),
-            }
-            err = H.errors(merged, ref)
-            row = {
+    for n in BUDGETS:
+        # All arms at this budget first, so each can be paired seed-by-seed against the control.
+        per_arm = {
+            arm.name: [H.run(arm, beam, laser, target, n, seed, edges, grid=grid)
+                       for seed in SEEDS]
+            for arm in unique
+        }
+        control_runs = per_arm[CONTROL]
+        for arm in unique:
+            runs = per_arm[arm.name]
+            is_control = arm.name == CONTROL
+            err = H.errors(H.merge(runs), ref)
+            block = S.replicate_block(
+                runs, ref, None if is_control else control_runs,
+                control_name=CONTROL, label=arm.name,
+            )
+            results.append({
                 "variant": arm.name, "n": n, "note": arm.note,
+                "is_control": is_control,
                 "weight_spread": float(np.mean([r["weight_spread"] for r in runs])),
                 "n_eff": float(np.mean([r["n_eff"] for r in runs])),
                 "seconds": float(np.mean([r["seconds"] for r in runs])),
+                "replicates": block,
                 **err,
-            }
-            results.append(row)
+            })
             print(
                 f"{arm.name:>17} {n:>7} " + " ".join(f"{err[c]:>11.2e}" for c in columns)
-                + f" {row['weight_spread']:>9.2f} {row['n_eff']:>8.0f} {row['seconds']:>6.1f}",
+                + f" {np.mean([r['weight_spread'] for r in runs]):>9.2f}"
+                + f" {np.mean([r['n_eff'] for r in runs]):>8.0f}"
+                + f" {np.mean([r['seconds'] for r in runs]):>6.1f}"
+                + f"  {S.fmt(block, 'spectrum', 17):>17}  {_delta(block)}",
                 flush=True,
             )
         print(flush=True)
@@ -120,11 +141,20 @@ def _run():
     with open(RESULTS / "exp1_ablation.json", "w") as handle:
         json.dump(
             {"reference": {k: v for k, v in ref.items() if k not in ("H", "spectrum")},
-             "bins": H.REDUCED_BINS, "budgets": BUDGETS, "seeds": SEEDS,
+             "bins": H.REDUCED_BINS, "budgets": list(BUDGETS), "seeds": list(SEEDS),
+             "control": CONTROL, "reference_n": ref["n_particles"],
              "results": results},
             handle, indent=2,
         )
     print("wrote results/exp1_ablation.json")
+
+
+def _delta(block) -> str:
+    """The paired spectrum difference vs the control, formatted, or a marker for the control."""
+    entry = block.get("delta", {}).get("spectrum")
+    if not entry or not np.isfinite(entry["sem"]):
+        return "(control)"
+    return f"{entry['mean']:+.2e}±{entry['sem']:.0e}  {block['verdict']}"
 
 
 if __name__ == "__main__":

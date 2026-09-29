@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import pathlib
-from collections import defaultdict
 
 RESULTS = pathlib.Path(__file__).resolve().parent / "results"
 
@@ -35,6 +35,31 @@ SHORT = {
 }
 
 
+def repl(row, key):
+    """``mean±sem`` from a row's replicate block, falling back to the bare point estimate.
+
+    Older result files predate the replicate block, so the fallback keeps them readable --
+    with no error bar, which the header says out loud.
+    """
+    block = row.get("replicates") or {}
+    entry = block.get(key)
+    if not entry or not math.isfinite(entry.get("sem", float("nan"))):
+        value = row.get(key, float("nan"))
+        return f"{value:>10.2e}", True
+    return f"{entry['mean']:>7.2e}±{entry['sem']:.0e}", False
+
+
+def delta(row):
+    """The paired difference vs the control, and its verdict."""
+    block = row.get("replicates") or {}
+    if row.get("is_control"):
+        return f"{'(control)':>18}", "control"
+    entry = (block.get("delta") or {}).get("spectrum")
+    if not entry or not math.isfinite(entry.get("sem", float("nan"))):
+        return f"{'(no replicates)':>18}", "not measured"
+    return f"{entry['mean']:>+9.2e}±{entry['sem']:.0e}", block.get("verdict", "?")
+
+
 def load(name: str):
     path = RESULTS / name
     if not path.exists():
@@ -49,20 +74,30 @@ def show_ablation():
         print("exp1: no results yet")
         return
     ref = data["reference"]
+    ref_n = data.get("reference_n") or ref.get("n_particles")
+    ref_seeds = len(ref.get("seeds") or []) or data.get("ref_seeds")
+    reps = (data["results"][0].get("replicates") or {}).get("replicates") if data["results"] else 0
     print("== EXP1: ablation / lambda / proposal-scale (baseline, reduced bins, nearest) ==")
-    print(f"   reference: {data['reference_n'] if 'reference_n' in data else '?'} particles, "
-          f"floor yield {ref['yield_spread']:.1e} | marg_worst "
+    print(f"   reference: {ref_n or 'unknown'} particles x {ref_seeds or 'unknown'} seeds"
+          f"   floor yield {ref['yield_spread']:.1e} | marg_worst "
           f"{ref['marg_worst_spread']:.1e} | spectrum {ref['spectrum_spread']:.1e}")
-    print("   (errors at or below the floor are measuring the reference)\n")
+    print(f"   control: {data.get('control', '?')!r}   replicates: {reps or 'none (old file)'}")
+    if not reps:
+        print("   NOTE: this file has no replicates, so the errors are bare point estimates")
+    print("   the floor bounds the REFERENCE, not an arm; arm-vs-arm differences are decided by")
+    print("   the paired Δ column, not by whether an error exceeds the floor\n")
     header = (f"{'arm':>16} {'N':>7} {'yield':>10} {'marg_worst':>11} {'marg_mean':>10} "
-              f"{'spectrum':>10} {'centroid':>10} {'w_spread':>9} {'N_eff':>7}")
+              f"{'spectrum':>14} {'w_spread':>9} {'N_eff':>7} {'Δ spectrum':>18}  verdict")
     print(header)
     print("-" * len(header))
     for row in data["results"]:
+        spectrum, _ = repl(row, "spectrum")
+        d, verdict = delta(row)
         print(f"{SHORT.get(row['variant'], row['variant']):>16} {row['n']:>7} "
               f"{row['yield']:>10.2e} {row['marg_worst']:>11.2e} {row['marg_mean']:>10.2e} "
-              f"{row['spectrum']:>10.2e} {row['centroid']:>10.2e} "
-              f"{row.get('weight_spread', float('nan')):>9.2f} {row.get('n_eff', 0):>7.0f}")
+              f"{spectrum:>14} "
+              f"{row.get('weight_spread', float('nan')):>9.2f} {row.get('n_eff', 0):>7.0f} "
+              f"{d:>18}  {verdict}")
     print()
 
 
@@ -83,18 +118,25 @@ def show_scenarios(only=None):
         subset = [r for r in rows if r["scenario"] == scenario]
         floor = subset[0]
         budgets = sorted({r["n"] for r in subset})
-        print(f"\n-- {scenario}  (floor: marg_worst {floor.get('floor_marg_worst', float('nan')):.1e}"
-              f" | spectrum {floor.get('floor_spectrum', float('nan')):.1e})")
+        reps = (subset[0].get("replicates") or {}).get("replicates")
+        print(f"\n-- {scenario}  (reference {floor.get('reference_n', '?')} particles; "
+              f"floor marg_worst {floor.get('floor_marg_worst', float('nan')):.1e}"
+              f" | spectrum {floor.get('floor_spectrum', float('nan')):.1e}"
+              f"{f'; {reps} replicates' if reps else '; no replicates'})")
         header = (f"{'arm':>16} {'N':>7} {'yield':>10} {'marg_worst':>11} "
-                  f"{'marg_mean':>10} {'spectrum':>10} {'N_eff':>7}")
+                  f"{'marg_mean':>10} {'spectrum':>14} {'N_eff':>7} {'Δ spectrum':>18}  verdict")
         print(header)
         print("-" * len(header))
         for n in budgets:
             for row in [r for r in subset if r["n"] == n]:
+                spectrum, _ = repl(row, "spectrum")
+                d, verdict = delta(row)
+                n_eff = (row.get("replicates") or {}).get("n_eff", {}).get(
+                    "mean", row.get("n_eff", 0.0))
                 print(f"{SHORT.get(row['variant'], row['variant']):>16} {row['n']:>7} "
                       f"{row['yield']:>10.2e} {row['marg_worst']:>11.2e} "
-                      f"{row['marg_mean']:>10.2e} {row['spectrum']:>10.2e} "
-                      f"{row.get('n_eff', 0):>7.0f}")
+                      f"{row['marg_mean']:>10.2e} {spectrum:>14} {n_eff:>7.0f} "
+                      f"{d:>18}  {verdict}")
     print()
 
 
@@ -107,16 +149,22 @@ def show_cell_aware():
     for scenario in sorted({r["scenario"] for r in rows}):
         subset = [r for r in rows if r["scenario"] == scenario]
         floor = subset[0]
-        print(f"\n-- {scenario}  (floor: marg_worst {floor.get('floor_marg_worst', float('nan')):.1e}"
-              f" | spectrum {floor.get('floor_spectrum', float('nan')):.1e})")
+        reps = (subset[0].get("replicates") or {}).get("replicates")
+        print(f"\n-- {scenario}  (reference {floor.get('reference_n', '?')} particles; "
+              f"floor marg_worst {floor.get('floor_marg_worst', float('nan')):.1e}"
+              f" | spectrum {floor.get('floor_spectrum', float('nan')):.1e}"
+              f"{f'; {reps} replicates' if reps else '; no replicates'})")
         header = (f"{'plan':>16} {'allocation':>20} {'N':>7} {'yield':>10} "
-                  f"{'marg_worst':>11} {'marg_mean':>10} {'spectrum':>10} {'N_eff':>7}")
+                  f"{'marg_worst':>11} {'marg_mean':>10} {'spectrum':>14} {'N_eff':>7} "
+                  f"{'Δ spectrum':>18}  verdict")
         print(header)
         print("-" * len(header))
         for row in subset:
+            spectrum, _ = repl(row, "spectrum")
+            d, verdict = delta(row)
             print(f"{row['plan']:>16} {row['variant']:>20} {row['n']:>7} {row['yield']:>10.2e} "
                   f"{row['marg_worst']:>11.2e} {row['marg_mean']:>10.2e} "
-                  f"{row['spectrum']:>10.2e} {row.get('n_eff', 0):>7.0f}")
+                  f"{spectrum:>14} {row.get('n_eff', 0):>7.0f} {d:>18}  {verdict}")
     print()
 
 
