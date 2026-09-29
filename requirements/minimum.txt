@@ -1,4 +1,4 @@
-# Lower-bound combination exercised by CI on Python 3.12.
+# Lower-bound combination for local checks on Python 3.12.
 numpy==2.0.0
 pint==0.25
 h5py==3.11.0

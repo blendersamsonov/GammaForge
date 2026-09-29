@@ -43,3 +43,6 @@ The minimum environment is a tested combination, not a guarantee for every futur
 dependency release. Reference comparisons and recorded calculation settings remain
 necessary when changing environments. GUI and symbolic tests skip only when their
 optional dependency is absent, not when an installed dependency is broken.
+
+The GitHub CI workflow was removed on 2026-09-29. The dependency-floor check is now
+run locally using `requirements/minimum.txt` and `make check`.

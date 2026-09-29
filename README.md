@@ -77,8 +77,8 @@ changes in a clean virtual environment with:
 .venv/bin/python -m pip freeze --exclude-editable > requirements/developer.lock
 ```
 
-CI separately exercises the declared lower bounds on Python 3.12 and the current
-dependency ranges on Python 3.14.
+To check the declared lower bounds, install `requirements/minimum.txt` in a clean
+Python 3.12 environment and run `make check`.
 
 ## Local browser workspace
 
