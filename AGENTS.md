@@ -10,36 +10,89 @@ that origin as design provenance.
 
 Note: `CLAUDE.md` is a symlink to this file. Edit the real file, not the symlink.
 
-**The authoritative documents, in the order to read them:**
+**Repository:** `blendersamsonov/GammaForge`  
+**Primary branch:** `main`
 
-1. **`docs/GRAND_PLAN.md`** — the architecture and phase plan. Versioned (`vX.Y`), with
-   its own changelog of *design* decisions. If something here conflicts with the plan,
-   the plan wins; update the plan first, then code.
-2. **`PROGRESS.md`** — **current state and open threads only**, deliberately short. It is
-   not a session log: `git log` is, and it does not go stale. Read it for what works right
-   now and what is unfinished or waiting on the author.
-3. **`docs/decisions/INDEX.md`** — start here for implementation-level decisions, in
-   the plan's own documentation-discipline spirit (goal #8). One file per decision, under
-   `docs/decisions/{lifecycle}/{class}/`; `docs/decisions/README.md` has the full
-   lifecycle (`proposed`/`implemented`/`rejected`/`archived`) and classification system,
-   the header format, and a load-bearing convention (backticks = resolves right now;
-   *italics* = a hypothetical/rejected/future name) that `tests/test_doc_staleness.py`
-   enforces on every `proposed`/`implemented`/`rejected` entry, plus a structural format
-   check in `tests/test_decision_format.py`.
-   **Ids are an addressing scheme** — ~124 code comments cite `RESNNN` bare (not a path), so
-   entries are never renumbered and never deleted, only archived.
-4. **`docs/derivations/INDEX.md`** — the long-form physics derivations that back specific
-   code, one file per result under `docs/derivations/{status}/DERNNN-*.md`. Unlike a
-   decision, a derivation's status is a **confidence pipeline**, not a build lifecycle:
-   `derived` (worked out, not yet reviewed) → `validated` (a domain expert checked the
-   algebra) → `verified` (checked against code — a test, a closed-form limit, an
-   independent method). See `docs/derivations/README.md`. Cite `DERNNN` bare from code and
-   decisions the same way as a `RESNNN` decision id.
+GitHub `main` is the durable project knowledge base. Before planning work, assigning a
+derivation id, or constructing an implementation handoff, inspect the current repository
+state rather than relying on an older checkout, chat summary, or remembered layout.
 
-The physics authority is the paper draft at `~/Work/Papers/2026/Compton-Numerics`. It
-is in flux. **If code and paper disagree, that is BLOCKING — stop and flag it, don't
-guess.** (See `GRAND_PLAN.md` §0 and P14 for the exact three-way handling of
-paper-code discrepancies vs. genuinely-absent derivations.)
+**Authority is split by artifact type; there is no single document that overrides every
+other domain:**
+
+1. **`docs/GRAND_PLAN.md`** owns the architecture and phase plan. It is versioned
+   (`vX.Y`) and carries the design-plan changelog. Within architecture and phase scope,
+   reconcile changes against the plan before coding.
+2. **`PROGRESS.md`** owns **current implementation state and open threads only**. It is
+   not a session log: Git history and GitHub issues preserve the narrative and task
+   history.
+3. **`docs/decisions/INDEX.md`** is the entry point for durable implementation/design
+   decisions (`RESNNN`). One file lives under
+   `docs/decisions/{lifecycle}/{class}/`; `docs/decisions/README.md` defines the
+   lifecycle, classification, header format, and the backticks-vs-italics convention
+   enforced by the documentation tests. IDs are permanent addressing: never renumber or
+   reuse them.
+4. **`docs/derivations/INDEX.md`** is the entry point for durable physics derivations
+   (`DERNNN`). One file lives under `docs/derivations/{status}/DERNNN-*.md`.
+   Derivation status is a confidence pipeline, not an implementation lifecycle:
+   `derived` (worked out, not yet author-reviewed) → `validated` (domain-expert
+   reviewed) → `verified` (checked against code, an independent method, a pinned
+   analytical limit, or equivalent evidence). See `docs/derivations/README.md`.
+5. **`docs/validation/`** owns durable scientific validation evidence. Tests and
+   validation records do not automatically promote a derivation; confidence-state changes
+   are separate, explicit actions.
+6. **Merged code and repository documentation** own the finished implementation. GitHub
+   issues and pull requests own work tracking and implementation history.
+
+For physics, current GammaForge derivations are the repository specification. Do not
+silently replace a `DERNNN` result with a formula from an old chat, local note, manuscript,
+or historical code. If current code conflicts with the relevant derivation, surface the
+conflict and resolve it explicitly rather than re-deriving physics inside an implementation
+task. A `derived` result remains unreviewed even if code implementing it already exists.
+
+### Derivation, issue, and handoff workflow
+
+- **New derivations:** when a derivation has been developed and the derivation workflow is
+  invoked, inspect current `main`, avoid duplicates, assign the next unused `DERNNN`,
+  create it under `docs/derivations/derived/`, update
+  `docs/derivations/INDEX.md`, run the relevant derivation-format checks, and commit the
+  documentation change to `main`. Derivation-only work does **not** authorize code,
+  implementation-test, decision, `PROGRESS.md`, or manuscript changes, and it never
+  promotes the new result beyond `Status: derived`.
+- **Implementation issues:** GitHub issues are the durable record of work that still needs
+  to happen. When a derivation implies code, diagnostic, or validation work, the issue
+  should reference the `DERNNN` and treat it as the physics specification instead of
+  asking the coding agent to rediscover the physics. Do not create an implementation issue
+  for a purely explanatory derivation or work that is already complete.
+- **Handoffs:** a handoff is temporary execution context for one implementation branch and
+  draft pull request, not permanent project knowledge. Create the implementation branch
+  from current `main`; the handoff under `docs/handoffs/` is the first substantive
+  commit; implementation follows in later commits. If an issue exists, it remains the
+  durable task record and the handoff/PR should reference it.
+- **Handoff completion:** before the implementation PR is merged, move any durable results
+  into their proper homes (code, `DERNNN`, `RESNNN`, validation evidence, documentation)
+  and delete the handoff from the branch so it does not land on `main`. The PR and commit
+  history preserve it. Do not merge merely because a handoff exists; merging requires the
+  normal explicit authorization/review for the task.
+- **Legacy handoffs on `main`:** several older files under `docs/handoffs/` predate this
+  workflow. Treat them as historical leftovers, not as precedent for keeping new completed
+  handoffs on `main`; do not clean them up as part of unrelated work.
+
+### Manuscript boundary
+
+The authoritative manuscript is the current `main` branch of the separate private
+repository `blendersamsonov/Xigma-Paper`. That repository owns LaTeX manuscript text,
+bibliography, manuscript figures/material, paper notes, and paper-only issues; it is not a
+replacement authority for GammaForge physics. When manuscript text conflicts with a current
+GammaForge derivation, use the derivation as the physics specification and update or flag
+the manuscript in `Xigma-Paper` rather than changing GammaForge physics to match stale
+paper text.
+
+Work that requires new algorithms, diagnostics, simulations, validation infrastructure, or
+new numerical evidence belongs in GammaForge (normally as a GammaForge issue). Work that is
+only manuscript writing, organization, bibliography, or presentation of already established
+results belongs in `Xigma-Paper`. If paper work depends on new GammaForge computation, keep
+the implementation/validation task here and make the paper task depend on its result.
 
 ## Rules that are easy to violate without reading the whole plan
 
