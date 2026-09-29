@@ -80,7 +80,7 @@ def test_target_yield_strictly_bounded_by_total_yield(txz_mrad: float, tyz_mrad:
     gamma0 = 2000.0
     beam = GaussianElectronBeam(
         bunch_charge=100.0 * ureg.picocoulomb,
-        kinetic_energy=gamma0 * 0.511 * ureg.megaelectronvolt,
+        kinetic_energy=gamma0 * 0.511 * ureg.MeV,
         rel_energy_spread=0.01,
         sigma_x=10.0 * ureg.micrometer,
         sigma_y=10.0 * ureg.micrometer,
