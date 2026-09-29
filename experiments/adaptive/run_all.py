@@ -75,6 +75,9 @@ def main() -> int:
                         help="skip a scenario whose results JSON already exists")
     args = parser.parse_args()
 
+    import preflight
+    preflight.check()
+
     RESULTS.mkdir(exist_ok=True)
     import harness as H  # imported here so --help works without the venv
 

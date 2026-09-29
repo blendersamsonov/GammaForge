@@ -233,6 +233,9 @@ def main():
     parser.add_argument("--budgets", type=int, nargs="*", default=None)
     args = parser.parse_args()
 
+    import preflight
+    preflight.check()
+
     beam0, laser0, target = scen.BASELINE.beam, scen.BASELINE.laser, scen.BASELINE.target
     bins = H.REDUCED_BINS
     ref_n = args.ref_n
