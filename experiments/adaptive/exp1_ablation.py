@@ -32,6 +32,9 @@ def main():
     parser.add_argument("--ref-seeds", type=int, default=3)
     parser.add_argument("--budgets", type=int, nargs="*", default=None)
     args = parser.parse_args()
+
+    import preflight
+    preflight.check()
     REF_N = args.ref_n
     REF_SEEDS = tuple(3 + 8 * i for i in range(args.ref_seeds))
     SEEDS = REF_SEEDS[:2] if len(REF_SEEDS) >= 2 else REF_SEEDS

@@ -7,8 +7,41 @@ from CLI flags, and writes JSON.
 
 ## Running
 
-The venv's editable install points at whichever checkout it was installed from, so set
-`PYTHONPATH` explicitly or the workers will measure the wrong tree (see `NOTES.md`):
+**Use `./python.sh`.** It exists because two silent-failure modes make a bare `python` run
+produce plausible numbers from the wrong code:
+
+1. The venv is created with `python3 -> /usr/bin/python3`. Copied to a machine whose Python
+   lives elsewhere, `.venv/bin/python` is a **dangling symlink** — non-executable, so
+   `which python` keeps reporting the system interpreter and `source activate` appears to
+   succeed while changing nothing usable.
+2. The venv's editable install points at whichever checkout it was created from, and
+   `PYTHONPATH` loses to it unless set. A run then measures a *different* GammaForge.
+
+`python.sh` picks a working interpreter (this checkout's venv, else the main checkout's —
+a git worktree has none of its own — else a `python3` with the deps), forces
+`PYTHONPATH=$repo/src`, and says loudly when it had to fall back.
+
+```bash
+cd <repo>/experiments/adaptive
+
+./python.sh run_all.py --quick                 # smoke test
+./python.sh run_all.py                         # full bank, parallel
+./python.sh run_all.py --skip-completed        # resume
+./python.sh run_all.py --ref-n 1500000 --ref-seeds 5
+./python.sh summarize.py                       # print the tables
+./python.sh preflight.py                       # verify tree + code freshness
+```
+
+If it reports a broken venv, either point at a good one
+(`export GAMMAFORGE_VENV=/path/to/venv`) or rebuild it.
+
+**`preflight.py` runs automatically before every experiment** and refuses to start on a
+wrong tree or on pre-`970e0f9` code. The staleness check is the non-obvious one: before that
+commit every region's pilot second moment was zero, so the allocation silently fell back to
+`B_m` and a "lambda = 0.75" experiment actually measured uniform allocation. It is worth
+keeping, because that failure looks exactly like a working run.
+
+For reference, the equivalent manual incantation:
 
 ```bash
 cd <repo>/experiments/adaptive
