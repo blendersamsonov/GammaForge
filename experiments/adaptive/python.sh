@@ -41,7 +41,15 @@ if [[ -z "$interpreter" ]]; then
 fi
 if [[ "$interpreter" != "$venv/bin/python" ]]; then
     echo "note: '$venv/bin/python' is not usable; falling back to $interpreter" >&2
-    if [[ ! -x "$venv/bin/python" ]]; then
+    if [[ ! -d "$venv" ]]; then
+        cat >&2 <<EOF
+      No venv found at '$venv'. Either create one, or point at an existing one:
+
+        export GAMMAFORGE_VENV=/path/to/venv
+        # or:  python3 -m venv '$venv' && '$venv/bin/pip' install -e '$repo'
+        # or:  pip install -e '$repo'   (into whatever python3 you are using)
+EOF
+    elif [[ ! -x "$venv/bin/python" ]]; then
         cat >&2 <<EOF
       That venv was almost certainly created on a different machine: its bin/python is a
       symlink to an interpreter that does not exist here, so 'which python' keeps reporting
