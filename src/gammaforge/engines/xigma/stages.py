@@ -1487,13 +1487,26 @@ def deposit_shape_table(
     chirp_mean = np.asarray(samples.chirp_mean)
     if len(n_bins) != 5:
         raise ValueError(f"deposit_shape_table: n_bins must have five entries, got {n_bins!r}")
-    chirp_bins = 1 if np.all(chirp_mean == chirp_mean[0]) else n_bins[4]
+    luminosity = np.asarray(samples.luminosity)
+    # Only emitting particles determine table support (RES091).
+    active = luminosity > 0.0
+    has_emission = bool(np.any(active))
+    chirp_support = chirp_mean[active] if has_emission else np.array([1.0])
+    chirp_bins = 1 if np.all(chirp_support == chirp_support[0]) else n_bins[4]
+    chirp_eval = (
+        float(np.average(chirp_support, weights=luminosity[active]))
+        if chirp_bins == 1 and has_emission else 1.0
+    )
     actual_bins = (*n_bins[:4], chirp_bins)
-    gamma_edges = _uniform_edges(samples.gamma, n_bins[0], margin)
-    theta_x_edges = _uniform_edges(samples.theta_x, n_bins[1], margin)
-    theta_y_edges = _uniform_edges(samples.theta_y, n_bins[2], margin)
-    a0_shape_edges = _uniform_edges(redshift_shape, n_bins[3], margin, floor_zero=True)
-    chirp_edges = _uniform_edges(chirp_mean, chirp_bins, margin)
+    gamma_edges = _uniform_edges(samples.gamma[active] if has_emission else samples.gamma,
+                                 n_bins[0], margin)
+    theta_x_edges = _uniform_edges(samples.theta_x[active] if has_emission else samples.theta_x,
+                                   n_bins[1], margin)
+    theta_y_edges = _uniform_edges(samples.theta_y[active] if has_emission else samples.theta_y,
+                                   n_bins[2], margin)
+    a0_shape_edges = _uniform_edges(redshift_shape[active] if has_emission else redshift_shape,
+                                    n_bins[3], margin, floor_zero=True)
+    chirp_edges = _uniform_edges(chirp_support, chirp_bins, margin)
     edges = (gamma_edges, theta_x_edges, theta_y_edges, a0_shape_edges, chirp_edges)
 
     channels_raw = [np.zeros(actual_bins, dtype=float) for _ in range(4)]
@@ -1535,7 +1548,7 @@ def deposit_shape_table(
         total_weight=float(H_raw.sum()),
         scheme=scheme,
         source_intensity_peak=samples.intensity_peak,
-        _chirp_eval_points=(np.asarray([chirp_mean[0]]) if chirp_bins == 1 else None),
+        _chirp_eval_points=(np.asarray([chirp_eval]) if chirp_bins == 1 else None),
     )
 
 
@@ -1665,6 +1678,12 @@ def retarget_ahat(
     # W[i, j]: fraction of source bin i's mass assigned to target bin j.
     W = overlap / xp.clip(src_width, 1e-300, None)[:, None]
 
+    # Prune unreachable columns before allocating the five-dimensional outputs.
+    reachable = xp.nonzero(xp.any(W > 0.0, axis=0))[0]
+    stop = int(reachable[-1]) + 1 if reachable.size else 1
+    W = W[:, :stop]
+    target_edges = target_edges[:stop + 1]
+
     # The source a0_shape axis stays uniform in this design — deposit_shape_table only
     # ever builds it via _uniform_edges — so a single scalar width is exact here, unlike
     # a scalar width is safe only because the source is uniform; it is not a general
@@ -1694,6 +1713,10 @@ def retarget_ahat(
     target_channels = [mass / target_width[None, None, None, :, None]
                        for mass in mass_targets]
     H_target, H_var_a_target, H_var_chirp_target, H_cov_target = target_channels
+    if n_bins == 1:
+        # Linear mode suppresses nonlinear fluctuation terms (RES091).
+        H_var_a_target = xp.zeros_like(H_var_a_target)
+        H_cov_target = xp.zeros_like(H_cov_target)
 
     # Truncate trailing ahat bins the rescaled source never reaches: their mass is exactly
     # zero (W's overlap is exactly zero where no source bin overlaps a target bin), so

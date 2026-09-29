@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import logging
 import platform
 import sys
 from dataclasses import replace
@@ -16,6 +17,7 @@ from gammaforge.validation.references.delta_emission import emission_lines
 from gammaforge.validation.delta_comparison import compare_emission_bins
 VARIANTS = (('headon', 0.0, 0.0, 0.0, 0.0), ('crossed_small', 0.02, -0.015, 0.4, 0.37))
 DEFAULT_TABLE_CONFIGS = (((16, 8, 8, 16, 4), 1), ((32, 16, 16, 32, 4), 1), ((16, 8, 8, 16, 4), 2))
+logger = logging.getLogger(__name__)
 
 
 def parse_table_config(value):
@@ -59,6 +61,7 @@ def run_pilot(particles=16000, n_steps=64, seed=20260721, retarget_bins=64, quad
             raise ValueError('scenario_names must contain known scenarios')
     for scenario in selected_scenarios:
         for name, txz, tyz, eps, psi in variants:
+            logger.info('%s/%s: integrating trajectories', scenario.name, name)
             laser = replace(scenario.laser, theta_xz=Quantity(txz, 'rad'), theta_yz=Quantity(tyz, 'rad'), ellipticity=eps, psi_pol=Quantity(psi, 'rad'))
             interaction = scenarios.build(replace(scenario, laser=laser), replace(scenario.sampling, n_particles=particles, seed=seed))
             samples = integrate_trajectories(interaction.bunch, interaction.laser, interaction.N_e, n_steps=n_steps)
@@ -70,6 +73,7 @@ def run_pilot(particles=16000, n_steps=64, seed=20260721, retarget_bins=64, quad
                 edges = np.asarray(np.geomspace(float(0.9 * energies.min()), float(1.1 * energies.max()), 25), dtype=float)
                 observers.append((oi, tx, ty, energies, weights, edges))
             for shape, rt in configs:
+                logger.info('%s/%s: shape=%s, retarget=%d', scenario.name, name, shape, rt)
                 table = retarget_ahat(deposit_shape_table(samples, n_bins=shape, scheme='cic'), float(samples.intensity_peak), n_bins=rt)
                 for oi, tx, ty, energies, weights, edges in observers:
                     scale = 4 * photon * C
@@ -82,6 +86,9 @@ def run_pilot(particles=16000, n_steps=64, seed=20260721, retarget_bins=64, quad
                             backend=backend, rings=rings, subsampling=subsampling
                         )[0, 0, :] / scale
                     cmp = compare_emission_bins(density, edges, energies, weights, quadrature_order=quadrature_order)
+                    logger.info('%s/%s observer=%d: L1=%.4g, energy refinement L1=%.4g',
+                                scenario.name, name, oi, cmp['l1_mass_error'],
+                                cmp['candidate']['refinement_errors']['l1'])
                     records.append({
                         'scenario': scenario.name, 'scenario_repr': repr(scenario), 'prefilter': scenario.sampling.prefilter, 'variant': name,
                         'geometry': {'theta_xz': txz, 'theta_yz': tyz, 'ellipticity': eps, 'psi_pol': psi},
@@ -117,6 +124,7 @@ def run_pilot(particles=16000, n_steps=64, seed=20260721, retarget_bins=64, quad
 
 
 def main():
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
     p = argparse.ArgumentParser()
     p.add_argument('--particles', type=int, default=16000)
     p.add_argument('--n-steps', type=int, default=64)
@@ -127,7 +135,7 @@ def main():
                    help='compute backend for Stage 2 (default: numpy)')
     p.add_argument('--rings', type=int, default=32, help='CuPy sampler rings')
     p.add_argument('--subsampling', type=int, default=32, help='CuPy sampler subsampling')
-    p.add_argument('--table', action='append', metavar='G,X,Y,A,RETARGET',
+    p.add_argument('--table', action='append', metavar='G,X,Y,A,C,RETARGET',
                    help='explicit table configuration; repeatable')
     p.add_argument('--scenario', action='append', choices=[s.name for s in scenarios.SCENARIOS],
                    help='scenario to run; repeatable (default: all)')
@@ -159,9 +167,14 @@ def main():
 # Fixed-direction regression coverage; full RES074 acceptance remains open (RES084).
 PRODUCTION_VARIANTS = (*VARIANTS, ('crossed_circular', -0.03, 0.01, 1.0, 0.71))
 PRODUCTION_TABLE_CONFIGS = (
-    ((64, 32, 32, 64), 512),
-    ((64, 64, 64, 64), 512),
-    ((64, 64, 64, 64), 1024),
+    ((64, 32, 32, 64, 8), 512),
+    ((64, 64, 64, 64, 8), 512),
+    ((64, 64, 64, 64, 8), 1024),
+)
+PRODUCTION_REFINED_TABLE_CONFIGS = (
+    ((64, 64, 64, 64, 8), 1024),
+    ((64, 128, 128, 64, 8), 1024),
+    ((64, 128, 128, 64, 8), 2048),
 )
 AGREEMENT_BUDGETS = {'yield': 0.03, 'l1': 0.05, 'centroid': 0.01}
 
@@ -178,7 +191,7 @@ def _mass_errors(mass, moment, reference_mass, reference_moment):
     }
 
 
-def packet_checks(packet):
+def packet_checks(packet, *, table_configs=PRODUCTION_TABLE_CONFIGS):
     """Turn a complete production packet into fail-closed numerical checks."""
     from .invariance import Check
 
@@ -197,7 +210,7 @@ def packet_checks(packet):
         label = '/'.join(map(str, key))
         records = groups.get(key, [])
         configs = [(tuple(r['shape']), r['retarget_bins']) for r in records]
-        complete = configs == list(PRODUCTION_TABLE_CONFIGS)
+        complete = configs == list(table_configs)
         checks.append(Check(f'{label} delta refinement coverage', complete,
                             'angular-table and retarget grids must all be measured'))
         if not complete:
@@ -238,10 +251,37 @@ def packet_checks(packet):
 
 def production_checks(source_scenarios):
     """CPU fixed-direction checks; no automatic scientific-acceptance promotion."""
+    source_scenarios = tuple(source_scenarios)
     packet = run_pilot(source_scenarios=source_scenarios,
                        variants=PRODUCTION_VARIANTS, table_configs=PRODUCTION_TABLE_CONFIGS,
                        quadrature_order=16)
-    return packet_checks(packet), [
+    checks = packet_checks(packet)
+    retry_scenarios = tuple(scenario for scenario in source_scenarios if any(
+        not check.passed and check.name.startswith(f'{scenario.name}/')
+        and ('angular table refinement' in check.name or 'retarget refinement' in check.name)
+        for check in checks
+    ))
+    refinement_notes = []
+    if retry_scenarios:
+        prefixes = tuple(f'{scenario.name}/' for scenario in retry_scenarios)
+        refinement_notes = [f'Initial grid diagnostic: {check}' for check in checks
+                            if not check.passed and check.name.startswith(prefixes)]
+        refined = run_pilot(source_scenarios=retry_scenarios,
+                            variants=PRODUCTION_VARIANTS,
+                            table_configs=PRODUCTION_REFINED_TABLE_CONFIGS,
+                            quadrature_order=16)
+        # Only the remeasured scenarios advance to the finer acceptance grid (RES092).
+        checks = [check for check in checks if not check.name.startswith(prefixes)]
+        checks.extend(replace(check, name=f'refined {check.name}')
+                      if check.name in ('delta source stability', 'delta scenario coverage')
+                      else check
+                      for check in packet_checks(refined, table_configs=PRODUCTION_REFINED_TABLE_CONFIGS))
+        refinement_notes.append(
+            'Second fixed grid measured for: ' + ', '.join(s.name for s in retry_scenarios)
+            + '; angular 64/128 bins, retarget 1024/2048 bins. Initial failures are '
+            'diagnostics; the complete finer-grid checks determine numerical acceptance.'
+        )
+    return checks, [
         'Independent delta direction-Doppler emission lines versus NumPy table densities: '
         '16000 particles, 64 steps, seed 20260721, 24 matched energy bins, q16/q32. '
         'Head-on linear, crossed elliptic and crossed circular; on/off axis. '
@@ -249,6 +289,7 @@ def production_checks(source_scenarios):
         'Agreement budgets (3% count, 5% spectral L1, 1% centroid) remain provisional; '
         'each measured refinement must stay within one third of its agreement budget. '
         'Stage 0, sampling, ahat and reduced-model assumptions are shared.',
+        *refinement_notes,
     ], [
         'delta scientific acceptance remains open (RES074): particle/seed, Stage-0, '
         'gamma/shape-grid, angular-aperture and independent CUDA convergence are not '

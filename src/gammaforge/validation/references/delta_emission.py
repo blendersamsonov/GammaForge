@@ -48,7 +48,7 @@ def emission_lines(samples: TrajectorySamples, theta_x: float, theta_y: float, *
     lum = np.asarray(samples.luminosity, dtype=np.longdouble)
     if not (gamma.ndim == tx.ndim == ty.ndim == ahat.ndim == chirp.ndim == lum.ndim == 1) or len({a.size for a in (gamma, tx, ty, ahat, chirp, lum)}) != 1:
         raise ValueError("sample fields must be same-shaped one-dimensional arrays")
-    if any(np.any(~np.isfinite(a)) for a in (gamma, tx, ty, ahat, chirp, lum)) or np.any(gamma <= 1) or np.any(ahat < 0) or np.any(chirp <= 0) or np.any(lum < 0):
+    if any(np.any(~np.isfinite(a)) for a in (gamma, tx, ty, ahat, chirp, lum)) or np.any(gamma <= 1) or np.any(ahat < 0) or np.any((chirp <= 0) & (lum > 0)) or np.any(lum < 0):
         raise ValueError("samples contain invalid gamma, ahat, chirp, luminosity, or directions")
     n = np.array([theta_x, theta_y, 1.], dtype=np.longdouble); n /= np.linalg.norm(n)
     e0_raw, e1_raw, n0 = _axes(*map(np.longdouble, (psi_pol, theta_xz, theta_yz)))

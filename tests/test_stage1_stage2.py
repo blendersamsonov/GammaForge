@@ -194,6 +194,99 @@ def test_single_nonlinear_and_chirp_bins_produce_an_effective_3d_table():
     np.testing.assert_array_equal(table.chirp_eval_points, np.array([1.0]))
 
 
+def test_single_chirp_bin_is_invariant_to_particle_order():
+    samples = _synthetic_samples(n=400)
+    samples = replace(samples, theta_x=samples.theta_x / 15,
+                      theta_y=samples.theta_y / 15)
+    chirp = np.linspace(0.8, 1.2, samples.n_particles)
+    luminosity = np.linspace(1.0, 2.0, samples.n_particles)
+    samples = replace(samples, chirp_mean=chirp, luminosity=luminosity)
+    reversed_samples = replace(
+        samples,
+        **{name: getattr(samples, name)[::-1].copy() for name in (
+            "gamma", "theta_x", "theta_y", "a0_shape", "luminosity",
+            "chirp_mean", "var_a_shape", "var_chirp", "cov_a_chirp_shape",
+        )},
+    )
+    first, second = (
+        _table(item, shape_bins=(8, 8, 8, 2, 1), n_bins=1)
+        for item in (samples, reversed_samples)
+    )
+    expected = np.average(chirp, weights=luminosity)
+    assert first.chirp_eval_points[0] == pytest.approx(expected)
+    assert second.chirp_eval_points[0] == pytest.approx(expected)
+    np.testing.assert_allclose(first.H, second.H, rtol=1e-14, atol=1e-14)
+    energy = np.linspace(1e6, 6e6, 32)
+    assert np.any(spectrum_from_table(first, 0.0, 0.0, energy) > 0)
+    np.testing.assert_allclose(
+        spectrum_from_table(first, 0.0, 0.0, energy),
+        spectrum_from_table(second, 0.0, 0.0, energy),
+        rtol=1e-13,
+    )
+
+
+def test_zero_weight_particles_do_not_change_table_or_spectrum():
+    samples = _synthetic_samples(n=100)
+    dark = replace(samples, **{
+        name: np.append(getattr(samples, name), value)
+        for name, value in (
+            ("gamma", 10_000.0), ("theta_x", 0.1), ("theta_y", 0.1),
+            ("a0_shape", 0.0), ("luminosity", 0.0), ("chirp_mean", 0.0),
+            ("var_a_shape", 0.0), ("var_chirp", 0.0),
+            ("cov_a_chirp_shape", 0.0),
+        )
+    })
+    first = _table(samples, shape_bins=(8, 8, 8, 2, 8), n_bins=1)
+    second = _table(dark, shape_bins=(8, 8, 8, 2, 8), n_bins=1)
+    assert first.H.shape == second.H.shape
+    np.testing.assert_array_equal(second.chirp_eval_points, [1.0])
+    np.testing.assert_allclose(first.H, second.H, rtol=1e-14)
+    energy = np.linspace(1e6, 6e6, 32)
+    np.testing.assert_allclose(
+        spectrum_from_table(first, 0.0, 0.0, energy),
+        spectrum_from_table(second, 0.0, 0.0, energy),
+        rtol=1e-14,
+    )
+
+
+def test_zero_emission_bunch_has_zero_spectral_moments():
+    samples = _synthetic_samples(n=100)
+    dark = replace(
+        samples,
+        luminosity=np.zeros(samples.n_particles),
+        chirp_mean=np.zeros(samples.n_particles),
+    )
+    table = _table(dark, shape_bins=(8, 8, 8, 2, 8), n_bins=1)
+    moments = query_spectral_moments(table, 0.0, 0.0, [1e6, 2e6])
+    assert table.total_weight == 0.0
+    np.testing.assert_array_equal(table.chirp_eval_points, [1.0])
+    np.testing.assert_array_equal(moments.rho0, [0.0, 0.0])
+    np.testing.assert_array_equal(moments.rho1, [0.0, 0.0])
+    np.testing.assert_array_equal(moments.rho2, [0.0, 0.0])
+
+
+def test_single_ahat_bin_omits_nonlinear_moments_but_keeps_carrier_variance():
+    samples = _synthetic_samples(n=400)
+    samples = replace(
+        samples,
+        theta_x=samples.theta_x / 15,
+        theta_y=samples.theta_y / 15,
+        chirp_mean=np.full(samples.n_particles, 1.1),
+        var_a_shape=np.full(samples.n_particles, 0.02),
+        var_chirp=np.full(samples.n_particles, 0.004),
+        cov_a_chirp_shape=np.full(samples.n_particles, 0.003),
+    )
+    table = _table(samples, shape_bins=(8, 8, 8, 2, 8), n_bins=1)
+    assert np.any(table.H > 0)
+    assert np.any(table.H_var_chirp > 0)
+    assert not np.any(table.H_var_a)
+    assert not np.any(table.H_cov_a_chirp)
+    moments = query_spectral_moments(table, 0.0, 0.0, np.linspace(1e6, 4e6, 32))
+    assert np.any(moments.rho0 > 0)
+    np.testing.assert_array_equal(moments.rho1, np.zeros_like(moments.rho1))
+    assert np.any(moments.rho2 > 0)
+
+
 def test_deposit_uses_raw_shape_independent_of_observation_geometry():
     samples = TrajectorySamples(
         gamma=np.full(3, 2000.0),
@@ -712,7 +805,7 @@ def test_table_moment_channels_converge_to_direct_particle_oracle():
     def integrated_channels(shape_bins):
         shape_table = deposit_shape_table(samples, n_bins=shape_bins, scheme="cic")
         table = retarget_ahat(
-            shape_table, samples.intensity_peak, ahat_max=0.1, n_bins=1
+            shape_table, samples.intensity_peak, ahat_max=0.1, n_bins=16
         )
         moments = query_spectral_moments(table, s=s_centers, **geometry)
         return np.array([

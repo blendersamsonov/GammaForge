@@ -42,6 +42,7 @@ def test_lines_match_independent_vectors(mode, gamma, geometry):
     s = samples(gamma=gamma*(1+rng.uniform(0, .1, 43)), tx=rng.normal(0, .003, 43),
                 ty=rng.normal(0, .002, 43), ahat=rng.uniform(0, .3, 43),
                 lum=rng.uniform(0, 2, 43))
+    s = replace(s, chirp_mean=np.linspace(0.7, 1.3, s.n_particles))
     xz, yz, psi, eps = geometry
     kwargs = dict(photon_energy=2e-12, theta_xz=xz, theta_yz=yz,
                   psi_pol=psi, ellipticity=eps, doppler=mode)
@@ -50,6 +51,17 @@ def test_lines_match_independent_vectors(mode, gamma, geometry):
     np.testing.assert_allclose(actual[0], expected[0], rtol=3e-13)
     np.testing.assert_allclose(actual[1], expected[1], rtol=3e-8, atol=1e-12*float(expected[1].max()))
     assert np.all(actual[1] >= 0)
+
+
+@gpu
+def test_dark_particle_with_zero_carrier_has_zero_weight():
+    s = replace(samples(gamma=[2000., 2100.], lum=[1., 0.]),
+                chirp_mean=np.array([1.25, 0.]))
+    expected = delta_emission.emission_lines(s, 0., 0., photon_energy=1.)
+    actual = delta_cupy.emission_lines(s, 0., 0., photon_energy=1.)
+    np.testing.assert_allclose(actual[0], expected[0], rtol=1e-13)
+    np.testing.assert_allclose(actual[1], expected[1], rtol=1e-13)
+    assert actual[1][1] == 0.0
 
 
 @gpu

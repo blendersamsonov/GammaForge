@@ -95,3 +95,5 @@ cross-checks this table against the files on disk.
 | RES088 | Ponderomotive incidence uses the electron beaming direction | bug-fix | implemented | archived/bug-fix/RES088-ponderomotive-incidence-beaming-cone.md |
 | RES089 | GUI defaults are sectional and output ranges are per-axis Auto or manual | feature | implemented | implemented/feature/RES089-gui-sectional-defaults-and-output-ranges.md |
 | RES090 | Ponderomotive incidence is observer-dependent in Stage 2 | bug-fix | implemented | implemented/bug-fix/RES090-observer-dependent-ponderomotive-incidence.md |
+| RES091 | Emission-supported single-bin reductions | bug-fix | implemented | implemented/bug-fix/RES091-emission-supported-single-bin-reductions.md |
+| RES092 | Bounded production refinement | testing | implemented | implemented/testing/RES092-bounded-production-refinement.md |

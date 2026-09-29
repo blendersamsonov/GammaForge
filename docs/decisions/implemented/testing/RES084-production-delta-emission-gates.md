@@ -64,3 +64,11 @@ The initial production measurement records six low-a0 L1 refinement failures eve
 though all finest-grid comparisons meet agreement budgets; see
 `docs/validation/delta-production-2026-09-14.md`. This is unresolved numerical
 convergence, not a reason to widen the budgets or close RES074.
+
+## Amendments
+
+> **2026-09-29 — Bounded refinement schedule.** RES092 extends the measurement
+> with one finer fixed matrix for scenarios failing angular-table or retarget
+> refinement. The original failures remain diagnostics, and the complete finer
+> matrix determines numerical acceptance with the same budgets. Scientific
+> coverage blockers remain unchanged.

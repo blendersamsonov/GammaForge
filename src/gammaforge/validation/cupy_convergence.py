@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import logging
 import math
+from time import perf_counter
 from typing import Callable, Mapping
 
 import numpy as np
@@ -18,6 +20,7 @@ CPU_L1_TOL = 0.05
 GPU_MASS_TOL = 0.03
 GPU_L1_TOL = 0.05
 CENTROID_TOL = 0.01
+logger = logging.getLogger(__name__)
 
 
 def _integral(cube: np.ndarray, x: np.ndarray, y: np.ndarray, s: np.ndarray) -> float:
@@ -67,17 +70,17 @@ def _grid(table: Table, samples=None) -> tuple[np.ndarray, np.ndarray, np.ndarra
     return x, y, np.linspace(0.25 * gamma_max**2, 0.85 * gamma_max**2, 10)
 
 
-def _compare(actual, reference, x, y, s, mass_tol, l1_tol):
+def _compare(actual, reference, x, y, s, mass_tol, l1_tol, *, signed=False):
     actual = np.asarray(actual)
     reference = np.asarray(reference)
     expected_shape = (x.size, y.size, s.size)
     if actual.shape != expected_shape or reference.shape != expected_shape:
         return {"status": "fail", "pass": False, "error": f"shape {actual.shape} != {expected_shape}"}
-    if not np.all(np.isfinite(actual)) or np.any(actual < 0.0) or not np.any(actual > 0.0):
-        return {"status": "fail", "pass": False, "error": "actual cube is non-finite, negative, or zero"}
+    if not np.all(np.isfinite(actual)) or (not signed and np.any(actual < 0.0)) or not np.any(actual > 0.0):
+        return {"status": "fail", "pass": False, "error": "actual cube is non-finite or has invalid mass"}
     ref_mass = _integral(reference, x, y, s)
     mass = _integral(actual, x, y, s)
-    if not np.all(np.isfinite(reference)) or np.any(reference < 0.0) or not np.isfinite(ref_mass) or ref_mass <= 0.0:
+    if not np.all(np.isfinite(reference)) or (not signed and np.any(reference < 0.0)) or not np.isfinite(ref_mass) or ref_mass <= 0.0:
             return {"status": "inconclusive", "pass": False, "error": "non-finite, negative, or zero reference mass"}
     l1 = _integral(np.abs(actual - reference), x, y, s) / ref_mass
     mass_error = abs(mass / ref_mass - 1.0)
@@ -147,6 +150,29 @@ def _synthetic_cases() -> list[dict]:
             cases.append(crossed)
             case["name"] = "highgamma10000_circular"
         cases.append(case)
+
+    gamma_edges = np.linspace(900.0, 1100.0, 9)
+    x_edges = y_edges = np.linspace(-0.004, 0.004, 17)
+    ahat_edges = np.array([0.0, 0.01, 0.04, 0.1])
+    chirp_edges = np.linspace(0.85, 1.15, 4)
+    g = 0.5 * (gamma_edges[:-1] + gamma_edges[1:])
+    x = y = 0.5 * (x_edges[:-1] + x_edges[1:])
+    a = 0.5 * (ahat_edges[:-1] + ahat_edges[1:])
+    c = 0.5 * (chirp_edges[:-1] + chirp_edges[1:])
+    G, X, Y, A, C = np.meshgrid(g, x, y, a, c, indexing="ij")
+    H = 2.0 + 0.001 * (G - 900.0) + 4.0 * X - 3.0 * Y + 2.0 * A + 0.5 * C
+    cases.append({
+        "name": "finite_line_moment2",
+        "table": Table(gamma_edges, x_edges, y_edges, ahat_edges, chirp_edges,
+                       H, 0.0025 * H, 0.0125 * H, 0.0045 * H,
+                       float(H.sum()), "synthetic-finite-line"),
+        "grid": (np.linspace(-4e-4, 4e-4, 3), np.linspace(-4e-4, 4e-4, 3),
+                 np.linspace(0.45e6, 0.9e6, 17)),
+        "kwargs": {"psi_pol": 0.37, "ellipticity": 0.4, "theta_xz": 0.08,
+                   "theta_yz": -0.05, "line_model": "moment2"},
+        "cpu_refinements": (8, 16),
+        "line_correction_l1_min": 0.05,
+    })
     return cases
 
 
@@ -167,8 +193,20 @@ def run_convergence_checks(
         raise ValueError("cpu_refinements must be two increasing positive integers")
     gpu_rings = (16, 32, 64)
     gpu_subsamplings = (32, 128, 256)
+    timings = []
+
+    def measured(label, calculate):
+        logger.info("Starting %s", label)
+        started = perf_counter()
+        try:
+            return calculate()
+        finally:
+            elapsed = perf_counter() - started
+            timings.append({"stage": label, "seconds": elapsed})
+            logger.info("Finished %s in %.1f s", label, elapsed)
+
     if cases is None:
-        cases = _default_cases()
+        cases = measured("building convergence tables", _default_cases)
     if cpu_runner is None:
         cpu_runner = lambda table, x, y, s, **kw: angular_spectrum_from_table(table, x, y, s, backend="numpy", **kw)
     if gpu_runner is None:
@@ -179,25 +217,42 @@ def run_convergence_checks(
             gpu_runner = None
 
     checks = []
-    for case in cases:
+    for case_index, case in enumerate(cases, start=1):
         name, table = case["name"], case["table"]
+        logger.info("Case %d/%d: %s", case_index, len(cases), name)
         effective_cpu = tuple(case.get("cpu_refinements", cpu_refinements))
-        kwargs = dict(case.get("kwargs", {})); x, y, s = _grid(table, case.get("samples"))
+        kwargs = dict(case.get("kwargs", {}))
+        x, y, s = case["grid"] if "grid" in case else _grid(table, case.get("samples"))
+        signed = kwargs.get("line_model") == "moment2"
         try:
-            coarse = cpu_runner(_refine_table(table, effective_cpu[0]), x, y, s, **kwargs)
-            reference = cpu_runner(_refine_table(table, effective_cpu[1]), x, y, s, **kwargs)
+            coarse = measured(f"{name}: CPU refinement {effective_cpu[0]}",
+                              lambda: cpu_runner(_refine_table(table, effective_cpu[0]), x, y, s, **kwargs))
+            refined_table = _refine_table(table, effective_cpu[1])
+            reference = measured(f"{name}: CPU refinement {effective_cpu[1]}",
+                                 lambda: cpu_runner(refined_table, x, y, s, **kwargs))
+            if "line_correction_l1_min" in case:
+                delta = measured(f"{name}: CPU delta comparison",
+                                 lambda: cpu_runner(refined_table, x, y, s,
+                                                    **{**kwargs, "line_model": "delta"}))
+                correction = _integral(np.abs(reference - delta), x, y, s) / _integral(delta, x, y, s)
+                if correction < case["line_correction_l1_min"]:
+                    raise ValueError("moment2 correction is too small to validate")
         except Exception as exc:
             checks.append({"case": name, "kind": "cpu_reference", "status": "fail", "pass": False, "error": str(exc)})
             continue
-        cpu_check = _compare(coarse, reference, x, y, s, CPU_MASS_TOL, CPU_L1_TOL)
+        cpu_check = _compare(coarse, reference, x, y, s, CPU_MASS_TOL, CPU_L1_TOL,
+                             signed=signed)
         cpu_check.update({"case": name, "kind": "cpu_reference", "settings": {
             "refinements": list(effective_cpu), "table_shape": list(table.H.shape),
             "query_x": x.tolist(), "query_y": y.tolist(), "query_s": s.tolist(),
             "geometry_kwargs": kwargs,
         }})
+        if "line_correction_l1_min" in case:
+            cpu_check["line_correction_l1"] = float(correction)
         if cpu_check["status"] == "fail":
             cpu_check["status"] = "inconclusive"; cpu_check["pass"] = False
         checks.append(cpu_check)
+        logger.info("%s: CPU reference %s", name, cpu_check["status"])
         if gpu_runner is None or cpu_check["status"] != "pass":
             checks.append({"case": name, "kind": "gpu", "status": "inconclusive", "pass": False,
                            "error": "GPU unavailable or CPU reference did not converge"})
@@ -205,46 +260,54 @@ def run_convergence_checks(
         gpu_results = {}
         for rings in gpu_rings:
             try:
-                out = gpu_runner(table, x, y, s, rings=rings, subsampling=256, **kwargs)
+                out = measured(f"{name}: CUDA rings={rings}, subsampling=256",
+                               lambda: gpu_runner(table, x, y, s, rings=rings, subsampling=256, **kwargs))
             except Exception as exc:
                 checks.append({"case": name, "kind": "gpu_rings", "status": "fail", "pass": False, "error": str(exc), "settings": {"rings": rings, "subsampling": 256}})
                 continue
-            item = _compare(out, reference, x, y, s, GPU_MASS_TOL, GPU_L1_TOL)
+            item = _compare(out, reference, x, y, s, GPU_MASS_TOL, GPU_L1_TOL,
+                            signed=signed)
             item.update({"case": name, "kind": "gpu_rings", "settings": {"rings": rings, "subsampling": 256}})
             item["required"] = rings == max(gpu_rings)
             checks.append(item)
             gpu_results[(rings, 256)] = np.asarray(out)
         for subsampling in gpu_subsamplings:
             try:
-                out = gpu_runner(table, x, y, s, rings=64, subsampling=subsampling, **kwargs)
+                out = measured(f"{name}: CUDA rings=64, subsampling={subsampling}",
+                               lambda: gpu_runner(table, x, y, s, rings=64, subsampling=subsampling, **kwargs))
             except Exception as exc:
                 checks.append({"case": name, "kind": "gpu_subsampling", "status": "fail", "pass": False, "error": str(exc), "settings": {"rings": 64, "subsampling": subsampling}})
                 continue
-            item = _compare(out, reference, x, y, s, GPU_MASS_TOL, GPU_L1_TOL)
+            item = _compare(out, reference, x, y, s, GPU_MASS_TOL, GPU_L1_TOL,
+                            signed=signed)
             item.update({"case": name, "kind": "gpu_subsampling", "settings": {"rings": 64, "subsampling": subsampling}})
             item["required"] = subsampling == max(gpu_subsamplings)
             checks.append(item)
             gpu_results[(64, subsampling)] = np.asarray(out)
         if gpu_runner is not None and (32, 32) not in gpu_results:
             try:
-                out = gpu_runner(table, x, y, s, rings=32, subsampling=32, **kwargs)
-                item = _compare(out, reference, x, y, s, GPU_MASS_TOL, GPU_L1_TOL)
+                out = measured(f"{name}: CUDA default rings=32, subsampling=32",
+                               lambda: gpu_runner(table, x, y, s, rings=32, subsampling=32, **kwargs))
+                item = _compare(out, reference, x, y, s, GPU_MASS_TOL, GPU_L1_TOL,
+                                signed=signed)
                 item.update({"case": name, "kind": "gpu_default", "required": True, "settings": {"rings": 32, "subsampling": 32}})
                 checks.append(item); gpu_results[(32, 32)] = np.asarray(out)
             except Exception as exc:
                 checks.append({"case": name, "kind": "gpu_default", "required": True, "status": "fail", "pass": False, "error": str(exc)})
         if (32, 256) in gpu_results and (64, 256) in gpu_results:
-            item = _compare(gpu_results[(32,256)], gpu_results[(64,256)], x,y,s,GPU_MASS_TOL,GPU_L1_TOL)
+            item = _compare(gpu_results[(32,256)], gpu_results[(64,256)], x,y,s,
+                            GPU_MASS_TOL,GPU_L1_TOL, signed=signed)
             item.update({"case": name, "kind": "gpu_ring_refinement", "required": True,
                          "settings": {"from": {"rings": 32, "subsampling": 256}, "to": {"rings": 64, "subsampling": 256}}})
             checks.append(item)
         if (64, 128) in gpu_results and (64, 256) in gpu_results:
-            item = _compare(gpu_results[(64,128)], gpu_results[(64,256)], x,y,s,GPU_MASS_TOL,GPU_L1_TOL)
+            item = _compare(gpu_results[(64,128)], gpu_results[(64,256)], x,y,s,
+                            GPU_MASS_TOL,GPU_L1_TOL, signed=signed)
             item.update({"case": name, "kind": "gpu_subsampling_refinement", "required": True,
                          "settings": {"from": {"rings": 64, "subsampling": 128}, "to": {"rings": 64, "subsampling": 256}}})
             checks.append(item)
     return {"settings": {"cpu_refinements": list(cpu_refinements), "gpu_rings": list(gpu_rings),
-                          "gpu_subsamplings": list(gpu_subsamplings)}, "checks": checks,
+                          "gpu_subsamplings": list(gpu_subsamplings)}, "checks": checks, "timings": timings,
             "pass": bool(checks) and all(check["pass"] for check in checks if check.get("required", True))}
 
 

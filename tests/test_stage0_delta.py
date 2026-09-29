@@ -592,6 +592,25 @@ def test_an_empty_bunch_yields_zero_rather_than_raising():
     assert samples.a0_shape.shape == (0,)
 
 
+def test_nonempty_bunch_outside_laser_yields_zero_spectral_moments():
+    interaction = scenarios.build(
+        replace(scenarios.BASELINE,
+                sampling=replace(scenarios.BASELINE.sampling, n_particles=64))
+    )
+    displaced = replace(interaction.bunch, x=np.full(64, 1.0))
+    samples = integrate_trajectories(displaced, interaction.laser,
+                                     interaction.N_e, n_steps=32)
+    assert samples.n_particles == 64
+    assert samples.total_yield() == 0.0
+    shape = stages.deposit_shape_table(samples, n_bins=(8, 4, 4, 2, 8))
+    table = stages.retarget_ahat(shape, samples.intensity_peak, n_bins=1)
+    moments = stages.query_spectral_moments(table, 0.0, 0.0, [1e6])
+    assert table.total_weight == 0.0
+    assert moments.rho0[0] == 0.0
+    assert moments.rho1[0] == 0.0
+    assert moments.rho2[0] == 0.0
+
+
 def test_the_capture_correction_accounts_for_the_polarization_factor():
     """``X/(1+X)`` is the Lorentz factor alone and overstates what the cone holds.
 

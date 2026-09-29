@@ -143,8 +143,12 @@ search_knowledge_base("cupy")
 # head-on linear, crossed elliptical and crossed circular polarization, on/off axis.
 # Counts, spectral L1 and centroid use matched finite energy bins without rescaling.
 # Energy quadrature, angular-table and retarget refinement have separate gates.
-# The 2026-09-14 packet passes all finest-grid comparisons but fails six low-a0
-# refinement checks; see `docs/validation/delta-production-2026-09-14.md`.
+# The initial matrix uses five-axis tables, angular 32/64 bins and retarget 512/1024
+# bins. A scenario failing angular-table or retarget refinement is measured once more
+# with angular 64/128 bins and retarget 1024/2048 bins (RES092). Initial failures stay
+# visible as diagnostics; the complete finer matrix must pass the unchanged budgets.
+# The full 2026-09-29 run passes all 388 executed checks; two scientific coverage
+# blockers remain. See `docs/validation/delta-production-2026-09-29.md`.
 #
 # These provisional numerical checks share Stage-0 samples and reduced assumptions.
 # Particle/seed, Stage-0, gamma/shape-grid, angular-aperture and independent CUDA
@@ -166,8 +170,15 @@ search_knowledge_base("cupy")
 # timing; direct device tests additionally observe CuPy arrays inside both stages.
 # The independent GPU delta reference is `gammaforge.validation.references.delta_cupy`
 # (RES085). It accepts NumPy trajectory samples, computes float64 emission and weighted
-# histograms on CUDA in bounded chunks, and returns NumPy arrays. Its standalone gate
-# is `scripts/validate_delta_cupy.py`; it checks against the long-double CPU reference.
+# histograms on CUDA in bounded chunks, and returns NumPy arrays. Its per-particle line
+# energy includes the trajectory's carrier mean. Its standalone gate is
+# `scripts/validate_delta_cupy.py`; it checks against the long-double CPU reference.
+# The xigma release gate also compares the reconstructed `moment2` CUDA spectrum with
+# a refined CPU quadrature on a case where finite-line terms visibly change the result.
+# The second-order expansion can be signed, so the gate checks finite values and
+# quantitative agreement without treating every negative bin as a CUDA error.
+# The release command logs each CPU/CUDA case to stderr and records stage timings
+# in its JSON report. Numerical agreement does not close scientific acceptance.
 # Select `doppler="direction"` for current xigma. Numerical backend agreement does not
 # close the broader particle, Stage-0, or arbitrary-angle convergence requirements.
 #

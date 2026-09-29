@@ -18,7 +18,7 @@ unfinished or waiting on someone*.
 | 1. Core (`gammaforge.io`) | 🟢 done; `PulseTrainParaxialLaser` temporal modulation and pulse trains landed (RES071) |
 | 2. Validation harness | 🟢 done |
 | 2.5. Stage 0 + minimal delta | 🟢 done |
-| 3a. xigma engineering | 🟢 NumPy/CuPy Stage 0/1 execution with host stage boundaries (RES083), five-dimensional shape/physical tables, Stage-2 raw spectral moments, nonuniform second-order reconstruction, persistent adaptive queries, `Collision`, and `XigmaEngine`. Stage 0 accepts carrier phase gradients and accumulates the weighted statistics in DER016; Stage 1 stores raw nonlinear shape and carrier mean with co-shaped moment channels; Stage 2 applies exact observer-dependent $Q$ (DER015/RES090). Gamma-resonance sampling (RES080) retains the ring-shaped proposal while reusing static backend/QMC state. The real-CUDA release gate and NumPy/CuPy moment comparisons pass; scientific acceptance remains in Phase 3b. |
+| 3a. xigma engineering | 🟢 NumPy/CuPy Stage 0/1 execution with host stage boundaries (RES083), five-dimensional shape/physical tables, Stage-2 raw spectral moments, nonuniform second-order reconstruction, persistent adaptive queries, `Collision`, and `XigmaEngine`. Stage 0 accepts carrier phase gradients and accumulates the weighted statistics in DER016; Stage 1 stores raw nonlinear shape and carrier mean with co-shaped moment channels; Stage 2 applies exact observer-dependent $Q$ (DER015/RES090). Gamma-resonance sampling (RES080) retains the ring-shaped proposal while reusing static backend/QMC state. The real-CUDA release gate includes quantitative `moment2` reconstruction agreement; scientific acceptance remains in Phase 3b. |
 | 3b. Physics closure | 🟡 §9.1 closed (RES033). Local transverse-dipole crossing correction, direction Doppler, exact observer-dependent nonlinear incidence, and carrier/finite-line moments are implemented (DER012–DER013, DER015–DER017; RES078, RES082, RES090), retaining per-particle lab velocities and Stokes API compatibility; independent arbitrary-angle acceptance/convergence remains open. |
 | 4. analytical engine | 🟢 landed and merged to `main`; general overlap-integral yield, width breakdown, quadrature spectrum, flying focus, crossing angle for the yield. Open: collimated-spectrum construction |
 | 5. kascade port + delta full role | 🟡 minimal `KascadeEngine`, Thomson sanity anchor, and opt-in GUI integration landed (RES059); independent CuPy delta reference with a real-CUDA agreement gate (RES085); four-method validation wiring remains open |
@@ -67,11 +67,15 @@ Ordered by who is blocked. Each names the file that carries the detail.
   observer-dependent nonlinear coefficient now have matched-bin evidence
   for the baseline, low-a0 and near-a0-max bank cases, head-on and small crossed
   geometry, on/off axis. The production runner now measures these plus crossed circular
-  polarization, with explicit agreement and refinement gates (RES084). All finest-grid
-  comparisons pass, but six low-a0 angular-table/retarget L1 refinement checks fail;
-  resolve these first. Evidence: `docs/validation/delta-production-2026-09-14.md`.
-  Finish particle/seed,
-  Stage-0, gamma/shape-grid, angular-aperture and independent CUDA convergence and RES074's
+  polarization, with explicit agreement and refinement gates (RES084, RES092). The
+  bounded finer grid resolves all six low-a0 refinement failures without changing
+  the budgets: the full production run passes 388 executed checks and reports two
+  remaining scientific coverage blockers. Evidence:
+  `docs/validation/delta-production-2026-09-29.md`.
+  The separate nine-case CPU/CUDA release gate passes all 90 checks, including
+  reconstructed finite-line spectra; evidence and runtime measurements are in
+  `docs/validation/cupy-release-2026-09-28.md`. Finish particle/seed, Stage-0,
+  gamma/shape-grid, angular-aperture and independent CUDA convergence and RES074's
   acceptance requirements before closing Phase 3b.
 
 - **Spatial autoranging under displacement.** The current Kascade reproduction captured its

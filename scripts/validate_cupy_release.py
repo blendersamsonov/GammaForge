@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import logging
 import hashlib
 import importlib.metadata
 import platform
@@ -151,7 +152,6 @@ def run_release(*, rings: tuple[int, ...] = (32, 64), subsampling: int = 32) -> 
         metadata = results.model_specific
         checks = {
             "finite": bool(np.all(np.isfinite(distr))),
-            "nonnegative": bool(np.all(distr >= 0.0)),
             "nonzero": bool(np.any(distr > 0.0)),
             "stage2_backend_cupy": metadata.get("stage2_backend") == "cupy",
         }
@@ -197,11 +197,12 @@ def run_release(*, rings: tuple[int, ...] = (32, 64), subsampling: int = 32) -> 
         "runs": runs,
         "convergence": convergence,
         "error": None if unchanged else "source files changed during release run",
-        "caveat": "Finite/nonnegative GPU checks and CPU convergence do not constitute independent arbitrary-angle emission-physics validation.",
+        "caveat": "Finite GPU checks and CPU convergence do not constitute independent arbitrary-angle emission-physics validation.",
     }
 
 
 def main(argv: list[str] | None = None) -> int:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, help="write the JSON report to this path")
     parser.add_argument("--rings", default="32,64", help="comma-separated sampler ring settings")

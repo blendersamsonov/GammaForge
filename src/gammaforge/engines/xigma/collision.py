@@ -420,6 +420,20 @@ class Collision:
         cos_alpha_half_sq = (1.0 + cos_alpha) * 0.5  # cos²(α/2) = (1 + cos α)/2
         photon_energy *= cos_alpha_half_sq
 
+        # The shared auto range uses the reference laser frequency. A chirped xigma
+        # trajectory can radiate above that range; manual energy bounds remain authoritative.
+        samples = self.build_overlap()
+        active = samples.luminosity > 0.0
+        if np.any(active):
+            carrier_max = float(np.max(samples.chirp_mean[active]))
+            request = next((r for r in supported_requests
+                            if r.kind is OutputKind.COLLIMATED_SPECTRUM), None)
+            if request is not None and Axis.ENERGY not in (request.manual_ranges or {}):
+                current_low, current_high = ranges[request.kind][Axis.ENERGY]
+                ranges[request.kind][Axis.ENERGY] = (
+                    current_low, max(current_high, carrier_max * current_high)
+                )
+
         slices: dict[OutputKind, PhasespaceSlice] = {}
         if self.build_overlap().n_particles == 0:
             for request in supported_requests:
@@ -499,8 +513,8 @@ class Collision:
                     "cdf_inversion": "exact_binary_search",
                 }
                 model_specific["warnings"] = (*warnings, (
-                    "CuPy Stage 2 is production-ready: GPU numerical checks pass release gate; "
-                    "independent arbitrary-angle emission validation converged (<1% L1 off-axis)."
+                    "CuPy Stage 2 has numerical CPU/GPU agreement checks; "
+                    "independent arbitrary-angle scientific acceptance remains open."
                 ))
         return Results(photon_slices=slices, model_specific=model_specific)
 
@@ -565,15 +579,21 @@ class Collision:
 
     def _energy_quadrature_grid(self, n: int = 64) -> np.ndarray:
         """An ``s`` grid spanning the populated resonance, for the outputs that integrate
-        over energy rather than slicing it (`ANGULAR_DISTRIBUTION`). ``s = D*gamma**2`` is
-        the direction-corrected linear edge in these units (DER013), so this needs no
+        over energy rather than slicing it (`ANGULAR_DISTRIBUTION`). ``s = D*C*gamma**2``
+        is the carrier-corrected linear edge in these units (DER013/DER017), so this needs no
         photon energy to convert anything — unlike `SPECTRUM`'s axis, which is stored in
         erg and does."""
         samples = self.build_overlap()
         geom = self._laser_polarization_geometry()
         doppler = direction_doppler_factor(samples.theta_x, samples.theta_y,
                                            geom["theta_xz"], geom["theta_yz"])
-        edge = float(np.max(doppler * samples.gamma**2))
+        active = samples.luminosity > 0.0
+        if np.any(active):
+            edge = float(np.max(
+                doppler[active] * samples.chirp_mean[active] * samples.gamma[active] ** 2
+            ))
+        else:
+            edge = float(np.max(doppler * samples.gamma**2))
         if self.params.get_choice("line_model") == "moment2":
             edges = np.linspace(0.0, 1.2 * edge, n + 1)
             return 0.5 * (edges[:-1] + edges[1:])

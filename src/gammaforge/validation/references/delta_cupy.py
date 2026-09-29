@@ -33,7 +33,7 @@ def _cupy():
 def _line_kernel():
     # Stable double-cross-product radiation vectors, local dipole basis (DER012).
     return _cupy().ElementwiseKernel(
-        "float64 g, float64 tx, float64 ty, float64 a, float64 lum, "
+        "float64 g, float64 tx, float64 ty, float64 a, float64 lum, float64 chirp, "
         "float64 ox, float64 oy, float64 photon, float64 psi, float64 eps, "
         "float64 xz, float64 yz, int32 mode",
         "float64 energy, float64 weight",
@@ -83,7 +83,7 @@ def _line_kernel():
             const double observer_incident = -nx*sx*cy + ny*sy - nz*cx*cy;
             const double ponderomotive = (1.0-observer_incident)/electron_encounter;
             energy = electron_encounter <= 1.4210854715202004e-14 ? nan("")
-                   : 2.0*photon*encounter*g*g/(1.0+ponderomotive*a+g*g*r2);
+                   : 2.0*photon*encounter*chirp*g*g/(1.0+ponderomotive*a+g*g*r2);
             weight = (3.0/(2.0*3.14159265358979323846))*lum*pol*g*g
                      / ((1.0+g*g*r2)*(1.0+g*g*r2));
         }
@@ -101,12 +101,14 @@ def _inputs(samples, chunk, photon_energy, theta_x, theta_y, psi_pol, ellipticit
     if not all(np.isfinite(v) for v in vals) or photon_energy <= 0 or not -1 <= ellipticity <= 1:
         raise ValueError("finite directions, positive photon_energy and ellipticity in [-1,1] required")
     arrays = tuple(np.asarray(a, dtype=float) for a in
-                   (samples.gamma, samples.theta_x, samples.theta_y, samples.ahat(), samples.luminosity))
+                   (samples.gamma, samples.theta_x, samples.theta_y, samples.ahat(),
+                    samples.luminosity, samples.chirp_mean))
     if any(a.ndim != 1 for a in arrays) or len({a.size for a in arrays}) != 1:
         raise ValueError("sample fields must be same-shaped one-dimensional arrays")
-    g, tx, ty, a, lum = arrays
-    if any(np.any(~np.isfinite(x)) for x in arrays) or np.any(g <= 1) or np.any(a < 0) or np.any(lum < 0):
-        raise ValueError("samples contain invalid gamma, ahat, luminosity, or directions")
+    g, tx, ty, a, lum, chirp = arrays
+    if (any(np.any(~np.isfinite(x)) for x in arrays) or np.any(g <= 1)
+            or np.any(a < 0) or np.any(lum < 0) or np.any((chirp <= 0) & (lum > 0))):
+        raise ValueError("samples contain invalid gamma, ahat, chirp, luminosity, or directions")
     args = (theta_x, theta_y, photon_energy, psi_pol, ellipticity, theta_xz, theta_yz,
             np.int32(("nominal", "particle", "direction").index(doppler)))
     return arrays, args

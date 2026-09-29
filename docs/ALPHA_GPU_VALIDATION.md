@@ -241,6 +241,13 @@ python scripts/validate_cupy_release.py --output cupy-release.json
 This requires actual CUDA and exits nonzero on unavailable hardware, failed checks,
 or an unconverged CPU reference. Its JSON report includes Python/NumPy/CuPy/CUDA and
 device information, sampler settings, query grids, geometry, and numerical metrics.
+Progress messages on stderr identify each case and CPU/CUDA refinement, with elapsed
+times also stored in the convergence report's `timings` field. The refined CPU
+references can take substantially longer than the CUDA calculations; allow the full
+schedule to finish before interpreting the aggregate verdict.
+The [2026-09-28 full run](validation/cupy-release-2026-09-28.md) passed all 90
+checks across nine cases and took approximately 25 minutes, mostly in the two
+64-fold high-gamma CPU refinements.
 It also records the installed package version and SHA-256 fingerprints of the
 imported sampler, reference, orchestration, and scenario modules and the runner.
 Changing any fingerprinted file during validation fails the report rather than

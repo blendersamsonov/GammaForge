@@ -121,6 +121,7 @@ print(f"Engine 2: '{analytical.name}', outputs: {[o.name for o in analytical.sup
 # │ Stage 1: deposit_shape_table() -> ShapeTable                │
 # │ Bins (gamma, thx, thy, a0_shape, C̄), plus three co-shaped │
 # │ Var(a), Var(C), and Cov(a,C) moment-density channels.       │
+# │ Only emitting particles determine axis support.            │
 # └──────────────────────────────┬──────────────────────────────┘
 #                                │
 #                                ▼
@@ -170,6 +171,12 @@ print(f"  Mean intensity-shape variance: {samples.var_a_shape.mean():.4e}")
 # All three nonlinear/carrier controls accept one bin. Setting n_bins_a0_shape,
 # n_bins_chirp, and n_bins_ahat to 1 yields an effectively 3D table; the retargeted
 # ahat bin is evaluated at zero, explicitly selecting the linear-emission limit.
+# A configured single carrier bin uses the luminosity-weighted mean of emitting
+# particles; zero-luminosity particles cannot shift it. The linear ahat mode also
+# removes its nonlinear variance/covariance channels, retaining carrier variance.
+# Retargeting prunes unreachable trailing bins before allocating its five-dimensional
+# channels (RES092). This reduces memory at high requested resolution without changing
+# the grid law, reachable bin edges, or conservative weights.
 shape_table = collision._shape()
 table = collision._table()
 print(f"  ShapeTable axes: {shape_table.H.shape}")
@@ -177,6 +184,13 @@ print(f"  Retargeted Table axes: {table.H.shape}")
 print(f"  Carrier evaluation points: {table.chirp_eval_points}")
 assert table.H_var_a.shape == table.H_var_chirp.shape == table.H_cov_a_chirp.shape == table.H.shape
 assert table.H.shape[-1] == 1
+
+from gammaforge.engines.xigma.stages import retarget_ahat
+linear_table = retarget_ahat(shape_table, samples.intensity_peak, n_bins=1)
+assert linear_table.ahat_eval_points[0] == 0.0
+assert not np.any(linear_table.H_var_a)
+assert not np.any(linear_table.H_cov_a_chirp)
+print(f"  Linear-mode carrier variance retained: {linear_table.H_var_chirp.sum():.4e}")
 
 # Stage 2 evaluates all five table axes on both CPU and CUDA and returns the unbroadened
 # spectrum rho0 plus the first two raw finite-line moment channels. Both backends traverse

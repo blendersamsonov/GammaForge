@@ -28,6 +28,7 @@ suite-appropriate scale instead.
 
 from __future__ import annotations
 
+import logging
 import math
 import sys
 from dataclasses import replace
@@ -354,6 +355,8 @@ def main(argv=None, *, engines: Iterable[Engine] = (), scenarios: Sequence[Scena
     if set(argv) - {"--production", "--alpha"} or {"--production", "--alpha"} <= set(argv):
         print("usage: python -m gammaforge.validation.run [--production | --alpha]", file=sys.stderr)
         return 2
+    if "--production" in argv:
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     report = run_suite(engines, scenarios, production="--production" in argv, alpha="--alpha" in argv)
     print(report)
     return 0 if report.failures == 0 and report.blockers == 0 else 1
