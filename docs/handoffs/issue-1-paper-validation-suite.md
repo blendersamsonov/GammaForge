@@ -95,7 +95,7 @@ Therefore:
 - do not choose `0.3` as a new paper or production default here;
 - run the publication-quality `ahat` convergence and performance studies against the post-#7 uniform-grid implementation;
 - work that does not depend on the retarget spacing, especially the independent single-electron/coherent oracle, may proceed before #7 lands;
-- any exploratory table result produced before #2 must be labelled pre-#2 and rerun before being used in the paper.
+- any exploratory table result produced before #7 must be labelled pre-#7 and rerun before being used in the paper.
 
 ## Test-suite policy
 
@@ -239,7 +239,7 @@ Metrics:
 
 The old RES079 numerical percentages are historical four-dimensional evidence and must not be quoted as current five-dimensional convergence results.
 
-For the `ahat` axis, follow issue #7: publication convergence should scan `n_bins_ahat` on the uniform production grid once #2 lands, not tune `ahat_decades`.
+For the `ahat` axis, follow issue #7: publication convergence should scan `n_bins_ahat` on the uniform production grid once #7 lands, not tune `ahat_decades`.
 
 ### 5. Compressed-table forward baseline
 
