@@ -1,6 +1,6 @@
 # GammaForge — Ground-Up Rebuild: Grand Plan
 
-**Status:** draft v0.43 — 2026-09-28
+**Status:** draft v0.44 — 2026-09-29
 **Author:** OpenAgent, in consultation with A. Samsonov (physics)
 
 
@@ -700,7 +700,9 @@ wired as a no-op.*
 
 **GUI interaction model (global — no engine is real-time):**
 - **The analytical estimates panel is the only real-time view.** It re-evaluates
-  immediately on any input change (closed-form, microseconds).
+  after beam, laser, or collimation edits. Sampling, output, and selected-engine
+  settings do not enter its formulas and do not trigger a preview. While a preview
+  runs, the prior values stay visible but dimmed until the new result is ready.
 - **Every engine is Calculate-gated.** Any input change marks previously computed engine
   results *stale* (visually outdated). Pressing Calculate re-runs the checked engines;
   each engine's facade reuses its cache where hashes allow — xigma skips Stage 0/1 on
@@ -1083,6 +1085,10 @@ derivations (A3).
 ---
 
 ## Changelog
+
+- **v0.44**: Scope live analytical previews to the beam, laser, and collimation
+  inputs they consume; retain dimmed prior values during recalculation so the panel
+  keeps its layout.
 
 - **v0.43**: Replace the superseded beaming-cone incidence approximation with exact
   observer-dependent $Q$ in Stage 2; restore raw nonlinear shape in Stage 1; add the

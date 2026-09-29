@@ -285,3 +285,24 @@ class InputState:
                 self.selected_engine: self.groups[f"engine:{self.selected_engine}"]
             },
         )
+
+    def estimate_request(self):
+        """Build the analytical preview from only the fields its formulas consume."""
+        if any(key.startswith(("beam.", "laser.", "target.")) for key in self.errors):
+            raise ValueError("Correct the beam, laser, or collimation inputs to update estimates")
+        from ..io.calculation import CalculationRequest
+        from ..io.interaction import SamplingSpec
+
+        target_params = self.groups["target"]
+        target = Target(
+            Quantity(target_params.get_float("theta_x_col"), "rad"),
+            Quantity(target_params.get_float("theta_y_col"), "rad"),
+            (OutputRequest(OutputKind.TOTAL_YIELD),),
+        )
+        return CalculationRequest(
+            beam=beam_from_parameters(self.groups["beam"]),
+            laser=laser_from_parameters(self.groups["laser"]),
+            target=target,
+            sampling=SamplingSpec(),
+            engine_params={},
+        )

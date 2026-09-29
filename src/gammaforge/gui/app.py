@@ -50,8 +50,10 @@ body { background: #f3f6fa; color: #26364a; }
 .gf-section-title { font-size: 17px; font-weight: 600; }
 .gf-status { padding: 8px 12px; background: #e8eef5; border-radius: 6px; }
 .gf-error { white-space: pre-wrap; color: #a22232; }
-.gf-estimate { min-width: 130px; padding-right: 20px; }
+.gf-estimate { width: 150px; flex: 0 0 150px; }
 .gf-estimate-value { font-size: 21px; font-variant-numeric: tabular-nums; }
+.gf-estimate-stale { opacity: 0.45; }
+.gf-estimate-status { min-height: 20px; }
 .q-splitter__separator { background: #c8d6e3; width: 5px; }
 .q-splitter__before, .q-splitter__after { min-width: 0; overflow: auto; }
 .gf-pane .q-tab-panel > .nicegui-column { width: 100%; }
@@ -93,7 +95,9 @@ class BrowserWorkspace:
         self.panes: list[Pane] = []
         self.view_states: dict[int, dict] = {0: {}, 1: {}}
         self.preview = None
+        self.preview_input_revision = 0
         self.preview_revision = -1
+        self.preview_result_revision = -1
         self.preview_running = False
         self.preview_error = ""
         self.last_result_state = None
@@ -139,19 +143,21 @@ class BrowserWorkspace:
             for pane in self.panes:
                 pane.engine_fields.refresh()
                 pane.inputs.refresh()
-            self.preview_error = ""
             for pane in self.panes:
-                pane.estimates.refresh()
                 pane.status.refresh()
                 pane.results.refresh()
             self._update_locks()
             return
         self.model.changed(group, key)
-        self.preview_error = ""
+        preview_changed = group in {"beam", "laser", "target"}
+        if preview_changed:
+            self.preview_input_revision += 1
+            self.preview_error = ""
         for pane in self.panes:
             if pane.index != source:
                 pane.inputs.refresh()
-            pane.estimates.refresh()
+            if preview_changed:
+                pane.estimates.refresh()
             pane.status.refresh()
             pane.results.refresh()
         self._update_locks()
@@ -239,11 +245,11 @@ class BrowserWorkspace:
             self.last_result_state = result_state
             for pane in self.panes:
                 pane.results.refresh()
-        if self.preview_running or self.preview_revision == self.model.revision:
+        if self.preview_running or self.preview_revision == self.preview_input_revision:
             return
-        revision = self.model.revision
+        revision = self.preview_input_revision
         try:
-            request = self.model.inputs.request()
+            request = self.model.inputs.estimate_request()
         except ValueError as exc:
             self.preview_error = str(exc)
             self.preview_revision = revision
@@ -253,11 +259,12 @@ class BrowserWorkspace:
         self.preview_running = True
         try:
             result = await asyncio.to_thread(self.model.runner.estimate, request)
-            if revision == self.model.revision:
+            if revision == self.preview_input_revision:
                 self.preview = result
+                self.preview_result_revision = revision
                 self.preview_error = ""
         except Exception as exc:
-            if revision == self.model.revision:
+            if revision == self.preview_input_revision:
                 self.preview_error = str(exc)
         finally:
             self.preview_revision = revision
@@ -400,6 +407,8 @@ class Pane:
         """Load a historical run's inputs into the draft for editing."""
         model = self.page.model
         if model.fork_run(run_id):
+            self.page.preview_input_revision += 1
+            self.page.preview_error = ""
             self.page._refresh_run_panels()
 
     def _delete_run(self, run_id: int) -> None:
@@ -478,17 +487,20 @@ class Pane:
     def _estimates(self) -> None:
         page = self.page
         ui.label("Analytical estimates").classes("gf-section-title")
+        stale = page.preview_result_revision != page.preview_input_revision
         if page.preview_error:
-            ui.label(page.preview_error).classes("gf-error")
-            return
-        if page.preview_revision != page.model.revision or page.preview is None:
-            ui.label("Updating estimates…").classes("text-grey-7")
+            ui.label(page.preview_error).classes("gf-error gf-estimate-status")
+        elif stale:
+            ui.label("Updating estimates…").classes("text-grey-7 gf-estimate-status")
+        else:
+            ui.label("").classes("gf-estimate-status")
+        if page.preview is None:
             return
         result = page.preview
         total = result.photon_slices.get(OutputKind.TOTAL_YIELD)
         width = result.model_specific.get("spectrum_width_fwhm")
         a0_peak = result.model_specific.get("a0_peak")
-        with ui.row().classes("w-full gap-4"):
+        with ui.row().classes("w-full gap-4" + (" gf-estimate-stale" if stale else "")):
             if total is not None:
                 self._metric("Total yield", f"{float(total.distr):.5g} photons")
             if width is not None:
@@ -497,12 +509,14 @@ class Pane:
                                     ("Nonlinearity", "nonlinearity")):
                     self._metric(label, f"{getattr(width, attr):.3%}")
         if a0_peak is not None:
-            with ui.row().classes("w-full gap-4"):
+            with ui.row().classes("w-full gap-4" + (" gf-estimate-stale" if stale else "")):
                 self._metric("Peak a₀", f"{a0_peak:.5g}")
         if width is not None:
             ui.label("Widths are FWHM relative to the Compton edge. "
                      f"Nonlinear broadening bracket: {width.nonlinearity_lo:.3%}–"
-                     f"{width.nonlinearity_hi:.3%}.").classes("text-caption text-grey-7")
+                     f"{width.nonlinearity_hi:.3%}.").classes(
+                         "text-caption text-grey-7" + (" gf-estimate-stale" if stale else "")
+                     )
 
     @staticmethod
     def _metric(label: str, value: str) -> None:
