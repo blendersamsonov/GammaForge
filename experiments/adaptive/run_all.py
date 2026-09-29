@@ -109,8 +109,9 @@ def main() -> int:
     if args.quick:
         common += ["--quick"]
     common += ["--ref-n", str(args.ref_n), "--ref-seeds", str(args.ref_seeds)]
-    if args.only:
-        common += ["--only", *args.only]
+    # --only is deliberately NOT in `common`: each per-scenario child gets its own single
+    # --only below, and passing it twice makes argparse keep only the last, which silently
+    # reduced `--only a b` to a single scenario.
 
     stages = ["scenarios", "ablation", "cell-aware"] if args.stage == "all" else [args.stage]
     print(f"stage(s): {', '.join(stages)}")
@@ -130,8 +131,10 @@ def main() -> int:
         ):
             if stage not in stages:
                 continue
+            # exp1 is baseline-only by construction and has no --only; exp5 takes one.
+            only = ["--only", *args.only] if (stage == "cell-aware" and args.only) else []
             argv = [sys.executable, str(HERE / script), *common, "--replicates",
-                    str(args.replicates), *extra]
+                    str(args.replicates), *only, *extra]
             log = RESULTS / f"{stage.replace('-', '_')}.log"
             print(f"  running {stage} -> {log.name}", flush=True)
             with open(log, "w") as handle:
