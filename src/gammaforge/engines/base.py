@@ -1,11 +1,11 @@
-"""The uniform engine interface (GRAND_PLAN.md §4.1) and the recompute-cost tiers (§5).
+"""The uniform engine interface and the recompute-cost tiers.
 
 Two declarations, both small, both needed before any engine exists: the validation
-harness of §7 runs *an engine* against a scenario, and it cannot express that without a
+harness runs *an engine* against a scenario, and it cannot express that without a
 name for what an engine is. Everything an engine needs is already in `gammaforge.io`;
 this module adds only the calling convention.
 
-**Nothing here is a registry.** `ENGINES` (§4.1) arrives with the first engine that has
+**Nothing here is a registry.** `ENGINES` arrives with the first engine that has
 something to register — a lazy import table over an empty set of engines would be exactly
 the speculative machinery P10 rejects.
 """
@@ -24,14 +24,14 @@ __all__ = ["RecomputeCost", "Engine"]
 
 
 class RecomputeCost(Enum):
-    """How expensive re-Calculating is after one field changes (§5).
+    """How expensive re-Calculating is after one field changes.
 
     Generic and **engine-declared**: each engine publishes its own
     ``field key -> RecomputeCost`` mapping, so one pipeline's stages do not define another
     engine's behavior.
 
     The tiers describe how cheap a re-Calculate is — **not** how live a field is. Nothing
-    but the analytical estimates panel is real-time (§5), so even `QUERY_ONLY` still waits
+    but the analytical estimates panel is real-time, so even `QUERY_ONLY` still waits
     for Calculate. The one exception is bunch charge, whose linearity lets the GUI rescale
     existing `Results` with no engine call at all.
     """

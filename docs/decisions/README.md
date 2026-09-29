@@ -65,9 +65,7 @@ Add a decision when a real choice gets made — a `proposed/` note for something
 but not yet built, an `implemented/` note once something is actually built. **Entries are
 added after the fact, not as a promise**: don't file `implemented/` for a plan, and don't
 leave a `proposed/` note stale once the thing it describes has shipped or been dropped —
-move it. Every decision recorded here so far was added after the fact — this repo's
-convention has never filed a `proposed/` note — so `proposed/` and `rejected/` start empty
-and are used only going forward.
+move it. The [index](INDEX.md) records current lifecycle state.
 
 **Every new decision triggers a supersession check**: search the tree for older decisions
 covering the same question, and if the new one replaces an old one, say so explicitly in
@@ -79,23 +77,21 @@ does not need one.
 
 ## Citing from code
 
-A comment or docstring may cite a decision bare, `(D0NN)`, wherever the code embodies
+A comment or docstring may cite a decision bare, `(RESNNN)`, wherever the code embodies
 that decision — no path, no backticks needed, since ids are permanent handles (see
 *Layout and naming* above). Keep the citation a **pointer, not a retelling**: state the
 current behavior or invariant in one clause, then cite the id. If a citation's
 surrounding comment grows past that — a derivation of *why*, a list of alternatives that
 lost, historical measured numbers — that's a sign the content belongs in the decision
-file, not in the code. Move it there. A reader who wants the full story opens `D0NN`;
+file, not in the code. Move it there. A reader who wants the full story opens `RESNNN`;
 everyone else, reading the code for an unrelated reason, doesn't pay to skim it.
 
 The exception is genuinely current, non-obvious behavioral information a maintainer needs
 to avoid reintroducing a bug or breaking an invariant — a derivation needed to verify a
 formula, a "do not do X here, that reintroduces Y" warning. That stays in the code, in
 the code's own voice, decision id attached, even where it overlaps with what the decision
-file also says. **Worked example in this repo:** `docs/decisions/implemented/architecture/
-RES054-*.md`'s Decision/Rationale carries the full `<a^2> = C a0^2` derivation and offsetting
-argument; `io/laser.py`'s and `stages.py`'s docstrings state the current facts in one or
-two clauses each and cite `(RES054)`, not the derivation (RES056).
+file also says. RES054 records the full `<a^2> = C a0^2` reasoning while
+the relevant code docstrings cite `(RES054)` in one or two clauses (RES056).
 
 ## Archiving (and why nothing is ever deleted)
 
@@ -105,8 +101,8 @@ or a `rejected` decision whose rationale no longer guards against a plausible mi
 Archiving is a **move**, to `archived/{class}/RESNNN-topic-title.md`, plus one appended
 header line (`Archived: YYYY-MM-DD`) — the rest of the file, including its `Status:` line,
 is untouched. Nothing is rewritten and nothing is deleted, because a bare id might already
-be cited from a code comment somewhere — this repo has roughly 124 such citations across
-`src/`/`tests/` — and a citation that resolves today must keep resolving.
+be cited from a code comment somewhere, and a citation that resolves today must
+keep resolving.
 
 This is a deliberate departure from systems (deepseek-harness's Agent Notes, for one) that
 delete stale `rejected/` notes outright — that only works if decisions are cited by
@@ -121,7 +117,7 @@ Problem` or `## Decision`, "supersedes RESnnn, because..."), then archive the ol
 short pointer paragraph at the very top of its body, before `## Problem`:
 
 ```markdown
-**Superseded by D0XX** (YYYY-MM-DD): <one line on what changed and why>.
+**Superseded by RESNNN** (YYYY-MM-DD): <one line on what changed and why>.
 ```
 
 The rest of the archived file's body is untouched — it's still the historical record of
@@ -169,7 +165,7 @@ one and say so, once, at the very top of its body (before `## Problem`, after an
 superseded-by pointer):
 
 ```markdown
-*(Numbering note: this entry was written as D0AA and renumbered to D0BB on YYYY-MM-DD to
+*(Numbering note: this entry was written as RESAAA and renumbered to RESBBB on YYYY-MM-DD to
 resolve a collision with parallel work on `<branch>`.)*
 ```
 

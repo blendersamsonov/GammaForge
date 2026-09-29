@@ -58,3 +58,7 @@ and remaining work. This is fixed-direction finite-window validation, not integr
 angular yield or a public-engine acceptance gate. Particle, Stage-0, angular-aperture,
 broader geometry/high-gamma and actual-CUDA convergence remain open. Production
 physics and alpha defaults are unchanged; CuPy stays experimental.
+
+## Amendments
+
+> **2026-09-29 — Documentation relocation.** The completed delta handoff was retired by issue #8. Its pilot interpretation is retained in `docs/validation/delta-convergence-2026-09-10.md` and the cited JSON packet.

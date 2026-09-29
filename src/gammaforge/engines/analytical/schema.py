@@ -1,4 +1,4 @@
-"""analytical's own numeric knob, as a typed `Parameters` schema (GRAND_PLAN.md §3.1/§4.3).
+"""analytical's own numeric knob, as a typed `Parameters` schema.
 
 Only `n_quad` lives here. Everything else the formulas need — the collimation half-angle,
 beam, laser, `N_e` — comes through `InteractionParameters`/`Target`, which already own

@@ -1,4 +1,4 @@
-"""Laser geometry, sampling contract and descriptive fit (GRAND_PLAN.md §2.2/§3.3, Phase 1 exit)."""
+"""Laser geometry, sampling contract and descriptive fit."""
 
 from __future__ import annotations
 

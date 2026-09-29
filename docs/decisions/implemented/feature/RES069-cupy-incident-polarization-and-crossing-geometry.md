@@ -82,3 +82,4 @@ unchanged. Timing and numerical evidence belong in `docs/ALPHA_GPU_VALIDATION.md
 > flux/energy convention with per-electron beta=1 encounter weighting, resonance and
 > Jacobian, including conservative CUDA support. This does not replace the polarization
 > or geometry construction recorded here.
+> **2026-09-29 — Documentation relocation.** The measurement formerly at `docs/ALPHA_GPU_VALIDATION.md` is retained at `docs/validation/alpha-gpu-sampler-2026-09.md`.

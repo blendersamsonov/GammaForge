@@ -72,3 +72,7 @@ The current engine boundary reports per-engine state, not percentage progress or
 interruptible cancellation. Missing engine outputs and calculation failures remain
 visible. The interface is tested with controlled engine failures, unit conversions,
 projection integrals, and an opt-in real Chromium calculation workflow.
+
+## Amendments
+
+> **2026-09-29 — Documentation relocation.** The historical UI specification and plan were retired by issue #8. The root `README.md` now describes current browser behavior; this decision records the architecture.

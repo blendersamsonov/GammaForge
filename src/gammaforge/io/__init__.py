@@ -1,19 +1,19 @@
 """Shared CGS-Gaussian physics core: schema, beam, laser, target, interaction, results.
 
-Depends on nothing else in the repo (GRAND_PLAN.md §3). Package name `io` is retained as
-the stable shared-layer name (P7: no `core` package).
+Depends on nothing else in the repo. Package name `io` is retained as
+the stable shared-layer name (no `core` package).
 
 Modules, in dependency order:
 
-* `units` — CGS-Gaussian constants, the pint boundary contexts, width conventions (§2.1)
-* `schema` — `FieldSpec` / `Parameters`: typed, validated, unit-converting (§3.1)
-* `bunch` — `Bunch`, `GaussianElectronBeam`, sampling, prefilter, propagation, fit (§3.2)
-* `laser` — the `LaserField` protocol and `GaussianParaxialLaser` (§3.3, P15)
-* `results` — `Axis`, `PhasespaceSlice`, `Results` (§3.6)
-* `target` — `OutputKind`, `Target`, auto-ranging (§3.4)
-* `interaction` — `SamplingSpec`, `InteractionParameters` (§3.5)
-* `fields` — the shared beam/laser/sampling `FieldSpec` sets (§3.1)
-* `formats` — YAML specs, elegant `.ele`, HDF5 results (§8)
+* `units` — CGS-Gaussian constants, the pint boundary contexts, width conventions
+* `schema` — `FieldSpec` / `Parameters`: typed, validated, unit-converting
+* `bunch` — `Bunch`, `GaussianElectronBeam`, sampling, prefilter, propagation, fit
+* `laser` — the `LaserField` protocol and `GaussianParaxialLaser` (RES067)
+* `results` — `Axis`, `PhasespaceSlice`, `Results`
+* `target` — `OutputKind`, `Target`, auto-ranging
+* `interaction` — `SamplingSpec`, `InteractionParameters`
+* `fields` — the shared beam/laser/sampling `FieldSpec` sets
+* `formats` — YAML specs, elegant `.ele`, HDF5 results
 
 The names re-exported below are the library surface a notebook or an engine should use;
 anything else is reachable through its module but is not part of the contract.

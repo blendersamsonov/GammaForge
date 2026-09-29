@@ -1,4 +1,4 @@
-"""The compiled interaction every engine run consumes (GRAND_PLAN.md §3.5).
+"""The compiled interaction every engine run consumes.
 
 `InteractionParameters` is the single bundle an engine receives: an analytic beam
 description, a laser typed against the **`LaserField` protocol** (never the concrete

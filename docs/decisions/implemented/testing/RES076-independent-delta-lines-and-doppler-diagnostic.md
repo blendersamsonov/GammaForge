@@ -51,3 +51,7 @@ Stage-0 luminosity, nonlinear shift, sampling and the reduced radiation model re
 shared assumptions. This does not independently validate flux or total yield.
 RES074 remains proposed for matched-bin NumPy/CuPy comparisons and convergence;
 no existing decision is superseded and CuPy remains experimental.
+
+## Amendments
+
+> **2026-09-29 — Documentation relocation.** The completed delta handoff was retired by issue #8. Its measurements and limits are retained in `docs/validation/delta-convergence-2026-09-10.md` and the cited JSON packet.

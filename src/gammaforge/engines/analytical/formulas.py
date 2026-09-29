@@ -1,5 +1,5 @@
 """Closed-form Compton-source physics: total yield, spectrum-width breakdown, and an
-angle-integrated spectrum (GRAND_PLAN.md §4.3). No per-particle Monte Carlo — every
+angle-integrated spectrum. No per-particle Monte Carlo — every
 function here costs `O(1)` or `O(n_quad)`, never `O(n_particles)`. This module has no
 macroparticle argument anywhere, by construction, so its memory use cannot scale as a
 particle-by-energy broadcast.
@@ -26,7 +26,7 @@ not something a caller reaches for by default (RES043).
 feeding :func:`estimate_spectrum_width`) the a0 the bunch actually samples. A crossing
 angle is covered too (RES041), for the yield. Still open: constructing the collimated
 spectrum, and the emitted *spectrum's shape* under a crossing angle, which is
-`GRAND_PLAN.md` §9.3's emission-kernel question rather than an overlap-geometry one.
+an emission-kernel question rather than an overlap-geometry one.
 
 :func:`overlap_time_profile` and :func:`overlap_transverse_profile` resolve the same
 integral in time and across the transverse plane, for cheap preview plots before an
@@ -556,8 +556,7 @@ def overlap_yield(
     .. note::
 
        A crossing angle is covered **for the total yield**. It is not covered for the
-       emitted *spectrum*: `GRAND_PLAN.md` §9.3's open item is the polarization structure
-       of the emission kernel, a different question from this overlap geometry.
+       emitted *spectrum*: the emission kernel needs a separate analytical treatment from this overlap geometry.
        `AnalyticalEngine` says so on the `Results` when both are in play.
     """
     if n_quad < 11:

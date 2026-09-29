@@ -1,4 +1,4 @@
-"""xigma's pipeline as composable pure functions (GRAND_PLAN.md §4.2).
+"""xigma's pipeline as composable pure functions.
 
 Stage 0 (:func:`integrate_trajectories`), Stage 1 (:func:`deposit_shape_table`, onto the
 peak-intensity-independent raw ``a0_shape`` axis), the retarget step

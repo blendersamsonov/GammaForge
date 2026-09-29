@@ -61,3 +61,7 @@ with results. The numerical gate can fail honestly for an insufficiently resolve
 CPU reference. Measurements and remaining promotion limits are recorded in
 `docs/ALPHA_GPU_VALIDATION.md`. Independent arbitrary-angle emission validation,
 GUI, Kascade optimization, and GPU Stage 0/1 remain outside this work.
+
+## Amendments
+
+> **2026-09-29 — Documentation relocation.** The measurement formerly at `docs/ALPHA_GPU_VALIDATION.md` is retained at `docs/validation/alpha-gpu-sampler-2026-09.md`; newer CUDA evidence is in `docs/validation/cupy-release-2026-09-28.md`.

@@ -1,5 +1,5 @@
 # %% [markdown]
-# # GammaForge Interactive Walkthrough: 03 — Decisions, Progress & Validation
+# # GammaForge Interactive Walkthrough: 03 — Decisions, Issues & Validation
 # 
 # Welcome to the third interactive walkthrough notebook!
 # 
@@ -11,11 +11,11 @@
 # 1. **The Architecture Knowledge Base**:
 #    - How decisions (`docs/decisions/RESxxx`) are permanently recorded and indexed.
 #    - How mathematical derivations (`docs/derivations/DERxxx`) move through the confidence pipeline (`derived` $\to$ `validated` $\to$ `verified`).
-#    - How `PROGRESS.md` tracks active state and blockers without stale session logs.
+#    - How GitHub issues track unfinished work while validation reports record measured evidence.
 # 2. **Interactive Search & Explorer Widget**:
-#    - Query decisions, derivations, and open threads by topic (e.g., `"laser"`, `"cupy"`, `"polarization"`, `"units"`).
+#    - Query decisions and derivations by topic (e.g., `"laser"`, `"cupy"`, `"polarization"`, `"units"`).
 # 3. **Deep Dive into Current Blockers**:
-#    - CuPy GPU ring/annulus sampler discrepancy (RES062).
+#    - Current independent validation coverage and its limits (RES084).
 #    - Arbitrary-angle emission validation.
 # 4. **Live Validation Harness in Action**:
 #    - Exploring the shared scenario bank (`gammaforge.validation.scenarios.SCENARIOS`).
@@ -26,7 +26,7 @@
 # ## 1. Parsing the Living Knowledge Base
 # 
 # Let's inspect the current state of GammaForge programmatically from the repository's
-# authoritative files: `docs/decisions/INDEX.md`, `docs/derivations/INDEX.md`, and `PROGRESS.md`.
+# authority indexes: `docs/decisions/INDEX.md` and `docs/derivations/INDEX.md`. GitHub issues own unfinished work.
 
 # %%
 import re
@@ -39,7 +39,6 @@ if not (repo_root / "docs").exists():
 
 decisions_index_file = repo_root / "docs" / "decisions" / "INDEX.md"
 derivations_index_file = repo_root / "docs" / "derivations" / "INDEX.md"
-progress_file = repo_root / "PROGRESS.md"
 
 def parse_markdown_table(file_path: Path) -> list[dict]:
     """Parse a GitHub markdown table into a list of dictionaries."""
@@ -64,30 +63,17 @@ print(f"Total architecture decisions indexed: {len(decisions)}")
 print(f"Total physics derivations indexed:   {len(derivations)}")
 
 # %% [markdown]
-# ### Phase Status Snapshot from `PROGRESS.md`
-# Let's read the live Phase Status table directly from `PROGRESS.md`.
+# ### Where to find active work and measured evidence
+# GitHub issues own unfinished work. Dated validation reports state what was
+# measured and the limits of each result; their existence does not imply full
+# scientific acceptance.
 
 # %%
-progress_phases = []
-if progress_file.exists():
-    lines = progress_file.read_text(encoding="utf-8").splitlines()
-    in_phase_table = False
-    for line in lines:
-        if "## Phase status" in line:
-            in_phase_table = True
-            continue
-        if in_phase_table:
-            if line.startswith("## ") or (line.startswith("---") and progress_phases):
-                break
-            if line.strip().startswith("|") and not line.strip().startswith("|---"):
-                cells = [c.strip() for c in line.split("|")[1:-1]]
-                if len(cells) == 2 and cells[0].lower() != "phase":
-                    progress_phases.append({"Phase": cells[0], "Status": cells[1]})
-
-print(f"{'Phase':<30} | Status")
-print("-" * 75)
-for p in progress_phases:
-    print(f"{p['Phase']:<30} | {p['Status']}")
+validation_reports = sorted((repo_root / "docs" / "validation").glob("*.md"))
+print("Open work: https://github.com/blendersamsonov/GammaForge/issues")
+print(f"Validation reports in this checkout: {len(validation_reports)}")
+for report in validation_reports:
+    print(" ", report.relative_to(repo_root))
 
 # %% [markdown]
 # ## 2. Interactive Decision & Derivation Search

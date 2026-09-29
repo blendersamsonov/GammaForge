@@ -59,3 +59,7 @@ to relative errors of order 1e-13.
 NumPy's `polarization_factor` and `polarization_factor_vectorized` are numerically stable at
 arbitrarily high gamma. Existing Stage-0 yields and tests remain passing. Independent
 arbitrary-angle emission validation remains open as tracked in `PROGRESS.md`.
+
+## Amendments
+
+> **2026-09-29 — Documentation relocation.** Open independent scientific acceptance is tracked by GammaForge issue #1 and the production validation records rather than the retired `PROGRESS.md`.

@@ -1,4 +1,4 @@
-"""Electron beam and macroparticle bunch (GRAND_PLAN.md §3.2).
+"""Electron beam and macroparticle bunch.
 
 * :class:`GaussianElectronBeam` — the analytic 6D Gaussian description, CGS-Gaussian.
   It is **both** the input description and the output of a fit (P8): there is no

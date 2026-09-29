@@ -53,3 +53,4 @@ All three are standard quadrature errors that vanish with resolution. The produc
 > percentages and four-coordinate bin tuples above are historical evidence, not current
 > goldens. Current acceptance must use the direct-particle references and refinement gates
 > against DER015–DER017.
+> **2026-09-29 — Documentation relocation.** The completed delta handoff and `PROGRESS.md` were retired by issue #8. Historical measurements are summarized in `docs/validation/delta-convergence-2026-09-10.md`; current acceptance limits are in `docs/validation/delta-production-2026-09-29.md` and issue #1.

@@ -84,7 +84,7 @@ print(f"Interaction built: {interaction.bunch.n_particles} particles, {interacti
 #     def run(self, interaction: InteractionParameters, params: Parameters) -> Results: ...
 # ```
 # 
-# **Critical Design Rules (AGENTS.md & GRAND_PLAN.md):**
+# **Critical Design Rules (AGENTS.md):**
 # - **No mutable `Config` on an engine (P5)**: Engine knobs live in the typed `Parameters` schema, validated.
 # - **Engines never branch the GUI, and the GUI never touches engine internals (P3)**.
 # - **Uniform Results (P10)**: Every engine returns a `Results` object holding `PhasespaceSlice` entries.
@@ -413,7 +413,7 @@ fig_spec.show()
 # %% [markdown]
 # ## 5. Zero-Cost Operations: Charge Rescaling
 # 
-# One of GammaForge's key design principles (`GRAND_PLAN.md §5`) is the cost tier hierarchy:
+# One of GammaForge's key design principles (RES030) is the cost tier hierarchy:
 # - Compton scattering at this operating point has **no space charge**.
 # - Every output (yield, spectrum, distributions) scales **strictly linearly with $N_e$**.
 # - Therefore, changing bunch charge does NOT require re-running any engine!

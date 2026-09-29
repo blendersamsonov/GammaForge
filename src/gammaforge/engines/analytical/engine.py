@@ -117,8 +117,7 @@ class AnalyticalEngine:
         """Where this engine's answer is only partly covered by its own derivation.
 
         `overlap_yield` handles a crossing angle exactly, so `TOTAL_YIELD` is right. The
-        emitted *spectrum* is a different question — `GRAND_PLAN.md` §9.3's open item is
-        the polarization structure of the emission kernel — so `SPECTRUM`'s **shape** is
+        emitted *spectrum* has a separate emission-kernel treatment, so `SPECTRUM`'s **shape** is
         still head-on while its integral is correct. That combination looks more right than
         it is, which is exactly why it is reported rather than left to
         `io.laser.validate()`: nothing forces a caller to run that, and this engine is the
@@ -138,7 +137,7 @@ class AnalyticalEngine:
             "still the head-on kinematics. The magnitude is quoted so this is actionable "
             f"rather than alarming — the photon energy scale is off by about {shift:.2e} "
             "relative, since it enters as cos^2(theta/2), while the yield changed by far "
-            "more. GRAND_PLAN.md §9.3's emission-kernel derivation is what would close it.",
+            "more. The crossed-spectrum shape requires a separate analytical model.",
         )
 
     def _fill(

@@ -1,4 +1,4 @@
-"""elegant / SDDS ``.ele`` 6D distributions (GRAND_PLAN.md §8).
+"""elegant / SDDS ``.ele`` 6D distributions.
 
 The hand-rolled SDDS ASCII reader/writer enforces two project conventions:
 

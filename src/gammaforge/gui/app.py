@@ -586,10 +586,11 @@ class Pane:
                 ui.separator()
                 ui.label("Documentation:").classes("text-subtitle1")
                 with ui.column().classes("gap-1"):
-                    ui.label("• GRAND_PLAN.md — Architecture and phase plan")
-                    ui.label("• PROGRESS.md — Current state and open threads")
+                    ui.label("• README.md — Installation and use")
+                    ui.label("• GitHub issues — Open work")
                     ui.label("• docs/decisions/ — Implementation decisions (RESNNN)")
                     ui.label("• docs/derivations/ — Physics derivations (DERNNN)")
+                    ui.label("• docs/validation/ — Scientific evidence")
 
             with ui.card().classes("gf-section"):
                 ui.label("Debug & Display").classes("gf-section-title")

@@ -57,3 +57,7 @@ RES074 remains partly implemented: off-axis spectral/table convergence and a
 matched-bin delta/CuPy acceptance matrix remain open. CuPy stays experimental.
 Current reports and remaining work are in
 `docs/handoffs/delta-arbitrary-angle-validation-2026-09-09.md`.
+
+## Amendments
+
+> **2026-09-29 — Documentation relocation.** The completed delta handoff was retired by issue #8. Current evidence and limits are in `docs/validation/delta-production-2026-09-29.md`; issues #1 and #10 track unfinished coverage.

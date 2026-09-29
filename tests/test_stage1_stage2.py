@@ -1,5 +1,5 @@
 """Stage 1 (a0_shape deposition), the ahat retarget, and Stage 2 (spectrum queries),
-GRAND_PLAN.md §4.2, Phase 3a (RES032).
+See RES032.
 
 Stage 1's job is conservation: every particle's weight lands somewhere in the shape
 table, and the table's own total agrees with Stage 0's regardless of resolution or scheme.

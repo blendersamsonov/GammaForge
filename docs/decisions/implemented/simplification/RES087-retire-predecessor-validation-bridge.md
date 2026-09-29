@@ -62,3 +62,7 @@ but code comments and docstrings describe current behavior intrinsically.
 
 The retirement does not close the independently tracked arbitrary-angle and four-method
 coverage gaps. Those remain visible in `PROGRESS.md` and production validation reports.
+
+## Amendments
+
+> **2026-09-29 — Documentation relocation.** The retired `PROGRESS.md` backlog moved to GitHub issues. Issues #1 and #10 track the independent arbitrary-angle and four-method coverage gaps.

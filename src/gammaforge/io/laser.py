@@ -1,4 +1,4 @@
-"""Laser field representation (GRAND_PLAN.md §3.3, §2.2; P15, RES067).
+"""Laser field representation.
 
 Two things live here, and the split is the point:
 
@@ -1000,7 +1000,7 @@ def fit_gaussian_paraxial(laser: LaserField) -> GaussianParaxialLaser:
     raise NotImplementedError(
         f"fit_gaussian_paraxial has no numerical path yet and {type(laser).__name__} is not "
         "a GaussianParaxialLaser. Implement the fit alongside the LaserField "
-        "implementation that needs it (GRAND_PLAN.md §3.3/P15)."
+        "implementation that needs it."
     )
 
 

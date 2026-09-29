@@ -1,4 +1,4 @@
-"""`engines/analytical` (GRAND_PLAN.md §4.3): closed-form yield/width/spectrum formulas
+"""`engines/analytical`: closed-form yield/width/spectrum formulas
 and the `AnalyticalEngine` wrapper.
 
 The worked-example fixture (`_EXAMPLE_BEAM`/`_EXAMPLE_LASER`) is the established

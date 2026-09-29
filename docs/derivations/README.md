@@ -10,8 +10,8 @@ in-file format. `tests/test_derivation_format.py` enforces the mechanical parts.
 
 `docs/derivations/{status}/DERNNN-topic-title.md`.
 
-- **`DERNNN`** is a permanent, sequential id — distinct from decisions' `RESNNN` and the
-  plan's principle ids (`PN`) so a bare citation in code is unambiguous at a glance —
+- **`DERNNN`** is a permanent, sequential id — distinct from decisions' `RESNNN`
+  so a bare citation in code is unambiguous at a glance —
   assigned once, never reused.
 - **Status** (the folder) is a **confidence level**, not a build lifecycle, and a
   derivation climbs through them as evidence accumulates:
@@ -46,7 +46,7 @@ exists and passed.
 ## Citing from code
 
 Same rule as decisions (`docs/decisions/README.md`'s *Citing from code*, RES056): a
-comment may cite `(DV0NN)` bare. Keep it a pointer — the formula the code implements,
+comment may cite `(DERNNN)` bare. Keep it a pointer — the formula the code implements,
 plus the citation — not the derivation itself.
 
 ## Shared notation
@@ -60,16 +60,15 @@ $s_1(u),s_2(u)$ and $s_{ct}=c\,\tau$. Crossing angle $\theta$ is measured from e
 counter-propagation, matching `theta_xz`/`theta_yz`.
 
 Math is MathJax (`$…$` / `$$…$$`), so it renders in Obsidian and pastes into
-`~/Work/Papers/2026/Compton-Numerics/xigma.tex` with only environment changes.
+the separate Xigma-Paper manuscript with only environment changes.
 
 ## Symbolic verification with sympy
 
 **Use sympy (or equivalent CAS) to formally verify derivations wherever possible.**
 
-The derivations in this repository are pure symbolic algebra — vector dot products,
-matrix traces, trigonometric identities, complex arithmetic, and rotation matrices.
-They contain no integrals, asymptotic series, or numerical methods. This makes them
-ideal candidates for formal verification with a computer algebra system.
+Use a computer algebra system where the derivation has a tractable symbolic
+identity. Numerical integrations and asymptotic limits need their own appropriate
+checks; see each derivation's Verification section for its actual evidence.
 
 ### Verification workflow
 
@@ -92,31 +91,17 @@ ideal candidates for formal verification with a computer algebra system.
    - Which parts required numerical verification (e.g., exact vectors with square roots)
    - Any basis-convention differences from analytic formulas
 
-### Current verification status
-
-| Derivation | Method | Status |
-|------------|--------|--------|
-| DER001–DER003 | Symbolic (sympy) | ✅ Verified |
-| DER004 | Symbolic (sympy) | ✅ Verified |
-| DER005 | Symbolic (sympy) | ✅ Verified |
-| DER006 | Symbolic (sympy) | ✅ Verified |
-| DER007 | Symbolic (head-on) + Numerical (exact vectors) | ✅ Verified |
-
-DER007's full crossing-angle expressions involve square roots from exact basis vectors
-(`f₀ = (v - (v·n)n)/|v - (v·n)n|`) that cause expression explosion in sympy. The
-head-on limit (θ→0) is verified symbolically for all basis-invariant physics
-(P=1, I=1, |V/I|=2ε/(1+ε²), dipole null). The exact implementation uses the paper's
-recommended numerical approach (§8) with exact vectors, verified numerically.
+The [index](INDEX.md) records current confidence states. Each derivation's
+Verification section states the methods and limits of its evidence.
 
 ### Running verifications
 
 ```bash
-python verify_all.py          # Run all verifications
-python verify_all.py der004   # Run specific derivation
+python scripts/verifications/verify_all.py          # Run all verifications
+python scripts/verifications/verify_all.py der004   # Run specific derivation
 ```
 
-Verification scripts live in the repo root: `verify_der004.py`, `verify_der005.py`,
-`verify_der006.py`, `verify_der007_headon.py`.
+Verification scripts live under `scripts/verifications/`.
 
 ## The file format
 

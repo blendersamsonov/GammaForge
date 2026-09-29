@@ -70,3 +70,7 @@ CuPy remains opt-in and requires table/sampler convergence checks for new calcul
 The current fixed ring discretization is not an exact curved-boundary integration.
 Head-on numerical agreement does not validate arbitrary-angle emission or change the
 author-owned ahat-grid default. No GUI or kascade optimization is included.
+
+## Amendments
+
+> **2026-09-29 — Documentation relocation.** The measurement formerly at `docs/ALPHA_GPU_VALIDATION.md` is retained at `docs/validation/alpha-gpu-sampler-2026-09.md`.

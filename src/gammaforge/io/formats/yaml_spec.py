@@ -1,4 +1,4 @@
-"""Beam / laser / sampling YAML files (GRAND_PLAN.md §8).
+"""Beam / laser / sampling YAML files.
 
 **Units are explicit at the file boundary and converted to CGS on load.** A parameter is
 written as a mapping::

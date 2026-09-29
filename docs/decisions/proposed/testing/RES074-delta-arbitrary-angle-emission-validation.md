@@ -97,3 +97,7 @@ production runner, with provisional agreement, energy-quadrature, angular-table
 and retarget refinement gates. Particle/seed, Stage-0, gamma/shape-grid,
 angular-aperture and independent CUDA convergence remain explicit coverage gaps.
 This proposal's complete scientific acceptance criteria remain open.
+
+## Amendments
+
+> **2026-09-29 — Documentation relocation.** The completed delta handoff was retired by issue #8. Its measured checkpoints are retained in `docs/validation/delta-convergence-2026-09-10.md`; remaining coverage is tracked by issues #1 and #10.

@@ -1,11 +1,11 @@
 # Alpha GPU sampler validation
 
 Status: direction-Doppler consistency (RES082) and gamma-resonance proposal (RES080)
-implemented, with CuPy selected by schema default — 2026-09-13. See the [renewed validation record](validation/direction-doppler-2026-09-12.md).
+implemented, with CuPy selected by schema default — 2026-09-13. See the [renewed validation record](direction-doppler-2026-09-12.md).
 Independent arbitrary-angle scientific acceptance remains open.
 Stage 0/1 now execute on the selected device with host stage boundaries (RES083);
-see the [execution and timing record](validation/cupy-stages01-2026-09-13.md).
-The [gamma-proposal integration record](validation/gamma-proposal-2026-09-13.md)
+see the [execution and timing record](cupy-stages01-2026-09-13.md).
+The [gamma-proposal integration record](gamma-proposal-2026-09-13.md)
 compares RES080 sampling efficiency and documents its limits. Backend-default and
 physics descriptions in the dated measurements below refer to their original versions.
 
@@ -19,7 +19,7 @@ as independent validation of the corrected physics.
 CuPy 14.2.0 on the GTX 1660 Ti (driver 580.173.02) passes the original distribution
 gate, direct CDF tests, smooth-table/high-gamma regressions, and head-on scenario-bank
 comparisons. RES069 extends these checks to incident polarization and two-plane laser
-crossing geometry, as recorded in the final section. NumPy remains the alpha default.
+crossing geometry, as recorded in the final section. NumPy was the alpha default at the time of this measurement.
 This does not close independent emission
 validation or establish convergence for arbitrary new parameter regimes (RES068).
 
@@ -245,7 +245,7 @@ Progress messages on stderr identify each case and CPU/CUDA refinement, with ela
 times also stored in the convergence report's `timings` field. The refined CPU
 references can take substantially longer than the CUDA calculations; allow the full
 schedule to finish before interpreting the aggregate verdict.
-The [2026-09-28 full run](validation/cupy-release-2026-09-28.md) passed all 90
+The [2026-09-28 full run](cupy-release-2026-09-28.md) passed all 90
 checks across nine cases and took approximately 25 minutes, mostly in the two
 64-fold high-gamma CPU refinements.
 It also records the installed package version and SHA-256 fingerprints of the
@@ -289,7 +289,7 @@ calculation.
 The recorded real-CUDA run passed all 80 numerical checks across eight cases, plus
 both public crossed-overflow runs. Environment: GTX 1660 Ti, CuPy 14.2.0, CUDA runtime
 12.9, NumPy 2.5.1, Python 3.14.6. The complete report is
-[`validation/cupy-release-2026-09-08.json`](validation/cupy-release-2026-09-08.json).
+[`validation/cupy-release-2026-09-08.json`](cupy-release-2026-09-08.json).
 This report was rerun after the Stokes and temporal-modulation updates through
 549c801, with the CuPy changes in the working tree. Its before/after source
 fingerprints agree.
@@ -315,7 +315,7 @@ the gate correctly rejected that reference until it was refined further.
 After merging the author's local per-electron transverse-dipole correction, all
 80 numerical checks across eight cases and both public crossed-angle runs pass
 again, with unchanged limits. The corrected report is
-[`validation/cupy-release-transverse-2026-09-09.json`](validation/cupy-release-transverse-2026-09-09.json).
+[`validation/cupy-release-transverse-2026-09-09.json`](cupy-release-transverse-2026-09-09.json).
 Before/after source fingerprints agree. Hardware and software versions match the
 previous report. Historical timings above were not rerun for this correction.
 
@@ -329,8 +329,8 @@ Focused actual-CUDA runs also pass 39 polarization tests and 25 crossing-yield
 tests, including 12 public-engine target-bound cases. The combined focused CPU
 and documentation run passes 139 tests; the full repository suite was not rerun.
 The independent delta implementation now constructs the corrected basis without
-production helpers. Its NumPy pilot improves substantially on-axis, but off-axis
-spectral L1 remains about 14%; see the
-[delta handoff](handoffs/delta-arbitrary-angle-validation-2026-09-09.md).
+production helpers. Its initial NumPy pilot improved substantially on-axis, but
+off-axis spectral L1 was about 14% at the coarse grid; see the
+[later convergence checkpoint](delta-convergence-2026-09-10.md).
 This gate establishes sampler/reference numerical agreement, not independent
 arbitrary-angle scientific acceptance. CuPy remains experimental.
