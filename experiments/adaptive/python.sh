@@ -43,9 +43,24 @@ fi
 # Sibling checkouts: a bundle clone or a worktree is usually a sibling of the main repo, and
 # that is where its venv will be. This is the case the git lookup above cannot see, because
 # a bundle clone is its own repository rather than a worktree of anything.
+#
+# Ordered by specificity: a sibling whose *name matches this checkout's repo name* is
+# strongly preferred over any other sibling, because a directory that merely happens to
+# contain a .venv with pint and numpy is not necessarily this project's venv. A same-named
+# sibling is, almost by definition, the main checkout of the same project.
+repo_name="$(basename "$repo")"
+preferred=()
+other=()
 for sibling in "$repo"/../*/.venv; do
-    [[ -e "$sibling" ]] && candidates+=("$sibling")
+    [[ -e "$sibling" ]] || continue
+    if [[ "$(basename "$(dirname "$sibling")")" == "$repo_name" ]]; then
+        preferred+=("$sibling")
+    else
+        other+=("$sibling")
+    fi
 done
+candidates+=("${preferred[@]}")
+candidates+=("${other[@]}")
 # And a few levels up, for a venv kept at a project root above the checkout.
 probe="$repo"
 for _ in 1 2 3; do
@@ -100,14 +115,37 @@ EOF
 fi
 
 # Force this checkout's source ahead of whatever the editable install points at.
-export PYTHONPATH="$repo/src${PYTHONPATH:+:$PYTHONPATH}"
+# Prepend without duplicating: the shell may already have it (e.g. set by hand), and a
+# repeated entry is harmless but makes the diagnostic output confusing.
+case ":${PYTHONPATH:-}:" in
+    *":$repo/src:"*) ;;
+    *) PYTHONPATH="$repo/src${PYTHONPATH:+:$PYTHONPATH}" ;;
+esac
+export PYTHONPATH
 cd "$here"
 
 if [[ "${1:-}" == "--show-env" ]]; then
     echo "interpreter : $interpreter"
     echo "venv        : $chosen_venv"
     echo "PYTHONPATH  : $PYTHONPATH"
-    "$interpreter" -c "import gammaforge, sys; print('gammaforge  :', gammaforge.__file__)"
+    "$interpreter" - <<'PY'
+import pathlib, sys
+import gammaforge
+print("gammaforge  :", gammaforge.__file__)
+print("sys.prefix  :", sys.prefix)
+print("site-pkgs   :", next((p for p in sys.path if p.endswith("site-packages")), "?"))
+# Is this venv actually *this project's*? An editable install leaves a .pth behind.
+for entry in pathlib.Path(sys.prefix, "lib").rglob("_editable_impl_*.pth"):
+    for line in entry.read_text().splitlines():
+        print("venv's own editable install points at:", line)
+# Versions of the packages that actually shape the numbers.
+for name in ("numpy", "pint", "h5py", "yaml"):
+    try:
+        module = __import__(name)
+        print(f"  {name:6s} {getattr(module, '__version__', '?')}")
+    except Exception:
+        print(f"  {name:6s} -- not installed --")
+PY
     exit 0
 fi
 
