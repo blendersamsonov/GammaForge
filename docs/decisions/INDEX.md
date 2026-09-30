@@ -1,11 +1,3 @@
-# Decisions — Index
-
-Lifecycle and type workflow: [`README.md`](README.md). Add or update a row in the same
-change as a new decision, lifecycle move or type change. Each path points directly into
-one lifecycle folder; the type column matches the file's `Type:` tag.
-
-| id | title | type | status | path |
-|----|-------|-------|--------|------|
 | RES001 | Build backend: hatchling, src layout | process | implemented | archived/RES001-build-backend-hatchling-src-layout.md |
 | RES002 | Doc-staleness guard (C2) scope: `DECISIONS.md` only, not `GRAND_PLAN.md` or `PROGRESS.md` — superseded by RES055 | testing | implemented | archived/RES002-doc-staleness-guard-scope.md |
 | RES003 | Phase 0 package skeleton: subpackage `__init__.py` only, no placeholder module files | process | implemented | archived/RES003-phase0-package-skeleton.md |
@@ -98,3 +90,4 @@ one lifecycle folder; the type column matches the file's `Type:` tag.
 | RES091 | Emission-supported single-bin reductions | bug-fix | implemented | implemented/RES091-emission-supported-single-bin-reductions.md |
 | RES092 | Bounded production refinement | testing | implemented | implemented/RES092-bounded-production-refinement.md |
 | RES093 | Uniform raw-`ahat` production retarget grid | bug-fix | implemented | implemented/RES093-uniform-raw-ahat-production-retarget.md |
+| RES094 | An effective-sample-size floor guards the luminosity allocation | feature | proposed | proposed/RES094-neff-floor-guards-the-luminosity-allocation.md |

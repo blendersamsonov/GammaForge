@@ -144,3 +144,68 @@ sampler seed times once per budget.
   universal replacement path); and the refinement criterion remains luminosity-only, where the
   pilot already computes the Stage-1 coordinates (`a0_shape`, `chirp_mean`) and a later
   criterion should use them.
+
+## Amendments
+
+> **2026-09-30 — the "parity on the resolved spectrum" claim above is superseded; the
+> allocation is regime-dependent, and `proposal_scale = sqrt(2)` is a net negative.** The
+> ten-scenario bank with 12 paired replicates per arm
+> (`docs/validation/adaptive-sampling-2026-09-29.md`, §5) measures three separate things, and
+> the decision's own defaults survive none of them cleanly. Measured as paired differences
+> against plain stratified QMC (`s=1`, `λ=0`) on spectrum L1 at `N = 40 000`:
+>
+> - **Stratification is a settled win.** IID is resolved worse in 9 of 10 scenarios,
+>   consistently 1.5–1.8×. This is the load-bearing result and it is stronger than the
+>   entry's "measured gain" framing suggests.
+> - **`proposal_scale = sqrt(2)` is a net negative.** `s=√2` with no allocation is resolved
+>   worse than `s=1` in 9 of 10. The shipped default is wrong on this evidence, independent of
+>   the luminosity term.
+> - **The luminosity allocation's value depends on the regime, and interacts with `s`.** The
+>   same `λ=0.75` helps at `s=√2` (3 better / 1 worse / 6 noise) and *hurts* at `s=1`
+>   (2 better / 5 worse / 3 noise). Its wins are the concentrated scenarios — `tight_focus`,
+>   `focus_3um`, `twiss_corr` — at a consistent 12–15% error reduction, which is the handoff's
+>   own prediction arriving as a measurement. The one large regression is `wide_bunch`
+>   (+39%, resolved), driven by a weight collapse to `N_eff/N = 0.045` against 0.836–0.992
+>   everywhere else.
+>
+> So "parity on the resolved spectrum" was true only of the two scenarios the first
+> measurement happened to use (`baseline` and `wide_bunch`), which are the two most *diffuse*
+> in the bank, and true for neither of them by the better measurement above. The refusal to
+> promote the default stands, but the reason is now sharper: **no single `(s, λ)` dominates the
+> bank**, which is a different problem from "the gain is narrow". Whether that is a
+> `s × λ` interaction with a physical reading — an over-broad reference needing the luminosity
+> term to correct its own over-dispersion — or an artifact is unresolved, and it is the
+> question that decides whether this can be a fixed default at all.
+>
+> Region splitting (`initial_regions=64 → max_regions=256`) has **no measurable effect**: the
+> verdicts agree in 8 of 10 scenarios against the same arm without it. On this evidence it is
+> not earning its keep.
+>
+> A Stage-1-cell-aware criterion does **not** resolve the regime dependence: it reproduces the
+> same split (helps `tight_focus`/`focus_3um`, hurts `baseline`, collapses to `N_eff = 155` on
+> `wide_bunch`) and the pilot cannot supply it in any case, seeing 5.9–7.7 cells per region
+> against the oracle's 46–63. See RES094 for the `N_eff` guard this motivates.
+
+> **2026-09-30 — the luminosity allocation was inert from first commit until `970e0f9`.**
+> Region pilot moments were computed and then not stored on `SamplingRegion`, so `Q_m` fell
+> back to `B_m` for *every* `luminosity_fraction`, and only luminosity-driven splitting was
+> live. The shipped defaults consequently produced numbers that looked like a working
+> `λ=0.75` experiment while measuring uniform allocation. Every structural invariant in the
+> entry above still held — `∑P_m = 1`, `∑w = 1`, `Q_m ≥ (1-λ)B_m` — the run was fast, the
+> tables were well-formed, and nothing warned. The decision above is therefore sound in what it
+> specifies and was, for its first two commits, not what the code did; the measurements it
+> cites from that period should be read as characterising the `λ=0` path. Fixed with
+> regression tests asserting the moments are populated and that `λ = 0`, `0.5`, `1.0` produce
+> different allocations. `preflight.py` in the experiment harness now refuses to run against
+> pre-fix code, because this failure is indistinguishable from a working run at the table level.
+
+> **2026-09-30 — two measurement-methodology corrections that invalidate first-pass numbers.**
+> The first benchmark compared arms by absolute error against a reference, which is not a
+> significance test, and its numbers are not comparable to the current ones. (i) The
+> reference floor — the spread of the reference across its own seeds — bounds the *reference*,
+> not an arm; a 20–40k arm's seed-to-seed spread is several times larger, so "above the floor"
+> does not mean distinguishable. (ii) Arms reused the reference's seeds (`SEEDS =
+> REF_SEEDS[:2]`), so an IID arm at seed 3 drew the same particle stream as the reference at
+> seed 3. Both are corrected in the harness; the entry's "parity" figure above came from that
+> regime. Concretely, the `baseline` spectrum ratio of 0.64× read as a large win is 9.26e-3
+> vs 9.06e-3 at 12 paired replicates — nominally the other way. It was seed noise.
