@@ -48,6 +48,34 @@ handoff. Do not infer current behavior from an old checkout or historical prose.
   evidence, then delete the handoff before merge. Merge requires explicit review
   and authorization.
 
+### Completion tracker reconciliation
+
+Closing an issue or merging its implementation PR is not complete until the active
+tracker has been reconciled with the result (RES094).
+
+- Once the final shipped state is known, search **all open issues and open/draft PRs**
+  for references or assumptions affected by the completed work. Search more broadly
+  than the literal issue number: include the PR number, relevant DER/RES ids, feature
+  and component names, removed parameters/interfaces/paths, and dependency language
+  such as "blocked by", "depends on", "after #N", or "when #N lands".
+- Classify each hit as historical provenance or an active statement about current or
+  future work. Preserve historical statements. Update active statements that became
+  false, stale, redundant, newly unblocked, or narrower because of the merge.
+- Reconcile active issue titles/bodies, PR descriptions, and branch-local handoffs
+  where they still govern unfinished work. If the completed work fully satisfies or
+  obsoletes another open issue, close/supersede it with an explanatory reference; if
+  it only changes that issue's scope, edit the issue rather than silently leaving the
+  old assumptions in place.
+- Check linked work in another repository when the completed issue/PR explicitly
+  participates in a cross-repository dependency (for example Xigma-Paper waiting on
+  GammaForge numerical evidence).
+- Do not rewrite closed issues, merged PRs, old handoffs in history, DER/RES reasoning,
+  or validation records merely to make historical text read as if it had been written
+  after the merge.
+- In the completion report, state which active issues/PRs/handoffs were reconciled,
+  or explicitly state that the scan found no required updates.
+
+
 ## Architecture and physics invariants
 
 - Shared dataclasses in `gammaforge.io` use one canonical CGS-Gaussian unit
