@@ -1,7 +1,7 @@
 # Luminosity-Aware Adaptive Sampling — Validation Record
 
 **Branch:** `feature/luminosity-aware-adaptive-sampling` (worktree `../GammaForge-adaptive-sampling`)
-**Implements:** `docs/handoffs/luminosity-aware-adaptive-sampling.md` (RES093)
+**Implements:** `docs/handoffs/luminosity-aware-adaptive-sampling.md` (RES094)
 **Revisions:** first draft (baseline scenario only) → this revision (10-scenario bank, 12
 replicates/arm). Section 4 lists exactly which first-draft claims this supersedes and which
 survive; §11 is the short version for a reader who wants only what changed.
@@ -85,6 +85,7 @@ One consequence worth stating plainly, because it invalidated a headline: the fi
 | "A tight-focus or crossing-angle case should favour adaptive *more*" | **Confirmed, and it is the strongest positive result** (§5). |
 | "Wider scenario bank — all numbers are baseline only" | **Done**, 10 scenarios. |
 | Composite quadrature, Halley `norm_ppf` | **Unchanged** — both are design choices settled by construction, not by this measurement. |
+| Every number above | **Predates `main`'s uniform raw-`ahat` retarget (PR #15).** Relative arm-vs-arm comparisons survive; absolute errors do not. See §15. |
 
 ---
 
@@ -194,7 +195,7 @@ Two consequences:
 2. **Guarded, the shipped arm is 3 better / 0 worse / 6 noise.** The `wide_bunch` regression
    becomes parity with the control it lost to.
 
-This is proposed, not built — see RES094. Two honest objections are recorded there and in
+This is proposed, not built — see RES095. Two honest objections are recorded there and in
 §11.3: the guard bounds a *symptom*, and it is still pattern-matched against one bank.
 
 ## 8. Cell-aware allocation (`exp5`): not the answer, and the pilot cannot supply it
@@ -315,19 +316,39 @@ cd experiments/adaptive
 `preflight.py` refuses to run against pre-fix code, because the inert-allocation failure
 (§9.1) looks exactly like a working run.
 
-## 14. Pre-existing issues found, not fixed
+## 14. Corrections to previously reported issues
 
-- **`.gitignore` ignores `scripts/`, but `tests/test_report_figures.py` imports from it.** The
-  test cannot run in *any* worktree, only in the main checkout. Excluded with `--ignore`.
-  Probably fix by force-adding the two modules it needs, or moving them out of `scripts/`.
-- **Adding `propagation_direction()` to the `LaserField` protocol broke a conforming
-  implementation** in `tests/test_laser.py`. That is the protocol working as intended, but
-  extending a `@runtime_checkable` Protocol is a breaking change for external implementers.
-- **`AGENTS.md` cites two decision-format tests that do not exist.**
-  `tests/test_decision_format.py` and `tests/test_doc_staleness.py` are named twice as the
-  mechanical enforcement of the backticks-vs-italics convention, the `RESNNN` header format,
-  and the INDEX/tree cross-check. Neither file is on `main`, on this branch, or on disk. The
-  conventions in `docs/decisions/README.md` are therefore documented but unenforced, and this
-  revision's decision files were checked by hand against that README instead. Worth either
-  writing the tests or removing the claim; a contributor reading `AGENTS.md` will reasonably
-  assume a gate exists and will not check.
+An earlier revision of this record listed three "pre-existing issues found, not fixed". On
+re-checking against current `main`, **none of the three is repository state**, and all three
+should be struck:
+
+1. *"`.gitignore` ignores `scripts/`, but `tests/test_report_figures.py` imports from it."*
+   The repository `.gitignore` does not mention `scripts/`. The ignore is in
+   `.git/info/exclude`, which is per-clone and uncommitted -- a local workaround. The test
+   file itself is untracked and does not exist on `main`. Neither was ever committed, so
+   there is nothing in the repository to fix and no other clone is affected.
+2. *"The decision-format tests named by `AGENTS.md` do not exist."* True when written, and
+   fixed since: `main`'s consolidated `AGENTS.md` no longer cites
+   `tests/test_decision_format.py` or `tests/test_doc_staleness.py`.
+3. *"Adding `propagation_direction()` broke a conforming `LaserField` implementation."* Still
+   a true statement about the protocol change, and recorded in the decision rather than as a
+   defect; no longer listed here as an open issue.
+
+The general lesson is worth keeping, because it is the same failure mode as the bug list: an
+untracked local file and a per-clone exclude look exactly like repository state from inside a
+single working copy, and reporting them as such sends the next reader after problems that do
+not exist.
+
+## 15. Phase-I provenance after the rebase onto `main`
+
+This branch has been rebased onto current `main`, which merged PR #15 -- *"Implement uniform
+raw-`ahat` production retargeting"* (main's own RES093: DER021's uniform Stage-1.5 grid, with
+`retarget_ahat`'s default raised to 256 bins).
+
+**Every Phase-I number in this record was measured before that change.** The measured
+conclusions -- stratification beats IID in 9 of 10, `s=sqrt(2)` is net negative, the allocation
+is regime-dependent -- are about *relative* behaviour between sampling schemes at a fixed
+reference, and the retarget grid is common to every arm, so those comparisons should be
+unaffected. The **absolute** error values, and any statement of the form "the error is X", are
+not comparable with post-rebase runs. Nothing here was re-measured after the rebase; §13
+reproduces it.

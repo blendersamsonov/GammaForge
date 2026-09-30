@@ -5,7 +5,7 @@
 **Issue:** #20  
 **Pull request:** #21  
 **Branch:** `feature/luminosity-aware-adaptive-sampling`  
-**Authority:** DER024 for the exact Gaussian representation; RES093 and `docs/validation/adaptive-sampling-2026-09-29.md` for the completed Phase-I implementation and measured evidence.
+**Authority:** DER024 for the exact Gaussian representation; RES094 and `docs/validation/adaptive-sampling-2026-09-29.md` for the completed Phase-I implementation and measured evidence.
 
 This is a **material revision of the original handoff after validation**. The original handoff remains preserved in branch history. Do not rewrite the Phase-I result as though it never happened.
 
@@ -440,7 +440,7 @@ This handoff remains temporary execution context and must be removed from the br
 Durable conclusions belong in:
 
 - DER024 only where they concern the already-derived exact Gaussian sampling mathematics;
-- RES093 or a follow-up decision for lasting software-design choices;
+- RES094 or a follow-up decision for lasting software-design choices;
 - `docs/validation/` for the numerical evidence;
 - issue #20 and PR #21 for the work history.
 

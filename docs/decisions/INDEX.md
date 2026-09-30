@@ -90,4 +90,5 @@
 | RES091 | Emission-supported single-bin reductions | bug-fix | implemented | implemented/RES091-emission-supported-single-bin-reductions.md |
 | RES092 | Bounded production refinement | testing | implemented | implemented/RES092-bounded-production-refinement.md |
 | RES093 | Uniform raw-`ahat` production retarget grid | bug-fix | implemented | implemented/RES093-uniform-raw-ahat-production-retarget.md |
-| RES094 | An effective-sample-size floor guards the luminosity allocation | feature | proposed | proposed/RES094-neff-floor-guards-the-luminosity-allocation.md |
+| RES094 | Luminosity-aware adaptive sampling as an opt-in bunch strategy | feature | implemented | implemented/RES094-luminosity-aware-adaptive-sampling.md |
+| RES095 | An effective-sample-size floor guards the luminosity allocation | feature | proposed | proposed/RES095-neff-floor-guards-the-luminosity-allocation.md |

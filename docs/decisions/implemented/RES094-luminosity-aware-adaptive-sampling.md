@@ -1,7 +1,9 @@
-# RES093 — Luminosity-aware adaptive sampling as an opt-in bunch strategy
+# RES094 — Luminosity-aware adaptive sampling as an opt-in bunch strategy
 
 Status: implemented
 Class: feature
+
+*(Numbering note: this entry was written as RES093 and renumbered to RES094 on 2026-09-30 to resolve a collision with parallel work on `main`, which merged PR #15 and took RES093 for the uniform raw-`ahat` production retarget. `main` merges first, so this branch is the later merger.)*
 
 ## Problem
 
@@ -184,7 +186,7 @@ sampler seed times once per budget.
 > A Stage-1-cell-aware criterion does **not** resolve the regime dependence: it reproduces the
 > same split (helps `tight_focus`/`focus_3um`, hurts `baseline`, collapses to `N_eff = 155` on
 > `wide_bunch`) and the pilot cannot supply it in any case, seeing 5.9–7.7 cells per region
-> against the oracle's 46–63. See RES094 for the `N_eff` guard this motivates.
+> against the oracle's 46–63. See RES095 for the `N_eff` guard this motivates.
 
 > **2026-09-30 — the luminosity allocation was inert from first commit until `970e0f9`.**
 > Region pilot moments were computed and then not stored on `SamplingRegion`, so `Q_m` fell

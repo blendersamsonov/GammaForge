@@ -1,4 +1,4 @@
-"""Adaptive-stratified bunch sampling: exact representation, then convergence (RES093).
+"""Adaptive-stratified bunch sampling: exact representation, then convergence (RES094).
 
 The tests are ordered by *what could silently be wrong*, and each tier protects a different
 class of failure:
@@ -1315,7 +1315,7 @@ def test_the_benchmark_reports_a_real_accuracy_versus_cost_table():
     Guards the parts that are load-bearing rather than the numbers: that it runs, that it
     produces both strategies' error curves, and that `particles_for` inverts an error curve
     into a particle count and correctly reports a target it cannot reach. The measured
-    values live in the benchmark's own output and in RES093; asserting them here would only
+    values live in the benchmark's own output and in RES094; asserting them here would only
     re-assert this test file against itself.
     """
     import importlib.util

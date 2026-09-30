@@ -1,7 +1,9 @@
-# RES094 — An effective-sample-size floor guards the luminosity allocation
+# RES095 — An effective-sample-size floor guards the luminosity allocation
 
 Status: proposed
 Class: feature
+
+*(Numbering note: this entry was written as RES094 and renumbered to RES095 on 2026-09-30 to resolve a collision with parallel work on `main`, which merged PR #15 and took RES093 for the uniform raw-`ahat` production retarget. `main` merges first, so this branch is the later merger.)*
 
 ## Problem
 
@@ -69,7 +71,7 @@ neutral. Rejected because it forfeits a real, mechanistically-predicted, reprodu
 12–15% gain in the concentrated regime, corroborated independently by the cell-aware
 experiment (§8 of the validation record). If the expert review concludes the concentrated gain
 is too thin to bank on (3 of 10, sign test p ≈ 0.125), **this alternative should be preferred
-and RES094 dropped** — that is a judgement about how much a 12–15% gain in three scenarios is
+and RES095 dropped** — that is a judgement about how much a 12–15% gain in three scenarios is
 worth, not a technical question.
 
 ### Why not clip the allocation instead of rejecting it?
@@ -151,8 +153,8 @@ rather than only against the data.
 - **The `s × λ` interaction is untouched by this.** If a broad reference genuinely needs the
   luminosity term to correct its own over-dispersion, then `s` and `λ` are not independently
   tunable and no fixed pair serves the bank. That is a separate question, and the more
-  fundamental one; RES094 is worth doing either way, but it does not settle it.
-- **No default promotion follows from this.** RES093 keeps `"iid"` as the default, and the
+  fundamental one; RES095 is worth doing either way, but it does not settle it.
+- **No default promotion follows from this.** RES094 keeps `"iid"` as the default, and the
   measured `proposal_scale = sqrt(2)` default is separately wrong on current evidence
   (resolved worse than `s=1` in 9 of 10). Any promotion decision needs the metric question
   answered first — yield and spectrum disagree per scenario, and the acceptance criterion has
