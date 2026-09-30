@@ -24,11 +24,13 @@ handoff. Do not infer current behavior from an old checkout or historical prose.
   not by itself promote a derivation or close scientific acceptance.
 - Merged code and the root README own current behavior; GitHub issues own unfinished
   work; PRs and Git history own implementation/process history.
-- The separate private `blendersamsonov/Xigma-Paper` repository owns manuscript
-  prose, figures, bibliography and paper-only issues. Current GammaForge
-  derivations take precedence when manuscript text conflicts with physics here.
+- The current `main` of the separate private `blendersamsonov/Xigma-Paper`
+  repository owns manuscript prose, figures, bibliography and paper-only issues.
+  Current GammaForge derivations take precedence when manuscript text conflicts
+  with physics here.
   New algorithms, diagnostics, validation infrastructure and numerical evidence
   belong in GammaForge; paper presentation of established results belongs there.
+  When paper work needs new GammaForge computation, track that work here first.
 
 ## Derivations, issues and handoffs
 
@@ -39,11 +41,12 @@ handoff. Do not infer current behavior from an old checkout or historical prose.
   tests, decisions, manuscript edits or confidence promotion.
 - File an implementation issue only for work that remains. Reference its `DERNNN`
   as the physics specification where applicable.
-- Create an implementation branch from current `main`. Its temporary handoff in
-  `docs/handoffs/` is the first substantive commit; implementation follows in
-  later commits. Reference the durable issue in the handoff and PR. Move durable
-  results into code, DER/RES records and validation evidence, then delete the
-  handoff before merge. Merge requires the normal explicit review/authorization.
+- Create one implementation branch from current `main` and a draft PR. Its
+  temporary handoff in `docs/handoffs/` is the first substantive commit;
+  implementation follows in later commits. Reference the durable issue in the
+  handoff and PR. Move durable results into code, DER/RES records and validation
+  evidence, then delete the handoff before merge. Merge requires explicit review
+  and authorization.
 
 ## Architecture and physics invariants
 
@@ -59,10 +62,11 @@ handoff. Do not infer current behavior from an old checkout or historical prose.
   Gaussian laser geometry uses `R_y(theta_xz) R_x(theta_yz)`; the transported
   focus and polarization axes follow that rotation.
 - The GUI renders schemas, calls the public runner/`Engine.run()`, and renders
-  `Results`; it does not inspect engine stages or compute physics. Engines declare
-  recompute costs as data
-  (`QUERY_ONLY`, `REUSE_INTERMEDIATES`, `FULL_RERUN`). Calculations are gated by
-  **Calculate**; analytical estimates alone can preview immediately.
+  `Results`; it never imports engine stages or stateful facades such as `Collision`,
+  and does not compute physics. Engines declare recompute costs as data
+  (`QUERY_ONLY`, `REUSE_INTERMEDIATES`, `FULL_RERUN`), not as a global stage enum.
+  Calculations are gated by **Calculate**; analytical estimates alone can preview
+  immediately.
 - Do not add speculative capability registries, generic spec adapters, `Results.cfg`
   back-references or duplicated derived properties. Superseded interfaces and
   compatibility shims should be removed rather than maintained as legacy code.
@@ -78,7 +82,8 @@ handoff. Do not infer current behavior from an old checkout or historical prose.
   commit. `pytest --tier=tier0` covers contracts, schemas, units and formats.
   Direct targeted files run without flags. Add tests for scientific invariants,
   independent agreement, convergence or a previously observed corruption bug;
-  avoid routine micro-tests of trivial branches and defaults.
+  avoid routine micro-tests of trivial branches, defaults, private details,
+  documentation structure or framework behavior.
 - `python -m gammaforge.validation.run` is the suite entry point; its production
   selector reports missing scientific coverage as blockers. Iterate
   `gammaforge.validation.scenarios.SCENARIOS` in runners rather than hardcoding
