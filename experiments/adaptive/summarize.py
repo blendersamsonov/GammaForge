@@ -168,14 +168,124 @@ def show_cell_aware():
     print()
 
 
+#: The arms worth reading side by side. `strat-s1` is the control (plain stratified QMC, no
+#: allocation), so the question each other arm answers is explicit: iid = is the whole scheme
+#: worth anything, strat-s1.41 = does broad stratification alone help or hurt, the lam arms =
+#: what does the allocation add, full = what actually ships.
+DECISION_ARMS = ("iid", "strat-s1", "strat-s1.41", "s1-lam0.75", "s1.41-lam0.75", "full")
+
+
+def _pm(block, key, width=10):
+    """``mean±sem`` from a replicate block; the bare mean when there is no usable sem."""
+    entry = block.get(key, {})
+    mean, sem = entry.get("mean", float("nan")), entry.get("sem", float("nan"))
+    if not math.isfinite(sem):
+        return f"{mean:>{width}.2e}"
+    return f"{mean:>{width - 5}.2e}±{sem:.0e}"
+
+
+def show_decision():
+    """One line per (scenario, budget, arm): the paired difference and its verdict.
+
+    The per-scenario tables are unreadable for a decision because the answer is a *sign* and a
+    significance, not a magnitude: 10 scenarios x 7 arms x 2 budgets of absolute errors buries
+    the two questions that matter. This keeps the arms that isolate a mechanism and prints the
+    paired difference against the control, which is the only column with a verdict attached.
+    """
+    per_scenario = sorted(RESULTS.glob("scenarios_*.json"))
+    rows = []
+    for path in per_scenario:
+        rows.extend(json.load(open(path)))
+    combined = not per_scenario  # only when there is nothing else to read
+    if combined:
+        rows = load("exp3_scenarios.json") or []
+    if not rows:
+        print("exp3: no results yet")
+        return
+
+    # Deduplicate on (scenario, n, variant): a scenario present both per-scenario and in the
+    # legacy combined file would otherwise be double-counted, and the stale copy would make a
+    # freshly re-run scenario look stale.
+    seen, deduped = set(), []
+    for r in rows:
+        key = (r["scenario"], r["n"], r["variant"], r.get("bins"), r.get("scheme"))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(r)
+    rows = deduped
+    # Fresh means "has a replicate block", judged on the replicate *count* -- not on the
+    # presence of a delta. The control arm has no delta by construction, and testing for one
+    # classified it as stale and dropped the one row the whole table is a comparison against.
+    def _is_fresh(r):
+        return bool((r.get("replicates") or {}).get("replicates"))
+
+    stale = [r for r in rows if not _is_fresh(r)]
+    fresh = [r for r in rows if _is_fresh(r)]
+    if stale:
+        names = sorted({r["scenario"] for r in stale})
+        print(f"WARNING: no replicates for {', '.join(names)} -- stale, from an earlier "
+              f"reference. Re-run those scenarios before reading their verdicts.\n")
+
+    if not fresh:
+        print("no scenario has replicates yet; every row is a bare point estimate")
+        return
+
+    control = fresh[0]["replicates"].get("control", "strat-s1")
+    reps = fresh[0]["replicates"].get("replicates", "?")
+    ref_n = fresh[0].get("reference_n", "?")
+    print("== DECISION: what does each mechanism add, paired against the control? ==")
+    print(f"   control: {control!r}   {reps} replicates/arm   reference {ref_n} particles")
+    print("   Δ is (arm - control) in spectrum L1; negative means the arm beat the control.\n")
+    header = (f"{'scenario':>16} {'N':>6}  {'arm':>14} {'spectrum':>16} "
+              f"{'Δ vs control':>17} {'N_eff':>7}  verdict")
+    print(header)
+    print("-" * len(header))
+
+    rollcall = {}
+    for scenario in sorted({r["scenario"] for r in fresh}):
+        subset = [r for r in fresh if r["scenario"] == scenario]
+        for n in sorted({r["n"] for r in subset}):
+            for r in subset:
+                if r["n"] != n or r["variant"] not in DECISION_ARMS:
+                    continue
+                block = r["replicates"]
+                d = (block.get("delta") or {}).get("spectrum") or {}
+                delta = (f"{d['mean']:+.2e}±{d['sem']:.0e}" if d and math.isfinite(d.get("sem", float("nan")))
+                         else "(control)")
+                print(f"{scenario:>16} {n:>6}  {r['variant']:>14} "
+                      f"{_pm(block, 'spectrum', 16):>16} {delta:>17} "
+                      f"{block['n_eff']['mean']:>7.0f}  {block['verdict']}")
+            if n == max(x["n"] for x in subset):
+                for arm in ("full", "s1-lam0.75", "strat-s1.41"):
+                    row = next((x for x in subset
+                                if x["n"] == n and x["variant"] == arm), None)
+                    if row:
+                        rollcall.setdefault(scenario, {})[arm] = row["replicates"]["verdict"]
+
+    print("\n-- roll call at the largest budget: what FULL does vs the control " + "-" * 8)
+    for scenario, verdicts in rollcall.items():
+        v = verdicts.get("full", "?")
+        mark = {"control": "  ", "within noise": "  ", "needs >1 replicate": "  ?",
+                "no control": "  "}.get(v, "  !")
+        print(f"  {mark}{scenario:>16}: {v}")
+    print("\n  ! = resolved (a real difference); blank = indistinguishable from the control.")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ablation", action="store_true")
     parser.add_argument("--scenarios", action="store_true")
     parser.add_argument("--cell-aware", action="store_true")
+    parser.add_argument("--decision", action="store_true",
+                        help="compact per-scenario verdicts against the control arm")
     parser.add_argument("--scenario", default=None, help="restrict to one scenario name")
     args = parser.parse_args()
-    show_all = not (args.ablation or args.scenarios or args.cell_aware)
+    show_all = not (args.ablation or args.scenarios or args.cell_aware or args.decision)
+    if args.decision:
+        show_decision()
+    if args.decision and not show_all:
+        return 0
     if args.ablation or show_all:
         show_ablation()
     if args.scenarios or show_all:
