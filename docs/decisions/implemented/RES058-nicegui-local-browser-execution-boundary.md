@@ -15,7 +15,8 @@ CGS, engine boundary, and explicit Calculate semantics.
 The optional NiceGUI frontend starts explicitly through `gammaforge.gui.__main__` on
 loopback. Two page-local views share one `Workspace`: Inputs and Results, optionally
 shown in two independently selectable panes using the framework's standard splitter.
-The layout is specified in `docs/UI_SPEC.md` and GRAND_PLAN v0.26.
+The current layout lives in `src/gammaforge/gui/` and is summarized in the root
+`README.md`. The retired UI specification and plan remain in Git history.
 
 `CalculationRequest` captures physical inputs, target, sampling, and typed engine
 parameters. `LocalRunner` consumes the request without importing NiceGUI. It samples
@@ -27,8 +28,7 @@ edits. Charge-only rescaling applies only to a clean completed snapshot.
 The public runner enumerates the concrete available calculation engines with a small
 dictionary, closing RES018's deferred enumeration question without replacing its
 engine protocol. Analytical remains an always-visible estimate and optional result overlay.
-The GUI imports only that runner and the engine interface from the engines package;
-`tests/test_gui_boundary.py` enforces this source boundary.
+The GUI imports only that runner and the engine interface from the engines package.
 
 `LocalRunner` reuses the sampled bunch where its physical inputs are unchanged.
 It does not retain xigma stages across calls: RES030's per-instance cache behavior
