@@ -127,7 +127,7 @@ print(f"Engine 2: '{analytical.name}', outputs: {[o.name for o in analytical.sup
 #                                ▼
 # ┌─────────────────────────────────────────────────────────────┐
 # │ Stage 1.5: retarget_ahat() -> Table                         │
-# │ Scales only the shape axis to the physical raw ahat.        │
+# │ Conservatively moves shape mass to uniform raw ahat bins.   │
 # │ The carrier-rate coordinate is unchanged.                   │
 # │ Stage 2 evaluates Q=(1-n·n0)/(1-e·n0) per query.           │
 # └──────────────────────────────┬──────────────────────────────┘
@@ -181,7 +181,9 @@ shape_table = collision._shape()
 table = collision._table()
 print(f"  ShapeTable axes: {shape_table.H.shape}")
 print(f"  Retargeted Table axes: {table.H.shape}")
+print(f"  Raw ahat bin width: {np.diff(table.ahat_edges)[0]:.4g} (trailing empty bins pruned)")
 print(f"  Carrier evaluation points: {table.chirp_eval_points}")
+np.testing.assert_allclose(np.diff(table.ahat_edges), np.diff(table.ahat_edges)[0])
 assert table.H_var_a.shape == table.H_var_chirp.shape == table.H_cov_a_chirp.shape == table.H.shape
 assert table.H.shape[-1] == 1
 

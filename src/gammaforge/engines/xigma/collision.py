@@ -173,7 +173,6 @@ class Collision:
                 ahat_min=self.params.get_float("ahat_min"),
                 ahat_max=self.params.get_float("ahat_max"),
                 n_bins=self.params.get_int("n_bins_ahat"),
-                decades=self.params.get_float("ahat_decades"),
             )
         return self._tables[key]
 

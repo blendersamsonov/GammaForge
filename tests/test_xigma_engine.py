@@ -37,6 +37,13 @@ def _engine_params(**overrides):
     )
 
 
+def test_collision_uses_uniform_ahat_grid():
+    params = _engine_params(ahat_max=0.02).with_values(n_bins_ahat=8)
+    table = Collision(_interaction(n_particles=128), params)._table()
+    np.testing.assert_array_equal(table.ahat_edges, np.linspace(0.0, 0.02, 9)[:len(table.ahat_edges)])
+    assert "ahat_decades" not in {spec.key for spec in XigmaEngine.schema.specs}
+
+
 def test_total_yield_and_spectrum_integral_converge_to_the_same_number():
     interaction = _interaction(n_particles=3000)
     errors = []

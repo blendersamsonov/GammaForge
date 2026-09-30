@@ -1,11 +1,12 @@
 """Stage 1 (a0_shape deposition), the ahat retarget, and Stage 2 (spectrum queries),
-See RES032.
+See RES032 and RES093.
 
 Stage 1's job is conservation: every particle's weight lands somewhere in the shape
 table, and the table's own total agrees with Stage 0's regardless of resolution or scheme.
 The retarget's job is a second, independent conservation (total weight is preserved exactly
-through the regrid) plus placing mass where the chosen peak a0 actually puts it — denser
-near `ahat_max`, folded into the floor below `ahat_min`. Stage 2's job is the resonance
+through the regrid) plus placing mass where the chosen peak a0 actually puts it — on
+a uniform raw-`ahat` grid, folded into the floor below `ahat_min` when requested.
+Stage 2's job is the resonance
 condition: the spectrum it reports must depend on ahat the way the physics does (the
 nonlinear redshift), and it must agree with `delta` — an independent, table-free
 implementation of the same differential form — to within grid/interpolation error.
@@ -90,6 +91,19 @@ def _table(samples, *, shape_bins=(16, 16, 16, 16, 8), scheme="nearest", **retar
     """Shorthand: the two-call chain most tests need, at a modest, fast scale."""
     shape_table = deposit_shape_table(samples, n_bins=shape_bins, scheme=scheme)
     return retarget_ahat(shape_table, samples.intensity_peak, **retarget_kwargs)
+
+
+def test_uniform_ahat_target_edges_and_floor_semantics():
+    ordinary = _ahat_target_edges(0.1, 0.5, 8)
+    np.testing.assert_array_equal(ordinary, np.linspace(0.1, 0.5, 9))
+    np.testing.assert_array_equal(_ahat_target_edges(0.1, 0.5, 1), [0.0, 0.5])
+
+    samples = _synthetic_samples(a0_shape=1.0, intensity_peak=0.5)
+    shape = deposit_shape_table(samples, n_bins=(4, 4, 4, 4, 1))
+    table = retarget_ahat(shape, samples.intensity_peak, ahat_min=0.1, ahat_max=0.5, n_bins=8)
+    np.testing.assert_array_equal(table.ahat_edges, np.r_[0.0, ordinary])
+    np.testing.assert_array_equal(table.ahat_eval_points[0:1], [0.0])
+    np.testing.assert_allclose(np.diff(table.ahat_edges[1:]), 0.05, rtol=0, atol=1e-16)
 
 
 # ---------------------------------------------------------------------------
@@ -347,7 +361,7 @@ def test_retarget_ahat_conserves_total_weight_exactly():
     samples = _synthetic_samples(a0_shape=1.0)
     shape_table = deposit_shape_table(samples, n_bins=(16, 16, 16, 16, 8))
     for intensity_peak in (0.01, 0.045, 0.18, 0.4):
-        table = retarget_ahat(shape_table, intensity_peak, ahat_min=0.0, ahat_max=0.5, n_bins=32, decades=1.0)
+        table = retarget_ahat(shape_table, intensity_peak, ahat_min=0.0, ahat_max=0.5, n_bins=32)
         # Linear, not quadratic: the retarget parameter is now an intensity, which is the
         # already-squared quantity (RES054).
         expected = shape_table.total_weight * (intensity_peak / samples.intensity_peak)
@@ -376,7 +390,7 @@ def test_retarget_ahat_folds_mass_below_ahat_min_into_the_floor_bin():
     shape_table = deposit_shape_table(samples, n_bins=(8, 8, 8, 16, 8))
     # ahat_min well above the population's actual ahat (0.045): everything must fold into
     # the explicit zeroth bin [0, ahat_min], and total weight must still be exactly conserved.
-    table = retarget_ahat(shape_table, samples.intensity_peak, ahat_min=0.2, ahat_max=0.5, n_bins=16, decades=1.0)
+    table = retarget_ahat(shape_table, samples.intensity_peak, ahat_min=0.2, ahat_max=0.5, n_bins=16)
     # First edge is now 0 (explicit zeroth bin for sub-floor contributions)
     assert table.ahat_edges[0] == pytest.approx(0.0)
     # The mass should be in the first bin (index 0), which spans [0, 0.2]
@@ -395,7 +409,7 @@ def test_retarget_ahat_truncates_unpopulated_bins():
     """
     samples = _synthetic_samples(a0_shape=1.0, intensity_peak=0.00125)  # ahat = 0.00125, tiny
     shape_table = deposit_shape_table(samples, n_bins=(8, 8, 8, 16, 8))
-    table = retarget_ahat(shape_table, samples.intensity_peak, ahat_min=0.0, ahat_max=0.5, n_bins=32, decades=1.0)
+    table = retarget_ahat(shape_table, samples.intensity_peak, ahat_min=0.0, ahat_max=0.5, n_bins=32)
     assert table.ahat_edges[-1] < 0.5
     assert table.H.shape[3] < 32
 
@@ -407,7 +421,7 @@ def test_retarget_ahat_truncation_does_not_change_the_kernel_output():
     """
     samples = _synthetic_samples(n=5_000, a0_shape=1.0, intensity_peak=0.00125)
     shape_table = deposit_shape_table(samples, n_bins=(8, 8, 8, 16, 8))
-    truncated = retarget_ahat(shape_table, samples.intensity_peak, ahat_min=0.0, ahat_max=0.5, n_bins=32, decades=1.0)
+    truncated = retarget_ahat(shape_table, samples.intensity_peak, ahat_min=0.0, ahat_max=0.5, n_bins=32)
 
     from gammaforge.engines.xigma.stages import Table
 
@@ -628,51 +642,6 @@ def test_the_kernel_and_delta_agree_on_where_the_redshift_puts_the_photons():
     assert centroid(kernel_bright) == pytest.approx(centroid(reference_bright), rel=2e-3)
     assert centroid(kernel_bright) < 0.97 * centroid(kernel)
 
-
-@pytest.mark.parametrize(
-    "scenario, expected_bias, expected_bins",
-    [(scenarios.BASELINE, -1.131, 1), (scenarios.LOW_A0, -1.627, 1), (scenarios.NEAR_A0_MAX, -0.036, 2)],
-)
-def test_the_production_ahat_grid_under_resolves_the_bank_by_a_known_amount(
-    scenario, expected_bias, expected_bins
-):
-    """What the *shipping* configuration actually does, pinned rather than described.
-
-    The test above resolves the ``ahat`` axis deliberately (``ahat_max=0.1``) — but
-    `Collision._table` builds the grid from the schema defaults, and nothing else here
-    exercises those on the quantity ``ahat`` controls. At RES032's defaults
-    (``ahat_max=0.5``, ``n_bins=32``, ``decades=1.0``) the first non-floor edge sits at
-    0.035, so the whole scenario bank lands at or near the floor bin and the kernel uses
-    that bin's own centre — 0.0174 — in place of population means of 0.0057, 0.00057 and
-    0.028. The centroid it reports is biased low by the amounts below.
-
-    This is **not a regression from RES053** and not something to fix by widening a tolerance:
-    the bias is dominated by floor-bin coarseness and predates the cycle-average correction
-    (``low_a0`` moved -1.59% -> -1.65% across it). It is pinned so that a future change to
-    `_ahat_target_edges` or to the defaults has to move these numbers deliberately.
-    RES053's last section records the measured alternative (``decades=0.3`` at the same
-    ``n_bins``/``ahat_max``), which is the author's call rather than this test's.
-    """
-    samples = _samples(scenario)
-    shape_table = deposit_shape_table(samples, n_bins=(32, 48, 48, 64, 8), scheme="cic")
-    table = retarget_ahat(shape_table, samples.intensity_peak)  # production defaults, as Collision does
-    assert table.H.shape[3] == expected_bins
-
-    # The floor bin's centre is a fixed property of the grid, the same for every scenario,
-    # and it is what the kernel uses for the whole population below 0.035.
-    assert table.ahat_centers[0] == pytest.approx(0.5 * _ahat_target_edges(0.0, 0.5, 32, 1.0)[1])
-
-    edge = float(np.max(samples.gamma)) ** 2
-    s_edges = np.linspace(0.0, 1.05 * edge, 150)
-    s_centers = 0.5 * (s_edges[:-1] + s_edges[1:])
-    kernel = angular_spectrum_from_table(table, [0.0], [0.0], s_centers)[0, 0, :]
-    reference = resonance_spectrum(samples, s_edges, 0.0, 0.0)
-
-    def centroid(spectrum):
-        return float(np.sum(s_centers * spectrum) / np.sum(spectrum))
-
-    bias = 100.0 * (centroid(kernel) / centroid(reference) - 1.0)
-    assert bias == pytest.approx(expected_bias, abs=0.15)
 
 
 def test_spectrum_shifts_with_ahat_not_merely_rescales():

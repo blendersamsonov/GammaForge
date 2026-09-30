@@ -8,7 +8,7 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 import numpy as np
-from gammaforge.engines.xigma.stages import integrate_trajectories, deposit_shape_table, retarget_ahat, angular_spectrum_from_table, DEFAULT_AHAT_MIN, DEFAULT_AHAT_MAX, DEFAULT_AHAT_DECADES
+from gammaforge.engines.xigma.stages import integrate_trajectories, deposit_shape_table, retarget_ahat, angular_spectrum_from_table, DEFAULT_AHAT_MIN, DEFAULT_AHAT_MAX
 import gammaforge.io.laser as laser_module
 import gammaforge.io.bunch as bunch_module
 from gammaforge.io.units import Quantity
@@ -95,7 +95,7 @@ def run_pilot(particles=16000, n_steps=64, seed=20260721, retarget_bins=64, quad
                         'observer': {'index': oi, 'theta_x': tx, 'theta_y': ty},
                         'photon_energy_erg': photon, 'shape': list(shape),
                         'actual_table_shape': list(table.H.shape), 'intensity_peak': float(samples.intensity_peak),
-                        'ahat_defaults': {'min': DEFAULT_AHAT_MIN, 'max': DEFAULT_AHAT_MAX, 'decades': DEFAULT_AHAT_DECADES},
+                        'ahat_defaults': {'min': DEFAULT_AHAT_MIN, 'max': DEFAULT_AHAT_MAX},
                         'retarget_bins': rt, 'edges': edges.tolist(), 'comparison': cmp,
                     })
                 del density, table

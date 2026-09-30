@@ -2,8 +2,8 @@
 
 Stage 0 (:func:`integrate_trajectories`), Stage 1 (:func:`deposit_shape_table`, onto the
 peak-intensity-independent raw ``a0_shape`` axis), the retarget step
-(:func:`retarget_ahat`, a conservative regrid onto the physical, non-uniform
-``ahat`` axis for one specific peak intensity — RES032) and Stage 2
+(:func:`retarget_ahat`, a conservative regrid onto the physical, uniform
+``ahat`` axis for one specific peak intensity — RES032, RES093) and Stage 2
 (:func:`spectrum_from_table`,
 :func:`angular_spectrum_from_table`, :func:`spectrum_in_angular_range`) all live here.
 The exact observer incidence, carrier-weighted moments, and finite-line reconstruction
@@ -98,7 +98,6 @@ __all__ = [
     "DEFAULT_RETARGET_BINS",
     "DEFAULT_AHAT_MIN",
     "DEFAULT_AHAT_MAX",
-    "DEFAULT_AHAT_DECADES",
     "SPECTRUM_WORKING_SET_BYTES",
     "SPECTRUM_MAX_ENERGY_CHUNK",
     "stage2_backend",
@@ -1187,12 +1186,10 @@ def integrate_trajectories(
 #: resolution; an exactly constant carrier rate always collapses to one bin.
 DEFAULT_SHAPE_BINS = (48, 48, 48, 96, 8)
 
-#: Defaults for :func:`retarget_ahat`'s fixed, non-uniform target grid, tuned against this
-#: repo's scenario bank (RES032), independent of defaults tuned for other scenario banks.
-DEFAULT_RETARGET_BINS = 32
+#: Defaults for :func:`retarget_ahat`'s uniform raw-ahat target grid (DER021).
+DEFAULT_RETARGET_BINS = 256
 DEFAULT_AHAT_MIN = 0.0
 DEFAULT_AHAT_MAX = 0.5
-DEFAULT_AHAT_DECADES = 1.0
 
 
 def _uniform_edges(values, n_bins: int, margin: float, floor_zero: bool = False):
@@ -1307,11 +1304,9 @@ class Table:
     The axis stores raw ``ahat``; Stage 2 evaluates the observer-dependent nonlinear
     coefficient at query time (DER015). ``H`` is a **density** (weight per unit cell volume),
     accompanied by DER016's three luminosity-weighted moment densities.
-    Unlike `ShapeTable`, the ``ahat`` axis is generally
-    **non-uniform** — :func:`retarget_ahat` builds it dense near
-    ``ahat_max`` and coarse toward ``ahat_min`` (RES032), so there is no
-    single scalar cell volume; :attr:`ahat_widths` and :attr:`gamma_theta_cell_area` are
-    what :func:`spectrum_from_table` actually needs.
+    Unlike `ShapeTable`, the ``ahat`` axis may include a separate floor bin, so
+    :attr:`ahat_widths` and :attr:`gamma_theta_cell_area` provide the integration
+    measure used by :func:`spectrum_from_table`.
     """
 
     gamma_edges: np.ndarray
@@ -1382,8 +1377,7 @@ class Table:
 
     @property
     def ahat_widths(self):
-        """Per-bin ``ahat`` width, shape ``(n_ahat,)`` — non-uniform, unlike every other
-        axis here, so this is an array rather than a scalar."""
+        """Per-bin ``ahat`` widths, including any separate floor bin."""
         xp = _get_array_module(self.ahat_edges)
         return xp.diff(self.ahat_edges)
 
@@ -1552,45 +1546,16 @@ def deposit_shape_table(
     )
 
 
-def _ahat_target_edges(ahat_min: float, ahat_max: float, n_bins: int, decades: float):
-    """``n_bins + 1`` non-uniform ``ahat`` edges, log-spaced in distance from the top:
-    finest near ``ahat_max`` (where the redshift correction is significant), coarsest near
-    ``ahat_min`` (folded floor bin — §4.2, RES032)::
-
-        v_i = (ahat_max - ahat_min) * 10**(-decades * i / n_bins),  i = 0..n_bins
-        ahat_i = ahat_max - v_i
-
-    ``i=0`` lands exactly on ``ahat_min`` (``v_0`` is the full span). The raw ``i=n_bins``
-    value lands within ``10**-decades`` of ``ahat_max``, not exactly on it; snapped to
-    ``ahat_max`` exactly below, so both ends of the grid are exact. **This widens
-    the single top bin** — negligibly at ``decades >= 3`` (the widening is a factor of
-    ``10**-decades`` of the span), but visibly at the ``decades=1`` this repo's scenario
-    bank actually uses (RES032): the top bin ends up wider than its immediate
-    neighbour, not narrower. A deliberate, bounded exception to the "finer toward the top"
-    trend at the very last bin, not a bug — every other bin still shrinks monotonically.
-
-    Special case: when ``n_bins == 1``, this returns a single bin spanning ``[0, ahat_max]``
-    to support the "ignore nonlinearity" mode where all spectrum calculations evaluate at
-    ``ahat = 0``. The evaluation point for this bin is 0, not the midpoint.
-    """
+def _ahat_target_edges(ahat_min: float, ahat_max: float, n_bins: int):
+    """Uniform raw-``ahat`` edges (DER021), except for the one-bin linear mode."""
     if ahat_max <= ahat_min:
         raise ValueError(f"_ahat_target_edges: ahat_max ({ahat_max}) must exceed ahat_min ({ahat_min})")
-    if decades <= 0.0:
-        raise ValueError(f"_ahat_target_edges: decades must be positive, got {decades}")
     if n_bins <= 0:
         raise ValueError(f"_ahat_target_edges: n_bins must be positive, got {n_bins}")
 
-    xp = np  # This function creates new arrays, use numpy as base
-
-    # Special case: n_bins == 1 means "ignore nonlinearity" — single bin evaluated at ahat=0
     if n_bins == 1:
-        return xp.array([0.0, ahat_max])
-
-    i = xp.arange(n_bins + 1)
-    v = (ahat_max - ahat_min) * 10.0 ** (-decades * i / n_bins)
-    edges = ahat_max - v
-    edges[-1] = ahat_max
-    return edges
+        return np.array([0.0, ahat_max])
+    return np.linspace(ahat_min, ahat_max, n_bins + 1)
 
 
 def retarget_ahat(
@@ -1600,20 +1565,18 @@ def retarget_ahat(
     ahat_min: float = DEFAULT_AHAT_MIN,
     ahat_max: float = DEFAULT_AHAT_MAX,
     n_bins: int = DEFAULT_RETARGET_BINS,
-    decades: float = DEFAULT_AHAT_DECADES,
 ) -> Table:
     """Stage 1.5: conservative regrid of a `ShapeTable`'s raw ``a0_shape`` axis.
 
-    The fixed, non-uniform target coordinate is raw ``ahat`` for one specific peak
-    cycle-averaged intensity ``<a^2>`` (RES032, supersedes
-    RES028; RES054 for why the parameter is an intensity rather than an amplitude).
+    The uniform target coordinate is raw ``ahat`` for one specific peak
+    cycle-averaged intensity ``<a^2>`` (DER021, RES032, RES054).
 
     Cheap and independent of ``n_particles`` — a ``shape_table.a0_shape_edges.size x
     n_bins``-sized tensordot, not a re-deposit — so a `Collision` can cache the shape
     deposit once and retarget many pulse strengths from it.
 
     Conservative (mass-preserving) under the same piecewise-uniform-density assumption
-    deposition itself makes, onto :func:`_ahat_target_edges`'s non-uniform target law. The
+    deposition itself makes, onto :func:`_ahat_target_edges`'s uniform target grid. The
     deposited mass is rescaled by ``intensity_peak / shape_table.source_intensity_peak``
     (:meth:`TrajectorySamples.retargeted_luminosity`'s relation), since the requested
     intensity is generally not the one Stage 0 ran at.
@@ -1623,7 +1586,7 @@ def retarget_ahat(
 
     When ``n_bins > 1``, an explicit zeroth bin ``[0, ahat_min]`` is prepended to catch
     sub-floor contributions; this bin is evaluated at ``ahat = 0``. The remaining bins
-    follow the standard non-uniform grid from ``ahat_min`` to ``ahat_max``.
+    are uniform from ``ahat_min`` to ``ahat_max``.
     """
     if ahat_max <= ahat_min:
         raise ValueError(f"retarget_ahat: ahat_max ({ahat_max}) must exceed ahat_min ({ahat_min})")
@@ -1639,7 +1602,7 @@ def retarget_ahat(
 
     # Exact: a0_shape is strength-independent, so the axis transform is a pure scale.
     source_edges = ahat_from_shape(shape_table.a0_shape_edges, intensity_peak)
-    target_edges = _ahat_target_edges(ahat_min, ahat_max, n_bins, decades)
+    target_edges = _ahat_target_edges(ahat_min, ahat_max, n_bins)
 
     # Handle the target grid construction:
     # 1. n_bins == 1: target_edges is [0, ahat_max] — single bin evaluated at 0
@@ -2101,7 +2064,7 @@ def query_spectral_moments(
 
     r_sq = (tx_c - theta_x) ** 2 + (ty_c - theta_y) ** 2
     theta_cell_area = table.gamma_theta_cell_area
-    # ahat is generally non-uniform (§4.2, RES032), so its width is a per-bin array — folded
+    # The floor bin may differ in width (DER021), so fold per-bin widths
     # into the sum below rather than factored out as a scalar the way theta's still is.
     cell_widths = (
         table.ahat_widths[None, None, :, None]
