@@ -16,8 +16,10 @@ handoff. Do not infer current behavior from an old checkout or historical prose.
   rules in `docs/derivations/README.md`. Resolve a code/derivation conflict
   explicitly; do not silently substitute a formula from an old note or paper.
 - `docs/decisions/INDEX.md` maps permanent `RESNNN` implementation and design
-  choices. Follow `docs/decisions/README.md` for lifecycle, classification,
-  citations and formatting. Never reuse an ID or rewrite archived reasoning.
+  choices. Records live directly in `archived/`, `implemented/`, `proposed/` or
+  `rejected/`; their `Type:` header records the decision kind. Follow
+  `docs/decisions/README.md` for lifecycle moves, types, citations and formatting.
+  Never reuse an ID or rewrite archived reasoning.
 - `docs/validation/` contains curated scientific evidence. Passing tests does
   not by itself promote a derivation or close scientific acceptance.
 - Merged code and the root README own current behavior; GitHub issues own unfinished
@@ -82,7 +84,8 @@ handoff. Do not infer current behavior from an old checkout or historical prose.
   `gammaforge.validation.scenarios.SCENARIOS` in runners rather than hardcoding
   one scenario. New validation records must state settings, evidence and limits.
 - Write a `RESNNN` for a real choice with a rejected alternative after it is
-  built, or a `proposed` record for a reviewed unbuilt choice. Update the index.
+  built, or a `proposed` record for a reviewed unbuilt choice. Put the file directly
+  under its lifecycle folder, set its `Type:` tag and update the index.
   Code comments cite bare IDs in one clause; reasoning lives in the record.
 - When changing `gammaforge.io`, engine interfaces or validation pipelines,
   update the corresponding `notebooks/*.py` walkthrough and run
