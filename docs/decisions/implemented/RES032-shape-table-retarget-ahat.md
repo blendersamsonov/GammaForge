@@ -3,6 +3,9 @@
 Status: implemented
 Type: architecture
 
+**Partly superseded by RES093** (2026-09-30): the shape-table and conservative-retarget
+architecture remains; the production target spacing is now uniform in raw `ahat`.
+
 ## Problem
 
 Discussion with the project's author (a physicist) surfaced that RES028's direct-onto-`ahat`

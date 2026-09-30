@@ -89,7 +89,7 @@ def search_knowledge_base(query: str, full_text: bool = True):
     # Decisions
     matching_dec = []
     for d in decisions:
-        match = q in d.get("title", "").lower() or q in d.get("id", "").lower() or q in d.get("class", "").lower()
+        match = q in d.get("title", "").lower() or q in d.get("id", "").lower() or q in d.get("type", "").lower()
         if not match and full_text and "path" in d:
             doc_file = repo_root / "docs" / "decisions" / d["path"]
             if doc_file.exists() and q in doc_file.read_text(encoding="utf-8").lower():
@@ -99,7 +99,7 @@ def search_knowledge_base(query: str, full_text: bool = True):
 
     print(f"--- Decisions ({len(matching_dec)} matches) ---")
     for d in matching_dec:
-        print(f"  [{d['id']}] ({d['class']} - {d['status']}) {d['title']}")
+        print(f"  [{d['id']}] ({d['type']} - {d['status']}) {d['title']}")
         
     # Derivations
     matching_der = []

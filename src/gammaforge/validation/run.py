@@ -102,7 +102,6 @@ _PRODUCTION_XIGMA_PARAMS = {
     "n_bins_theta_x": 32,
     "n_bins_theta_y": 32,
     "n_bins_ahat": 24,
-    "ahat_decades": 0.3,
 }
 
 

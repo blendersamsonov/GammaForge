@@ -89,7 +89,7 @@ XIGMA_SPECS: tuple[FieldSpec, ...] = (
         label="Retarget grid bins: ahat",
         kind=FieldKind.SCALAR,
         unit=DIMENSIONLESS,
-        default=32,
+        default=256,
         integer=True,
         value_range=(1, 512),
     ),
@@ -108,14 +108,6 @@ XIGMA_SPECS: tuple[FieldSpec, ...] = (
         unit=DIMENSIONLESS,
         default=0.5,
         value_range=(1e-6, 100.0),
-    ),
-    FieldSpec(
-        key="ahat_decades",
-        label="Retarget grid: decades of resolution concentrated near ahat_max",
-        kind=FieldKind.SCALAR,
-        unit=DIMENSIONLESS,
-        default=1.0,
-        value_range=(0.1, 12.0),
     ),
     FieldSpec(
         key="line_model",
