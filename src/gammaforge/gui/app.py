@@ -53,7 +53,6 @@ body { background: #f3f6fa; color: #26364a; }
 .gf-estimate { width: 150px; flex: 0 0 150px; }
 .gf-estimate-value { font-size: 21px; font-variant-numeric: tabular-nums; }
 .gf-estimate-stale { opacity: 0.45; }
-.gf-estimate-status { min-height: 20px; }
 .q-splitter__separator { background: #c8d6e3; width: 5px; }
 .q-splitter__before, .q-splitter__after { min-width: 0; overflow: auto; }
 .gf-pane .q-tab-panel > .nicegui-column { width: 100%; }
@@ -489,11 +488,7 @@ class Pane:
         ui.label("Analytical estimates").classes("gf-section-title")
         stale = page.preview_result_revision != page.preview_input_revision
         if page.preview_error:
-            ui.label(page.preview_error).classes("gf-error gf-estimate-status")
-        elif stale:
-            ui.label("Updating estimates…").classes("text-grey-7 gf-estimate-status")
-        else:
-            ui.label("").classes("gf-estimate-status")
+            ui.label(page.preview_error).classes("gf-error")
         if page.preview is None:
             return
         result = page.preview
