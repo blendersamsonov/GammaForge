@@ -199,3 +199,10 @@ As noted in §Verification, this implements the manuscript's lab-frame formula; 
 > **2026-09-28 — Nonlinear incidence correction superseded.** DER015 replaces DER014's
 > electron-direction multiplier with the exact observer-dependent ratio $Q$ in Stage 2.
 > The trajectory definition of raw $\hat a$ remains unchanged.
+
+> **2026-09-30 — The named route to an independent check is retired.** "What is still
+> genuinely open" above still holds — nothing here is validated against an independent
+> emission calculation — but its first bullet names kascade as the plan's answer, and
+> kascade is no longer a maintained engine (RES059 archived, RES095). The gap is therefore
+> not a pending port: an independent leg would have to be built anew. Nothing in §2.1–2.3
+> or in the $\hat a$ trajectory definition changes with this.

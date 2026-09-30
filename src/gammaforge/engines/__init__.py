@@ -1,11 +1,11 @@
 """Engine implementations behind the uniform `Engine` interface.
 
-`base` defines the `Engine` protocol and `RecomputeCost` tiers. It exists ahead
-of the engines because the validation harness
-runs *an engine* and needs a name for what that is (RES018); the `ENGINES`
-registry does not, and arrives with the first engine to register.
+`base` defines the `Engine` protocol and `RecomputeCost` tiers (RES018). `catalog` is the
+one public enumeration of the engines that ship here: `LocalRunner`, calculation
+serialization and the GUI all resolve engines through it, so none of them imports an
+engine implementation module (RES095).
 
-Will hold `xigma` (first-class), `analytical` (first-class), `kascade` (minimal port).
-`delta` lives in `gammaforge.validation.references`, not here — it is a
-validation-only reference, never a registered engine.
+An engine's role — a selectable calculation, the analytical estimate overlay, or an
+internal/validation-only reference — is data on its catalog entry, not a name check in a
+frontend.
 """

@@ -76,3 +76,11 @@ projection integrals, and an opt-in real Chromium calculation workflow.
 ## Amendments
 
 > **2026-09-29 — Documentation relocation.** The historical UI specification and plan were retired by issue #8. The root `README.md` now describes current browser behavior; this decision records the architecture.
+
+> **2026-09-30 — Engine enumeration moved to a public catalog (RES095).** The small
+> dictionary described above, constructed in `LocalRunner` from imports of the concrete
+> engine classes, is replaced by `gammaforge.engines.catalog`. `LocalRunner` still supplies
+> the GUI's engines and analytical remains the always-visible estimate and optional result
+> overlay, so this decision's runner/frontend boundary stands; only the enumeration
+> mechanism it recorded has been superseded. The GUI and calculation serialization now
+> resolve engines through the catalog rather than through the runner.

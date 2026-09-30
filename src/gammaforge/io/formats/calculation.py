@@ -53,8 +53,17 @@ def request_to_dict(request: CalculationRequest) -> dict:
     }
 
 
-def request_from_dict(document: dict, engine_schemas: Mapping[str, Parameters]) -> CalculationRequest:
-    """Restore using caller-supplied schemas, with no imports selected by file content."""
+def request_from_dict(document: dict, engine_schemas: Mapping[str, Parameters] | None = None) -> CalculationRequest:
+    """Restore using the engine catalog's schemas unless the caller supplies its own.
+
+    No import is selected by file content: the recorded engine names are looked up in a
+    schema mapping, never resolved by reaching into an implementation module (RES095).
+    """
+    if engine_schemas is None:
+        # Deferred: `gammaforge.io` is the shared layer and does not import `engines`.
+        from ...engines.catalog import engine_schemas as catalog_schemas
+
+        engine_schemas = catalog_schemas()
     if document.get("version") != 1 or document.get("units") != "CGS-Gaussian":
         raise ValueError("unsupported calculation version or unit system")
     engine_values = document["engine_params"]

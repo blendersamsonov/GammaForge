@@ -390,7 +390,7 @@ def test_psi_focus_is_inert_for_a_round_stigmatic_beam():
 # -- descriptive fit (§3.3) --------------------------------------------------
 def test_quasi_monochromatic_conforming_laser_runs_without_gaussian_fitter():
     """A conforming LaserField with carrier/polarization invariants executes across engines without fit_gaussian_paraxial (RES067)."""
-    from gammaforge.engines.kascade.engine import KascadeEngine
+    from gammaforge.engines.delta.engine import DeltaEngine
     from gammaforge.engines.xigma.engine import XigmaEngine
     from gammaforge.io.bunch import GaussianElectronBeam
     from gammaforge.io.interaction import build_interaction, SamplingSpec
@@ -456,15 +456,18 @@ def test_quasi_monochromatic_conforming_laser_runs_without_gaussian_fitter():
     ranges = auto_ranges(target, beam, laser)
     assert OutputKind.SPECTRUM in ranges
 
-    # xigma and kascade execute successfully without fit_gaussian_paraxial
+    # xigma and the validation-only delta reference both execute without
+    # fit_gaussian_paraxial; analytical is the documented exception (RES067).
     interaction = build_interaction(beam, laser, target, SamplingSpec(n_particles=16, seed=1))
     xigma_res = XigmaEngine().run(
         interaction, XigmaEngine.schema.with_values(backend="numpy")
     )
     assert OutputKind.SPECTRUM in xigma_res.photon_slices
 
-    kascade_res = KascadeEngine().run(interaction, KascadeEngine.schema)
-    assert OutputKind.SPECTRUM in kascade_res.photon_slices
+    delta_res = DeltaEngine().run(
+        interaction, DeltaEngine.schema.with_values(backend="numpy")
+    )
+    assert OutputKind.SPECTRUM in delta_res.photon_slices
 
 
 # -- validation --------------------------------------------------------------

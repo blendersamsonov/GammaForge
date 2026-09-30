@@ -7,8 +7,9 @@ erg, statC, gauss/statV·cm⁻¹.
 makes both. Every physics dataclass *stores* canonical CGS (P1 stays literally true), and
 every dimensioned field is *typed* as a pint ``Quantity`` (§2.1). The typing is what makes
 a unit mistake at an engine boundary an exception rather than a silent factor-of-100 error
-in the answer — and that boundary is real and permanent, since kascade is SI internally
-(§4.4). P1's single-unit-system rule removes the *multiplicity* of systems; it does not
+in the answer — and that boundary is real and permanent, because an engine may carry a
+solver whose equations are written in units of its own (§4.4). P1's single-unit-system
+rule removes the *multiplicity* of systems; it does not
 reach the one conversion each engine must still perform, and this does.
 
 **pint stops at the engine boundary.** An engine unpacks once, at ``run()``, and everything
@@ -263,7 +264,8 @@ def as_canonical_quantity(value, canonical_unit: str, name: str, *, light_time: 
     The two halves matter for different reasons. **Requiring** a `Quantity` is what makes
     a unit mistake at an engine boundary an exception rather than a silent factor-of-100
     error — the failure mode P1 exists to prevent, at the one boundary P1's
-    single-unit-system rule does not reach (kascade is SI internally, §4.4). **Converting**
+    single-unit-system rule does not reach (an engine may hold a solver in units of its
+    own, §4.4). **Converting**
     to canonical CGS keeps P1 literally true: what is stored really is a canonical
     CGS-Gaussian value, and the unit tag is there so no consumer can misread it.
 

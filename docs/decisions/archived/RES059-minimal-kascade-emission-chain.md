@@ -2,6 +2,7 @@
 
 Status: implemented
 Type: feature
+Archived: 2026-09-30
 
 *(Numbering note: this entry was written as RES058 and renumbered to RES059 on 2026-09-06
 to resolve a collision with parallel NiceGUI work.)*

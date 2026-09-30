@@ -22,7 +22,7 @@ Open work is tracked in [GitHub issues](https://github.com/blendersamsonov/Gamma
   and [current release gate](docs/validation/cupy-release-2026-09-28.md)
   state what has been checked. Independent arbitrary-angle scientific acceptance
   remains open.
-- GUI and kascade remain available for development, outside alpha release support.
+- The GUI remains available for development, outside alpha release support.
 
 ```bash
 python -m pip install -e .
@@ -43,7 +43,7 @@ the shared inputs use pint quantities stored in CGS-Gaussian units.
 ```
 src/gammaforge/
 ├── io/            # shared CGS-Gaussian physics core (schema, beam, laser, target, results)
-├── engines/       # xigma, analytical, and the minimal validation-only kascade port
+├── engines/       # engine catalog; xigma and analytical engines; validation-only delta reference
 ├── validation/    # identities, invariance, convergence, and cross-engine checks
 └── gui/           # optional local NiceGUI browser workspace
 ```
@@ -99,8 +99,9 @@ The workspace has Inputs and Results tabs, plus an optional split view. Inputs u
 equal-height Electron, Laser, and Geometry columns, followed by Target/outputs,
 analytical estimates, and engine settings. Calculate is gated on valid schema inputs
 and at least one selected calculation engine; analytical estimates remain a preview,
-not a substitute for a calculation. Xigma is selected initially; kascade is available
-as an opt-in engine tab.
+not a substitute for a calculation. Xigma is selected initially. Engine choices come from
+`gammaforge.engines.catalog`, whose entries also declare a role, so the validation-only
+delta reference is reachable by name from scripts without appearing as an engine tab.
 
 Each input section has its own **Save as default** action, including electrons,
 sampling, laser, geometry, target, requested outputs, and each engine. Defaults are

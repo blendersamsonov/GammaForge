@@ -175,8 +175,12 @@ def load_results(path: str | Path, kind_from_name=None) -> Results:
     return Results(photon_slices=photon_slices, photons=photons, electrons=electrons, model_specific=metadata)
 
 
-def load_request(path: str | Path, engine_schemas: Mapping[str, Parameters]) -> CalculationRequest:
-    """Load the embedded submitted request; missing provenance is an explicit error."""
+def load_request(path: str | Path, engine_schemas: Mapping[str, Parameters] | None = None) -> CalculationRequest:
+    """Load the embedded submitted request; missing provenance is an explicit error.
+
+    Engine schemas default to the engine catalog, so a caller replaying a result file needs
+    to know no engine implementation module (RES095).
+    """
     with h5py.File(path, "r") as handle:
         _check_version(handle)
         if "request_yaml" not in handle:
