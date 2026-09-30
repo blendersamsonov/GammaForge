@@ -46,3 +46,35 @@ and is conservative within the unchirped Gaussian model. It does not bound the
 numerical error of the retained quadrature. DER023 and
 DER025 remain `derived`. This pilot does not establish a production default for the
 weighted rule or scientific acceptance of the fast path.
+
+## DER025 chromatic group-delay check
+
+`tests/test_der025_group_delay.py` independently differentiates a circular
+paraxial carrier phase with an explicit chromatic Rayleigh range
+`z_R(omega) = z_R(omega0) (omega/omega0)**g_f`. A centered frequency difference
+at `omega0 +/- 1e-5 omega0` agrees with DER025's group-delay correction over
+`g_f = -1, 0, 1, 2`, longitudinal positions `u/z_R = -3, -0.5, 0, 0.7, 2.5`,
+and transverse positions `rho**2/(2 sigma**2) = 0, 0.2, 2, 5`. For `g_f = 0`
+on axis, the derivative has no Gouy delay, as required by the isodiffracting
+case. This check uses an 800 nm, 20 um circular pulse.
+
+The same test checks DER023's spatial-brightness bound for a relevance floor
+`S >= 0.01`, with 201 longitudinal and 21 transverse sample locations. It
+compares the sampled Gaussian-envelope change with the laser-only Lipschitz
+gate for durations 5, 10, 30, and 100 fs. The largest calculated delay bound
+and resulting 30 fs gate values are:
+
+| `g_f` | `Delta tau_*` (fs) | 30 fs Gaussian gate |
+|---:|---:|---:|
+| -1 | 1.961 | 3.964% |
+| 0 | 1.508 | 3.048% |
+| 1 | 1.961 | 3.964% |
+| 2 | 2.925 | 5.914% |
+
+The 5 fs gates range from 18.3% to 35.5%; the 100 fs gates range from 0.91%
+to 1.77%. These are bounds on peak-normalized *local envelope change* in the
+stated spatial region, not measured Stage-0 yield errors. They verify the
+DER025 phase derivative and the sampled DER023 gate inequality; they do not
+establish a production `g_f`, a coupled luminosity error budget, or agreement
+with a full chromatic propagation model. The built-in laser deliberately
+continues to use the baseline retarded-time envelope.
