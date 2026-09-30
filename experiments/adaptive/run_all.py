@@ -91,11 +91,13 @@ def main() -> int:
                              "claim half the machine. Total peak is roughly workers x chunk-mb "
                              "plus the per-arm replicate tables")
     parser.add_argument("--stage", default="scenarios",
-                        choices=["scenarios", "ablation", "cell-aware", "all"],
+                        choices=["scenarios", "ablation", "cell-aware",
+                                 "smooth", "deposition", "all"],
                         help="which experiment to run. 'all' exists because the stages write to "
                              "different files: running only 'scenarios' leaves exp1 and exp5 "
                              "sitting at whatever reference strength they were last run with, "
-                             "which is how a stale 'no benefit' conclusion survives a re-run")
+                             "which is how a stale 'no benefit' conclusion survives a re-run. "
+                             "'smooth' and 'deposition' are the Phase-II cubature experiments")
     parser.add_argument("--only", nargs="*", default=None,
                         help="restrict to these scenario names")
     parser.add_argument("--skip-completed", action="store_true",
@@ -138,13 +140,28 @@ def main() -> int:
         for stage, script, extra in (
             ("ablation", "exp1_ablation.py", []),
             ("cell-aware", "exp5_cell_aware.py", []),
+            ("smooth", "exp6_smooth.py", []),
+            ("deposition", "exp7_deposition.py", []),
         ):
             if stage not in stages:
                 continue
-            # exp1 is baseline-only by construction and has no --only; exp5 takes one.
-            only = ["--only", *args.only] if (stage == "cell-aware" and args.only) else []
-            argv = [sys.executable, str(HERE / script), *common, "--replicates",
-                    str(args.replicates), *only, *extra]
+            # The stages do not share a vocabulary: exp1/exp5 take --ref-seeds and
+            # --replicates, exp6 takes neither, exp7 takes --ref-n but not --ref-seeds. So
+            # each child gets exactly the flags it declares rather than a shared bundle,
+            # which would abort on the first unrecognised argument.
+            argv = [sys.executable, str(HERE / script)]
+            if args.quick:
+                argv.append("--quick")
+            argv += ["--chunk-mb", str(args.chunk_mb)]
+            # exp1 is baseline-only by construction and has no --only; the rest take one.
+            if stage != "ablation" and args.only:
+                argv += ["--only", *args.only]
+            if stage in ("ablation", "cell-aware", "deposition"):
+                argv += ["--ref-n", str(args.ref_n)]
+            if stage in ("ablation", "cell-aware"):
+                argv += ["--ref-seeds", str(args.ref_seeds),
+                         "--replicates", str(args.replicates)]
+            argv += extra
             log = RESULTS / f"{stage.replace('-', '_')}.log"
             print(f"  running {stage} -> {log.name}", flush=True)
             with open(log, "w") as handle:

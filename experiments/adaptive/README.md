@@ -42,6 +42,49 @@ Sizing: total peak is roughly `workers x chunk-mb`, plus the per-arm replicate t
 `ref-n x 40 KB` with no way to reduce it, so a 3 GB/worker cap would need `--ref-n ~75000` and
 a reference so weak you would need ~100 seeds. Lower the chunk, not the reference.
 
+## Phase II: deterministic cubature
+
+Phase I settled that *stratification* helps and that the luminosity allocation is
+regime-dependent. This phase asks the more fundamental question, on the smooth Stage-0 map
+rather than on a histogram:
+
+> Can the 6D Gaussian source be integrated as deterministic cubature with far fewer expensive
+> Stage-0 trajectories than IID Monte Carlo -- and does Stage 1 destroy the advantage?
+
+| module | what it does |
+|---|---|
+| `cubature.py` | global Halton QMC (equal weights, no regions), tensor Gauss-Hermite, optional Sobol; all through the shared latent-to-physical map |
+| `smooth.py` | smooth Stage-0 observables: `M0`, `M1`, `M2`, nonlinear probes, and characteristic-function probes `Phi(k)` |
+| `exp6_smooth.py` | Experiment 1: convergence and fitted exponents **with no deposition at all** |
+| `exp7_deposition.py` | Experiment 2: the same rules through Stage 1/2 under nearest vs CIC |
+
+```bash
+./python.sh run_all.py --stage smooth      --chunk-mb 2000
+./python.sh run_all.py --stage deposition --chunk-mb 2000
+./python.sh run_all.py --stage smooth --quick --only baseline      # ~1 min smoke
+```
+
+**The tensor Gauss-Hermite rule is exact, not approximate.** `hermgauss(n)` in `n`
+dimensions integrated against the standard normal gives `E[d^2] = 1` and `E[d^4] = 3` to
+roundoff even at order 3, with all weights positive and summing to one -- asserted in
+`tests/test_cubature_utilities.py`, because "is it actually the Gaussian rule" is the one
+thing that must be true before any conclusion about it means anything.
+
+**The sparse-grid probe is unavailable this phase, and that is a finding.** The classical
+Smolyak combination of Gauss-Hermite rules is built from *difference operators* on a nested
+sequence; Gauss-Hermite orders are independent rules, not nested differences, so the
+combination's weights sum to `C(q-d, dim-d)` -- equal to 1 only when `dim == d`. Measured:
+`dim=6, q=7, d=2` gives a coefficient sum of 5. A rule that does not integrate the constant 1
+is not a quadrature, so `smolyak_gauss_hermite` raises rather than returning something that
+would put a silent normalisation error into the measured quantity. A correct sparse grid needs
+the H-index construction and its own review.
+
+**Not done: the streaming fold** for production bins. The Phase-I harness still retains
+`7 arms x replicates x 12.6 MB` per worker, so `--bins production` at high replicate counts is
+still 57 GB/worker. The Phase-II experiments avoid this by construction -- they score scalar
+observable dictionaries, not 680 MB tables -- so production bins are blocked only for the
+Phase-I arm comparison, not for the cubature study.
+
 ## Reading the results: the floor is not an error bar
 
 This is the thing worth knowing before you read any table here.
