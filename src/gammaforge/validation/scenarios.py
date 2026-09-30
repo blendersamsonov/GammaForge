@@ -1,4 +1,4 @@
-"""The shared scenario bank every validation leg runs against (GRAND_PLAN.md §7).
+"""The shared scenario bank every validation leg runs against.
 
 A `Scenario` is a **physics** statement — beam, laser, target, sampling — and nothing
 else. Engine numeric knobs are deliberately absent: they live in each engine's own

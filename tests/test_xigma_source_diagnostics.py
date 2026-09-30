@@ -80,7 +80,9 @@ def requests(nx=7, ny=3, nt=11, half=1.):
 def test_outputs_use_requested_grid_and_explicit_measure(interaction):
     target = replace(interaction.target, outputs=requests())
     interaction = replace(interaction, target=target)
-    result = XigmaEngine().run(interaction, XigmaEngine.schema.with_values(n_steps=32))
+    result = XigmaEngine().run(
+        interaction, XigmaEngine.schema.with_values(n_steps=32, backend="numpy")
+    )
     temporal = result.photon_slices[OutputKind.TEMPORAL_ENVELOPE]
     spatial = result.photon_slices[OutputKind.SPATIAL_DISTRIBUTION]
     total = result.photon_slices[OutputKind.TOTAL_YIELD].integrate()
@@ -104,7 +106,9 @@ def test_results_record_line_model_and_chirp_treatment(interaction):
 
 
 def test_clipping_is_reported_without_renormalization(interaction):
-    collision = Collision(interaction, XigmaEngine.schema.with_values(n_steps=32))
+    collision = Collision(
+        interaction, XigmaEngine.schema.with_values(n_steps=32, backend="numpy")
+    )
     full = collision.run(requests())
     clipped = collision.run(requests(half=1e-5))
     total = full.photon_slices[OutputKind.TOTAL_YIELD].integrate()
@@ -137,7 +141,9 @@ def test_crossed_pulse_train_diagnostics_conserve_overlap(interaction):
         subpulse_duration=Quantity(30, 'fs'), repetition_period=Quantity(200, 'fs'),
         n_subpulses=3, theta_xz=Quantity(.2, 'rad'), theta_yz=Quantity(-.1, 'rad'))
     interaction = replace(interaction, laser=laser)
-    result = Collision(interaction, XigmaEngine.schema.with_values(n_steps=256)).run(requests())
+    result = Collision(
+        interaction, XigmaEngine.schema.with_values(n_steps=256, backend="numpy")
+    ).run(requests())
     total = result.photon_slices[OutputKind.TOTAL_YIELD].integrate()
     assert total > 0
     for kind in (OutputKind.TEMPORAL_ENVELOPE, OutputKind.SPATIAL_DISTRIBUTION):

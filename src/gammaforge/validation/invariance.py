@@ -1,4 +1,4 @@
-"""Invariance properties: things that must not change an answer (GRAND_PLAN.md §7).
+"""Invariance properties: things that must not change an answer.
 
 Four of them, and each is here because it has already gone wrong somewhere:
 

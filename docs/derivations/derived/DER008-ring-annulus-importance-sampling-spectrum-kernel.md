@@ -656,7 +656,7 @@ and verified by the test suite:
   when `backend in ('auto', 'cupy')`.
 - `gammaforge.engines.xigma.stages.spectrum_in_angular_range`: Dispatches to `calculate_angular_spectrum_gpu`
   for on-demand collimated window queries.
-- `docs/decisions/implemented/architecture/RES062-cupy-importance-sampler-production-path.md`: Architectural
+- `docs/decisions/implemented/RES062-cupy-importance-sampler-production-path.md`: Architectural
   decision adopting this kernel as the production compute path.
 - `~/Work/Papers/2026/Compton-Numerics/xigma.tex`: Sections 4.3 and 5.3–5.4 (Reduction to three dimensions,
   Reduction of the integration domain, Importance sampling and quasi-random evaluation).

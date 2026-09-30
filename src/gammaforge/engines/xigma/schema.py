@@ -1,4 +1,4 @@
-"""xigma's own numeric knobs, as a typed `Parameters` schema (GRAND_PLAN.md §3.1/§4.2/P11).
+"""xigma's own numeric knobs, as a typed `Parameters` schema.
 
 Everything here is a **numerics** field in §5's sense; sampler controls affect only Stage 2.
 The public engine still defaults to `FULL_RERUN` because cross-run reuse is not implemented.

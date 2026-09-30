@@ -1,4 +1,4 @@
-"""Target: collimation window and requested outputs (GRAND_PLAN.md §3.4).
+"""Target: collimation window and requested outputs.
 
 A first-class concept shared by every engine and the GUI.
 

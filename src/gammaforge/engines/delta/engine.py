@@ -3,7 +3,7 @@
 Runs xigma's Stage 0 (trajectory integration) then delta's brute-force
 per-macroparticle resonance binning. Not a production engine — shares
 Stage 0 with xigma, so trajectory errors are not independently checked.
-Use for validation only (§4.5, GRAND_PLAN.md).
+Use for validation only.
 """
 
 from __future__ import annotations

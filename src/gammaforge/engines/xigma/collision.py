@@ -1,4 +1,4 @@
-"""The `Collision` facade (GRAND_PLAN.md §4.2): the one stateful object in xigma.
+"""The `Collision` facade: the one stateful object in xigma.
 
 Owns one fixed `InteractionParameters` + xigma `Parameters` pair and memoizes what its
 stages produce from them — Stage 0's `TrajectorySamples`, Stage 1's `ShapeTable` (at most

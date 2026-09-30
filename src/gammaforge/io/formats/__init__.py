@@ -1,4 +1,4 @@
-"""Serialization formats (GRAND_PLAN.md §8).
+"""Serialization formats.
 
 Three boundaries, all of which convert to CGS-Gaussian on the way in and out (P1):
 

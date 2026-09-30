@@ -14,7 +14,7 @@
 # %% [markdown]
 # ## 1. Unit System: CGS-Gaussian & Pint at the Boundary
 # 
-# In GammaForge (`GRAND_PLAN.md §2.1`, Principle P1):
+# In GammaForge (RES013–RES015):
 # - **Canonical internal storage is strictly CGS-Gaussian**: cm, s, g, erg, statC, gauss.
 # - **Inputs at the user boundary are dimensioned using Pint `Quantity`**.
 #   This guarantees that a caller providing beam energy in MeV, pulse energy in mJ, or spot size in $\mu$m
@@ -171,7 +171,7 @@ fig_3d.show()
 # %% [markdown]
 # ## 3. Laser Field Protocol & `GaussianParaxialLaser`
 # 
-# Key architectural principles (`GRAND_PLAN.md §3.3`, Principle P15):
+# Key architectural principles (RES067):
 # 1. **`LaserField` is a protocol**: Engines sample fields via `intensity_profile()`,
 #    `carrier_phase_four_gradient()`, `field()`, and `active_region()`. The four-gradient
 #    is the explicit additional phase in

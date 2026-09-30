@@ -1,4 +1,4 @@
-"""Validation suite: scenarios, runners, and independent references (GRAND_PLAN.md §7).
+"""Validation suite: scenarios, runners, and independent references.
 
 Guiding principle: **tests assert physics, not implementation.** Modules, in dependency
 order:

@@ -1,4 +1,4 @@
-"""CGS-Gaussian constants and convention algebra (GRAND_PLAN.md §2.1, Phase 1 exit).
+"""CGS-Gaussian constants and convention algebra.
 
 The constant tests are deliberately *cross-checks against independent CGS identities*
 rather than hardcoded digits: `units.py` pulls each value from pint's CODATA table, so
@@ -20,7 +20,7 @@ pytestmark = [pytest.mark.tier0, pytest.mark.fast]
 
 def test_charge_matches_textbook_esu_value():
     # e = 4.80320471e-10 statC; the one constant pint cannot produce for us, so this is
-    # the only place a literal is the real check (GRAND_PLAN.md §2.1).
+    # the only place a literal is the real check.
     assert u.E_ESU == pytest.approx(4.80320471e-10, rel=1e-8)
 
 

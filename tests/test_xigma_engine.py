@@ -26,6 +26,7 @@ def _interaction(n_particles=4000):
 
 
 def _engine_params(**overrides):
+    overrides.setdefault("backend", "numpy")
     return XigmaEngine.schema.with_values(
         n_bins_gamma=10,
         n_bins_theta_x=10,

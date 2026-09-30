@@ -3,13 +3,12 @@
 One decision, one file. A decision record captures a real implementation or design
 choice — the *why*, the alternatives it beat, and what it cost — the part code and commit
 messages can't carry on their own. This file defines where decisions live, when to write
-one, and the in-file format. `tests/test_decision_format.py` enforces the mechanical parts
-of what's below; read it if you want to see exactly what's checked.
+one, and the in-file format.
 
 ## Layout and naming
 
-Every decision has three axes, all encoded in its **path and filename**:
-`docs/decisions/{lifecycle}/{class}/RESNNN-topic-title.md`.
+Every decision has a lifecycle folder, a permanent ID in its filename, and a type in its
+header: `docs/decisions/{lifecycle}/RESNNN-topic-title.md`.
 
 - **Lifecycle** (top-level folder) is the decision's status, and a decision **moves**
   between folders as that status changes:
@@ -20,9 +19,9 @@ Every decision has three axes, all encoded in its **path and filename**:
     its `Alternatives considered`/`Rationale`).
   - **`rejected/`** — considered and declined. Never deleted (see *Archiving* below) —
     only moved to `archived/` once its rationale stops being load-bearing.
-- **Class** (nested folder) is the *kind* of decision, from the closed set below.
+- **Type** (`Type:` header tag) is the *kind* of decision, from the closed set below.
 - **`RESNNN`** is a permanent, sequential id — `RES001`, `RES002`, … — assigned once, in filename
-  order across the whole tree regardless of lifecycle or class, and **never reused**, so
+  order across the whole tree regardless of lifecycle or type, and **never reused**, so
   code comments can cite one bare (`RES013`, not a path) and it stays resolvable even after
   the file it names moves between folders. The slug after the id is a short, lowercase,
   hyphenated summary of the title — free to reword if the title changes, since the id, not
@@ -32,15 +31,15 @@ Every decision has three axes, all encoded in its **path and filename**:
   factor-in-paper.md`, `RES033-9-1-closed-both-transcriptions-1-over-2pi.md`,
   `RES027-phase2-5-review-round-corrections.md` are this repo's three examples).
 
-`docs/decisions/INDEX.md` is the map: `id | title | class | status | path`. Update it in
-the same change as any new decision or any lifecycle move — `test_decision_format.py`
-cross-checks the tree against it and fails if they disagree.
+`docs/decisions/INDEX.md` is the map: `id | title | type | status | path`. Update it in
+the same change as any new decision, lifecycle move or type change. The index type must
+match the file's `Type:` tag; the index path must point to its lifecycle folder.
 
-## Classification
+## Decision types
 
-Each decision belongs to one class from this closed set:
+Each decision has one `Type:` value from this closed set:
 
-| Class | What it covers |
+| Type | What it covers |
 |---|---|
 | `feature` | A new capability that didn't exist before. |
 | `bug-fix` | Corrects (or explicitly declines to correct) a case where behavior was, or
@@ -54,7 +53,7 @@ Each decision belongs to one class from this closed set:
   runtime behavior. |
 | `testing` | Test or validation infrastructure and strategy. |
 
-Classify by what *kind* of change the decision produced, not by which domain motivated
+Choose the type by what *kind* of change the decision produced, not by which domain motivated
 it — a missing factor caught by working through the underlying physics by hand
 (`RES026`/`RES033`/`RES053`) is still a `bug-fix`, the same as one a unit test would have caught
 (`RES007`/`RES012`/`RES014`/`RES021`/`RES022`).
@@ -65,9 +64,7 @@ Add a decision when a real choice gets made — a `proposed/` note for something
 but not yet built, an `implemented/` note once something is actually built. **Entries are
 added after the fact, not as a promise**: don't file `implemented/` for a plan, and don't
 leave a `proposed/` note stale once the thing it describes has shipped or been dropped —
-move it. Every decision recorded here so far was added after the fact — this repo's
-convention has never filed a `proposed/` note — so `proposed/` and `rejected/` start empty
-and are used only going forward.
+move it. The [index](INDEX.md) records current lifecycle state.
 
 **Every new decision triggers a supersession check**: search the tree for older decisions
 covering the same question, and if the new one replaces an old one, say so explicitly in
@@ -79,34 +76,32 @@ does not need one.
 
 ## Citing from code
 
-A comment or docstring may cite a decision bare, `(D0NN)`, wherever the code embodies
+A comment or docstring may cite a decision bare, `(RESNNN)`, wherever the code embodies
 that decision — no path, no backticks needed, since ids are permanent handles (see
 *Layout and naming* above). Keep the citation a **pointer, not a retelling**: state the
 current behavior or invariant in one clause, then cite the id. If a citation's
 surrounding comment grows past that — a derivation of *why*, a list of alternatives that
 lost, historical measured numbers — that's a sign the content belongs in the decision
-file, not in the code. Move it there. A reader who wants the full story opens `D0NN`;
+file, not in the code. Move it there. A reader who wants the full story opens `RESNNN`;
 everyone else, reading the code for an unrelated reason, doesn't pay to skim it.
 
 The exception is genuinely current, non-obvious behavioral information a maintainer needs
 to avoid reintroducing a bug or breaking an invariant — a derivation needed to verify a
 formula, a "do not do X here, that reintroduces Y" warning. That stays in the code, in
 the code's own voice, decision id attached, even where it overlaps with what the decision
-file also says. **Worked example in this repo:** `docs/decisions/implemented/architecture/
-RES054-*.md`'s Decision/Rationale carries the full `<a^2> = C a0^2` derivation and offsetting
-argument; `io/laser.py`'s and `stages.py`'s docstrings state the current facts in one or
-two clauses each and cite `(RES054)`, not the derivation (RES056).
+file also says. RES054 records the full `<a^2> = C a0^2` reasoning while
+the relevant code docstrings cite `(RES054)` in one or two clauses (RES056).
 
 ## Archiving (and why nothing is ever deleted)
 
 Archive a decision — `implemented/` or `rejected/` alike — once it stops being load-
 bearing: an `implemented` decision whose shipped behavior has since been fully replaced,
 or a `rejected` decision whose rationale no longer guards against a plausible mistake.
-Archiving is a **move**, to `archived/{class}/RESNNN-topic-title.md`, plus one appended
+Archiving is a **move**, to `archived/RESNNN-topic-title.md`, plus one appended
 header line (`Archived: YYYY-MM-DD`) — the rest of the file, including its `Status:` line,
 is untouched. Nothing is rewritten and nothing is deleted, because a bare id might already
-be cited from a code comment somewhere — this repo has roughly 124 such citations across
-`src/`/`tests/` — and a citation that resolves today must keep resolving.
+be cited from a code comment somewhere, and a citation that resolves today must
+keep resolving.
 
 This is a deliberate departure from systems (deepseek-harness's Agent Notes, for one) that
 delete stale `rejected/` notes outright — that only works if decisions are cited by
@@ -121,16 +116,16 @@ Problem` or `## Decision`, "supersedes RESnnn, because..."), then archive the ol
 short pointer paragraph at the very top of its body, before `## Problem`:
 
 ```markdown
-**Superseded by D0XX** (YYYY-MM-DD): <one line on what changed and why>.
+**Superseded by RESNNN** (YYYY-MM-DD): <one line on what changed and why>.
 ```
 
 The rest of the archived file's body is untouched — it's still the historical record of
 what was decided and why, at the time it was decided.
 
-**Worked example in this repo:** `archived/architecture/RES024-*.md` and
-`archived/testing/RES025-*.md` are both fully superseded (by `RES054` and `RES033`
-respectively) and carry this pointer. `archived/architecture/RES028-*.md` is superseded by
-`implemented/architecture/RES032-*.md` within the same development session — the pointer
+**Worked example in this repo:** `archived/RES024-*.md` and
+`archived/RES025-*.md` are both fully superseded (by `RES054` and `RES033`
+respectively) and carry this pointer. `archived/RES028-*.md` is superseded by
+`implemented/RES032-*.md` within the same development session — the pointer
 paragraph and the `Archived:` date (`2026-08-08`) were both traced from the commit that
 landed the superseding decision, not invented, since the original prose only said "within
 the same session."
@@ -157,7 +152,7 @@ append a dated, quoted note under a trailing `## Amendments` section instead:
 ```
 
 This keeps the log honest about what was believed when, rather than quietly rewriting
-history to look right in hindsight. `implemented/bug-fix/RES040-*.md` is this repo's worked
+history to look right in hindsight. `archived/RES040-*.md` is this repo's worked
 example: two dated corrections, originally interleaved through the middle of the entry,
 consolidated into one trailing `## Amendments` section without changing their wording.
 
@@ -169,11 +164,11 @@ one and say so, once, at the very top of its body (before `## Problem`, after an
 superseded-by pointer):
 
 ```markdown
-*(Numbering note: this entry was written as D0AA and renumbered to D0BB on YYYY-MM-DD to
+*(Numbering note: this entry was written as RESAAA and renumbered to RESBBB on YYYY-MM-DD to
 resolve a collision with parallel work on `<branch>`.)*
 ```
 
-**Worked example in this repo:** `implemented/simplification/RES052-*.md` was originally
+**Worked example in this repo:** `implemented/RES052-*.md` was originally
 written as `RES035` and renumbered on `2026-08-10` after a parallel Phase-4 branch had
 already claimed `RES035`–`RES051`. The note sits at the top of `RES052`'s body, above `##
 Problem`, exactly as above.
@@ -186,7 +181,7 @@ The first lines of every decision file are fixed:
 # RESNNN — <title>
 
 Status: <status>
-Class: <class>
+Type: <type>
 ```
 
 followed by a blank line, then the body. `Status:` is one of:
@@ -195,8 +190,8 @@ followed by a blank line, then the body. `Status:` is one of:
 - `Status: implemented`
 - `Status: rejected — <why, in one line>`
 
-and must agree with the lifecycle folder the file sits in. `Class:` must agree with the
-class folder the file sits in. An archived file adds exactly one more header line,
+and must agree with the lifecycle folder the file sits in. `Type:` must use a value from
+the table above and agree with the index. An archived file adds exactly one more header line,
 `Archived: YYYY-MM-DD`, and otherwise keeps whichever `Status:` it had the day it shipped
 or was declined — archiving records when a decision stopped being current, not what it
 originally said.

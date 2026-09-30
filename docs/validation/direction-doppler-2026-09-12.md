@@ -7,12 +7,13 @@ DER013 to verified; RES074's full arbitrary-angle scientific acceptance remains 
 
 ## Independent matched-bin pilot
 
-[Raw packet](delta-direction-doppler-2026-09-12.json) records environment, source SHA256
-before/after (unchanged), explicit direction convention, bin measures and settings.
+The original run recorded environment, unchanged source SHA256 fingerprints,
+direction convention, bin measures and settings. The measured result is below.
 Reproduce from the repository root:
 
 ```sh
-PYTHONPATH=src .venv/bin/python scripts/validate_delta_emission.py --backend cupy --particles 16000 --n-steps 64 --table 32,32,32,64,512 --table 32,64,64,64,512 --quadrature-order 16 --rings 64 --subsampling 128 --output docs/validation/delta-direction-doppler-2026-09-12.json
+mkdir -p output/validation
+PYTHONPATH=src .venv/bin/python scripts/validate_delta_emission.py --backend cupy --particles 16000 --n-steps 64 --table 32,32,32,64,512 --table 32,64,64,64,512 --quadrature-order 16 --rings 64 --subsampling 128 --output output/validation/delta-direction-doppler.json
 ```
 
 The 24 records cover three shared-bank scenarios, head-on and small two-plane crossed
@@ -60,13 +61,13 @@ passed all runnable checks. The final Tier-0 contract/documentation sweep passed
 tests. Explicit PYTHONPATH selects this checkout when worktrees share an editable
 installation; it avoids importing a different branch through the environment.
 
-The [real-CUDA release packet](cupy-release-direction-doppler-2026-09-12.json) passed
+The real-CUDA release run passed
 on an NVIDIA GeForce GTX 1660 Ti with CuPy 14.2.0. All required checks passed across
 eight cases (baseline, crossed, low-a0, near-a0-max, wide/narrow off axis and gamma
-10,000 circular/crossed). The packet contains 80 convergence diagnostics, including
+10,000 circular/crossed). The run recorded 80 convergence diagnostics, including
 coarser sampler settings that are diagnostic rather than required gates. Source
 fingerprints before and after match. Reproduce with:
 
 ```sh
-PYTHONPATH=src .venv/bin/python scripts/validate_cupy_release.py --output docs/validation/cupy-release-direction-doppler-2026-09-12.json
+PYTHONPATH=src .venv/bin/python scripts/validate_cupy_release.py --output output/validation/cupy-release-direction-doppler.json
 ```

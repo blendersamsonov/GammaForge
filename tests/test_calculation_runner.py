@@ -26,6 +26,7 @@ def test_small_real_xigma_execution():
         sampling=SamplingSpec(n_particles=64, seed=0, prefilter=0.0),
         engine_params={
             "xigma": XigmaEngine.schema.with_values(
+                backend="numpy",
                 n_bins_gamma=8,
                 n_bins_theta_x=8,
                 n_bins_theta_y=8,

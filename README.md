@@ -4,17 +4,24 @@ Inverse-Compton scattering simulation toolkit: computes properties of Compton
 photons produced by the interaction of an electron bunch with a laser pulse.
 
 GammaForge originated as a ground-up rebuild of ComptonSuite and is now completely
-independent: no external checkout is needed to build, test, validate, or use it. The
-architecture and phase plan live in [docs/GRAND_PLAN.md](docs/GRAND_PLAN.md); the
-browser-workspace contract is in [docs/UI_SPEC.md](docs/UI_SPEC.md).
+independent: no external checkout is needed to build, test, validate, or use it.
+Physics, implementation choices and scientific evidence are recorded in the
+[derivation index](docs/derivations/INDEX.md),
+[decision index](docs/decisions/INDEX.md) and [validation records](docs/validation/README.md).
+Open work is tracked in [GitHub issues](https://github.com/blendersamsonov/GammaForge/issues).
 
 ## Status
 
 - **0.1.0a1: script-first alpha** for Gaussian calculations with analytical and xigma.
-  Start with the [alpha guide](docs/ALPHA.md) and the
-  [crossing-angle yield example](examples/crossing_angle_yield.py).
-- NumPy is the alpha default. CuPy supports incident polarization and crossing
-  angles with numerical checks, but remains [experimental](docs/ALPHA_GPU_VALIDATION.md).
+  Start with the [crossing-angle yield example](examples/crossing_angle_yield.py)
+  or the [walkthrough notebooks](notebooks/README.md).
+- Xigma's schema defaults to CuPy. On a CPU-only installation, explicitly set
+  `backend="numpy"` or choose `backend="auto"` for fallback. The optional `gpu`
+  extra installs CuPy; CUDA calculations require their own convergence checks.
+  The [GPU measurement record](docs/validation/alpha-gpu-sampler-2026-09.md)
+  and [current release gate](docs/validation/cupy-release-2026-09-28.md)
+  state what has been checked. Independent arbitrary-angle scientific acceptance
+  remains open.
 - GUI and kascade remain available for development, outside alpha release support.
 
 ```bash
@@ -22,6 +29,14 @@ python -m pip install -e .
 python -m gammaforge.validation.run --alpha
 python examples/crossing_angle_yield.py
 ```
+
+The alpha selector checks reduced analytical/xigma scenarios and core invariants.
+The production selector adds independent xigma/delta emission comparisons and
+reports unmeasured scientific coverage as blockers. It can exit nonzero even
+when every executed numerical comparison passes. Xigma's `SPECTRUM` is the
+table-free linear approximation; angular and collimated spectra use the
+tabulated nonlinear model. Returned energy axes use erg and angular axes rad;
+the shared inputs use pint quantities stored in CGS-Gaussian units.
 
 ## Layout
 
@@ -62,8 +77,8 @@ changes in a clean virtual environment with:
 .venv/bin/python -m pip freeze --exclude-editable > requirements/developer.lock
 ```
 
-CI separately exercises the declared lower bounds on Python 3.12 and the current
-dependency ranges on Python 3.14.
+To check the declared lower bounds, install `requirements/minimum.txt` in a clean
+Python 3.12 environment and run `make check`.
 
 ## Local browser workspace
 
@@ -107,39 +122,35 @@ deferred.
 
 ## Tests
 
-`make check` (or bare `pytest`) is the local counterpart to CI's core tier, running Tier 0, Tier 1, and Tier 2 tests in ~1.2 minutes. Execution tiers and optional suites are explicit (RES075):
+`make check` (or bare `pytest`) runs the default Tier 0–2 suite. Execution tiers
+and optional suites are explicit (RES075):
 
 ```bash
-# Fast iterative development loop (< 30s): Tier 0 contracts + Tier 1 component physics
+# Fast iterative development loop: Tier 0 contracts + Tier 1 component physics
 .venv/bin/python -m pytest -m fast -q
 
-# Ultra-fast contract, schema, unit, and doc lint checks (< 10s)
+# Contract, schema, unit, and format checks
 .venv/bin/python -m pytest --tier=tier0 -q
 
-# Default core run (~1.2m): Tier 0, Tier 1, and Tier 2 (numerical integration, trajectory tracking)
+# Default core run: Tier 0, Tier 1, and Tier 2
 make check
 
-# Full physics validation (~11m): includes heavy Tier 3 Monte Carlo and 16x quadratures
+# Full physics validation: includes heavy Tier 3 tests
 .venv/bin/python -m pytest --run-heavy
 
-# GUI plotting and import-boundary tests
-.venv/bin/python -m pytest -q tests/test_gui_boundary.py tests/test_gui_controller.py tests/test_gui_inputs.py tests/test_gui_plotting.py
+# Available GUI estimate tests
+.venv/bin/python -m pytest -q tests/test_gui_estimates.py
 
 # Symbolic derivation checks
 .venv/bin/python -m pip install -e '.[dev,symbolic]'
-.venv/bin/python -m pytest -q tests/test_verifications.py
 .venv/bin/python scripts/verifications/verify_all.py der004
 ```
 
-The browser tier also needs Playwright's separate browser binary installation:
+On a CPU-only machine, tests that invoke Xigma with its CuPy default require
+an explicit NumPy setting in their test inputs. The CUDA gate requires actual
+hardware and is separate from the default suite.
 
-```bash
-.venv/bin/python -m pip install -e '.[dev,gui,browser]'
-.venv/bin/python -m playwright install chromium
-GAMMAFORGE_BROWSER_TEST=1 .venv/bin/python -m pytest -q tests/test_gui_browser.py
-```
-
-The `gpu` extra installs the experimental CuPy angular
-sampler. It is opt-in and requires convergence checks for new calculations; see the
-alpha guide before use. The `jit` extra remains a dependency placeholder for an
-unimplemented backend.
+The `gpu` extra installs the CuPy backend. Run
+`python scripts/validate_cupy_release.py --output output/validation/cupy-release.json`
+on an actual CUDA device when assessing a new backend configuration. The `jit`
+extra remains a dependency placeholder for an unimplemented backend.

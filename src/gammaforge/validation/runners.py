@@ -1,4 +1,4 @@
-"""Running one engine on one scenario (GRAND_PLAN.md §7).
+"""Running one engine on one scenario.
 
 Thin on purpose. An engine already takes exactly what a scenario already holds, so a
 runner has one job: sample the bunch once, hand the same `InteractionParameters` to the
@@ -55,7 +55,7 @@ def run_engine(
     """
     if not isinstance(engine, Engine):
         raise TypeError(
-            f"{engine!r} does not satisfy the Engine protocol (GRAND_PLAN.md §4.1): it "
+            f"{engine!r} does not satisfy the Engine protocol: it "
             f"needs name, schema, supported_outputs, recompute_costs and run()"
         )
     interaction = build(scenario, sampling)

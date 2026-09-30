@@ -1,4 +1,4 @@
-"""Results contract (GRAND_PLAN.md §3.6).
+"""Results contract.
 
 One slice shape for every engine. A tabulated engine fills a `PhasespaceSlice` directly;
 a Monte-Carlo engine histograms its samples into the same shape, avoiding separate
@@ -114,7 +114,7 @@ class PhasespaceSlice:
         if grouping not in ALLOWED_AXIS_GROUPINGS:
             raise ValueError(
                 f"PhasespaceSlice: {sorted(a.name for a in grouping)} is not an allowed "
-                f"axis grouping (GRAND_PLAN.md §3.6)"
+                f"axis grouping"
             )
         for axis, values in axes.items():
             if values.ndim != 1 or values.size == 0:

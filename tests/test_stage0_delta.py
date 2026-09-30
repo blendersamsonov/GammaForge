@@ -1,4 +1,4 @@
-"""Stage 0, the shared chunking utility, and delta (GRAND_PLAN.md §4.2/§4.5, Phase 2.5 exit).
+"""Stage 0, the shared chunking utility, and delta.
 
 The physics assertions here are the ones §7 asks for: closed-form identities where the
 contract guarantees them, invariance where a knob must not matter, and convergence where

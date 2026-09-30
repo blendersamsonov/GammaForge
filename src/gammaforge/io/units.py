@@ -1,6 +1,6 @@
 """CGS-Gaussian constants, the pint registry, and the width-convention vocabulary.
 
-**One unit system in the shared core: CGS-Gaussian** (GRAND_PLAN.md §2.1/P1) — cm, s, g,
+**One unit system in the shared core: CGS-Gaussian** — cm, s, g,
 erg, statC, gauss/statV·cm⁻¹.
 
 **Canonical values, dimensioned types.** The two are separate decisions and this project

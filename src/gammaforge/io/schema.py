@@ -1,4 +1,4 @@
-"""Typed parameter schema (GRAND_PLAN.md §3.1).
+"""Typed parameter schema.
 
 Replaces ad-hoc tuples, stringly dictionaries, and bare GUI parsing (P5). A
 :class:`FieldSpec` declares one
@@ -115,7 +115,7 @@ class FieldSpec:
         if family is None and self.convention is not None:
             raise SchemaError(
                 f"{self.key}: {self.kind.name} fields carry no convention "
-                f"(got {self.convention!r}) — see GRAND_PLAN.md §2.1, there is no "
+                f"(got {self.convention!r}) — there is no "
                 f"NoConvention sentinel"
             )
         if family is not None and not isinstance(self.convention, family):

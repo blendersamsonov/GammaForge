@@ -1,4 +1,4 @@
-"""One auto-chunk + OOM-retry utility, used by every chunked stage (GRAND_PLAN.md §4.2).
+"""One auto-chunk + OOM-retry utility, used by every chunked stage.
 
 One shared implementation serves every chunked stage; callers do not duplicate sizing or
 retry policy:

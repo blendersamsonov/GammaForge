@@ -1,4 +1,4 @@
-"""Results serialization: HDF5 slices plus a YAML parameter sidecar (GRAND_PLAN.md §8).
+"""Results serialization: HDF5 slices plus a YAML parameter sidecar.
 
 Layout::
 

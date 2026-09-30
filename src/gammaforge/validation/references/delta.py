@@ -1,4 +1,4 @@
-"""delta: brute-force per-macroparticle resonance binning (GRAND_PLAN.md §4.5).
+"""delta: brute-force per-macroparticle resonance binning.
 
 A validation reference, never a registered engine and never in the GUI's model list. It
 takes xigma's Stage 0 output and computes a spectrum the most direct way there is: work

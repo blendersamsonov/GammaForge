@@ -1,4 +1,4 @@
-"""Laser geometry, sampling contract and descriptive fit (GRAND_PLAN.md §2.2/§3.3, Phase 1 exit)."""
+"""Laser geometry, sampling contract and descriptive fit."""
 
 from __future__ import annotations
 
@@ -458,7 +458,9 @@ def test_quasi_monochromatic_conforming_laser_runs_without_gaussian_fitter():
 
     # xigma and kascade execute successfully without fit_gaussian_paraxial
     interaction = build_interaction(beam, laser, target, SamplingSpec(n_particles=16, seed=1))
-    xigma_res = XigmaEngine().run(interaction, XigmaEngine.schema)
+    xigma_res = XigmaEngine().run(
+        interaction, XigmaEngine.schema.with_values(backend="numpy")
+    )
     assert OutputKind.SPECTRUM in xigma_res.photon_slices
 
     kascade_res = KascadeEngine().run(interaction, KascadeEngine.schema)

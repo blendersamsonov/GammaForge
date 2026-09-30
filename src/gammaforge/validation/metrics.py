@@ -1,4 +1,4 @@
-"""How two results are compared (GRAND_PLAN.md §7).
+"""How two results are compared.
 
 Cross-engine legs are **tolerance-based**, and Monte-Carlo legs are compared with a
 *statistical* tolerance rather than a tight absolute bound. That makes the choice of

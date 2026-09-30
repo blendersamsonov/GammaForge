@@ -1,4 +1,4 @@
-"""Shared field-set declarations (GRAND_PLAN.md §3.1, §8).
+"""Shared field-set declarations.
 
 The electron, laser and sampling parameter sets are declared **once, here**, and shared by
 the GUI, the engines and YAML I/O — the "single source of truth for parameter semantics"
