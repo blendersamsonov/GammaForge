@@ -30,3 +30,4 @@ same change as any new derivation file or any status move —
 | DER022 | Quantum recoil correction in the 5D xigma resonance | derived | derived/DER022-quantum-recoil-correction-in-the-5d-xigma-resonance.md |
 | DER023 | Narrowband Gaussian Stage-0 reduction, conservative trajectory bound, and temporal-weight quadrature | derived | derived/DER023-narrowband-gaussian-stage0-bound-and-temporal-quadrature.md |
 | DER024 | Luminosity-aware adaptive sampling of Gaussian electron bunches | derived | derived/DER024-luminosity-aware-adaptive-sampling-gaussian-electron-bunches.md |
+| DER025 | Narrowband paraxial pulse group delay and chromatic Gaussian-beam scaling | derived | derived/DER025-narrowband-paraxial-pulse-group-delay.md |
