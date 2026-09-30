@@ -1,1330 +1,531 @@
 # GammaForge Coding-Agent Handoff
-## Luminosity-Aware Adaptive Sampling Before Xigma Stage 0
+## Phase II — Deterministic Gaussian Cubature and Smooth Push-Forward
 
-**Status:** implementation handoff  
-**Repository:** `https://github.com/blendersamsonov/GammaForge`  
-**Target branch:** `main`  
-**Repository state inspected:** `4540929e5d1d567f085fd392c9959d54e873a04d` — *Document unified xigma chirp and incidence model*
+**Status:** revised implementation/research handoff  
+**Issue:** #20  
+**Pull request:** #21  
+**Branch:** `feature/luminosity-aware-adaptive-sampling`  
+**Authority:** DER024 for the exact Gaussian representation; RES093 and `docs/validation/adaptive-sampling-2026-09-29.md` for the completed Phase-I implementation and measured evidence.
 
-The physics and sampling mathematics in this document are the implementation specification. The coding agent should implement, test, benchmark, and integrate them. Do **not** redesign the statistical method unless a genuine contradiction with the current repository is found.
+This is a **material revision of the original handoff after validation**. The original handoff remains preserved in branch history. Do not rewrite the Phase-I result as though it never happened.
 
----
+The task now is to determine whether GammaForge can exploit the smooth analytic six-dimensional Gaussian source as a **deterministic cubature / push-forward problem**, rather than continuing to tune the luminosity-allocation heuristic.
 
-# 1. Objective
-
-GammaForge currently samples an analytic 6D Gaussian electron bunch with IID Monte Carlo particles and then runs Xigma Stage 0 on every retained macroparticle.
-
-That is correct but inefficient for large runs. IID Gaussian sampling puts many particles in the dense core, where neighboring samples often become nearly redundant once Stage 1 bins the Stage-0 result. Low-density tails receive relatively few samples and converge slowly.
-
-The new feature should represent the **same physical Gaussian bunch** using:
-
-1. a broad, space-filling partition of the six independent Gaussian latent coordinates;
-2. exact target probability mass for every partition cell;
-3. target-conditional low-discrepancy sampling inside each cell;
-4. nonuniform macroparticle weights `P_m / n_m`;
-5. a cheap Stage-0-like luminosity pilot to allocate more expensive trajectories to cells that matter most;
-6. adaptive refinement of the coarse partition;
-7. no pilot-based false negatives.
-
-The desired result is:
-
-> For a fixed expensive Stage-0 trajectory budget, achieve substantially faster convergence of the current Stage-1/Stage-2 outputs than the IID Gaussian sampler.
-
-The existing IID path must remain available and initially remain the default.
+The agent should implement the experiments and the minimal supporting code needed to answer that question. Do not promote a new production default merely because an experiment is promising; report the evidence first.
 
 ---
 
-# 2. Current repository state that the implementation must respect
+# 1. Phase-I conclusion that motivates this revision
 
-The repository has evolved beyond the older 4D Xigma design.
+Phase I established three different facts.
 
-## 2.1 Xigma Stage 0
+1. **The exact weighted Gaussian representation is sound.**  
+   The region partition tiles the reference cube, exact target masses sum to one, and regional weights `P_m / n_m` preserve the configured Gaussian measure. Pilot errors affect efficiency rather than correctness.
 
-Current `integrate_trajectories()` in `src/gammaforge/engines/xigma/stages.py`:
+2. **Replacing IID clustering by deterministic/stratified sampling is the robust win.**  
+   In the 10-scenario validation bank, plain target stratification (`s=1, lambda=0`) beat IID on resolved spectrum error in 9 of 10 scenarios.
 
-- uses straight ultrarelativistic ballistic trajectories;
-- defaults to `n_steps = 200` through Xigma schema;
-- defaults to the conservative `"active_region"` time window;
-- evaluates cycle-averaged intensity `I = <a^2>`;
-- evaluates `laser.carrier_phase_four_gradient`;
-- constructs the encountered carrier ratio `C(t)`;
-- uses `weighted_intensity = C * I`;
-- includes the electron/laser encounter factor;
-- multiplies by `N_e * bunch.weight`;
-- returns, per macroparticle:
-  - `gamma`,
-  - `theta_x`,
-  - `theta_y`,
-  - `luminosity`,
-  - `a0_shape`,
-  - `chirp_mean`,
-  - `var_a_shape`,
-  - `var_chirp`,
-  - `cov_a_chirp_shape`.
+3. **The additional luminosity-aware machinery is not a robust general-purpose win.**
+   - `s=sqrt(2)` was worse than `s=1` in 9 of 10 scenarios without allocation.
+   - luminosity allocation helped concentrated interactions by roughly 12–15%, but was neutral or harmful elsewhere;
+   - `wide_bunch` produced a severe weight collapse;
+   - adaptive region splitting had no measurable benefit;
+   - the attempted cell-aware rule requires much richer pilot information than the current pilot supplies.
 
-The adaptive pilot must be consistent with this current definition of luminosity.
+Therefore do **not** spend this phase tuning `lambda`, proposal scale, or splitting further.
 
-## 2.2 Xigma Stage 1
+The new question is more fundamental:
 
-Current Stage 1 deposits a five-dimensional `ShapeTable` over
+> How many expensive Stage-0 evaluations are actually required to integrate a smooth known 6D Gaussian source when the source integral is treated as cubature rather than as a Monte-Carlo particle cloud?
 
-\[
-(\gamma,\theta_x,\theta_y,a0_{\rm shape},\bar C),
-\]
-
-where `chirp_mean` is the stored carrier coordinate.
-
-The default bin counts are currently
-
-\[
-(48,48,48,96,8).
-\]
-
-Co-shaped channels are:
-
-- `H`,
-- `H_var_a_shape`,
-- `H_var_chirp`,
-- `H_cov_a_chirp_shape`.
-
-With nearest deposition, one sample contributes to one 5D cell. With CIC it contributes to 32 neighbors.
-
-Validation of the adaptive sampler must target this current 5D representation, not an older 4D table.
-
-## 2.3 Stage 1.5 and Stage 2
-
-Stage 1.5 retargets the raw nonlinear shape coordinate to physical `ahat`.
-
-Stage 2 applies the exact observer-dependent ponderomotive incidence coefficient `Q` at query time.
-
-Therefore the adaptive electron sampler must remain observer-independent. Do not put observation direction, `Q`, or any Stage-2 query geometry into the reusable adaptive sampling plan.
-
-## 2.4 Existing Gaussian sampler reproducibility
-
-`sample_gaussian_bunch()` uses one pinned RNG substream per sampled latent variable via `SeedSequence.spawn`.
-
-This supports GammaForge's reuse/caching semantics.
-
-Do not break or reinterpret the existing IID reproducibility contract.
-
-The new adaptive sampler can have its own deterministic low-discrepancy construction, but the old IID sampler must remain bit-for-bit unchanged for the same inputs.
-
-## 2.5 Analytical overlap machinery
-
-The analytical engine is more mature than older handoffs assumed.
-
-Current `src/gammaforge/engines/analytical/formulas.py` includes:
-
-- general Gaussian beam/laser overlap;
-- exact 2D crossing-angle reduction when `n_quad_u > 1`;
-- graceful head-on reduction;
-- a dedicated flying-focus reduction;
-- overlap-weighted nonlinear moments.
-
-This machinery is useful as validation/reference and may later be factored into a direct single-electron predictor.
-
-For the first implementation, the adaptive sampler may use a small direct trajectory quadrature against the live `LaserField` API, provided that it matches current Stage-0 definitions.
+The target of a 10–100x reduction in Stage-0 trajectories is **not ruled out** by Phase I. The previous benchmark was dominated by the discontinuous Stage-1 deposition and was not a clean test of smooth 6D integration.
 
 ---
 
-# 3. Non-goals
+# 2. Central hypothesis
 
-Do not combine this feature with unrelated changes.
+Let
 
-Specifically, do **not**:
+[
+d=(d_x,d_y,d_z,d_{	heta x},d_{	heta y},d_gamma)
+sim mathcal N(0,I_6)
+]
 
-- change Xigma radiation physics;
-- change the current five-dimensional Stage-1 coordinates;
-- move observer-dependent `Q` out of Stage 2;
-- replace Stage 0 with the analytical engine;
-- make `illumination_window()` the correctness boundary;
-- prune cells because the pilot says they are unimportant;
-- redesign the loaded-bunch Gaussian fit in the first PR;
-- make the adaptive sampler the default before benchmarks pass;
-- change the old IID sampler's RNG behavior;
-- optimize the Stage-0 midpoint quadrature in the same PR unless required for the pilot implementation itself.
+be the six independent latent coordinates already used by `GaussianElectronBeam`.
 
----
+Stage 0 defines a deterministic map
 
-# 4. Exact target Gaussian already defined by GammaForge
-
-The implementation must work in the six independent latent Gaussian deviates already used by `sample_gaussian_bunch()`.
-
-Define
-
-\[
-d=(d_x,d_y,d_z,d_{\theta x},d_{\theta y},d_\gamma),
-\]
-
-with all components independently distributed as
-
-\[
-d_j\sim\mathcal N(0,1).
-\]
-
-The physical bunch is a deterministic linear map
-
-\[
-X=T_{\rm beam}(d).
-\]
-
-Do not reconstruct this map from an independently assembled covariance matrix.
-
-## 4.1 Positions
-
-\[
-x=\sigma_x d_x,\qquad
-y=\sigma_y d_y,\qquad
-z=\sigma_z d_z.
-\]
-
-## 4.2 Twiss-correlated angles
-
-For x,
-
-\[
-\rho_x=-\frac{\alpha_x}{\sqrt{1+\alpha_x^2}},
-\qquad
-c_x=\frac1{\sqrt{1+\alpha_x^2}},
-\]
-
-and
-
-\[
-\theta_x=
-\sigma_{\theta x}
-(\rho_xd_x+c_xd_{\theta x}).
-\]
-
-Similarly for y.
-
-## 4.3 Gamma correlations
-
-Let `gamma_coefficients(beam)` return
-
-\[
-(a_x,a_y,a_z,a_{\theta x},a_{\theta y},R).
-\]
-
-Then
-
-\[
-\gamma=
-\gamma_0+
-\sigma_\gamma
-(a_xd_x+a_yd_y+a_zd_z+a_{\theta x}d_{\theta x}+a_{\theta y}d_{\theta y}+\sqrt R\,d_\gamma).
-\]
-
-This includes all current stored energy correlations and the Twiss corrections already implemented in `gamma_coefficients()`.
-
-## 4.4 Required refactor
-
-Before implementing adaptive sampling, factor the existing latent-deviate-to-physical-bunch map into one private reusable helper.
-
-Conceptually:
-
-```python
-def _bunch_from_standard_deviates(
-    beam: GaussianElectronBeam,
-    deviates: Mapping[str, np.ndarray],
-    weight: np.ndarray,
-    *,
-    meta: Mapping | None = None,
-) -> Bunch:
-    ...
-```
-
-Exact naming/layout is an implementation choice.
-
-Both `sample_gaussian_bunch()` and the new adaptive sampler must call the same helper.
-
-This is required to prevent the two sampling paths from drifting in their treatment of Twiss tilt or gamma correlations.
-
----
-
-# 5. Broad reference Gaussian for coverage geometry
-
-The target latent density is
-
-\[
-p(d)=(2\pi)^{-3}\exp(-|d|^2/2).
-\]
-
-To obtain broader phase-space coverage, introduce a reference Gaussian
-
-\[
-q_s(d)=\mathcal N(0,s^2I_6),\qquad s\ge1.
-\]
-
-Use the initial default
-
-\[
-\boxed{s=\sqrt2}.
-\]
-
-This broad Gaussian is **not** the physical beam. It is used only to define a convenient coordinate system and a broad partition.
-
-Define
-
-\[
-u_j=\Phi(d_j/s),
-\]
-
-where `Phi` is the standard-normal CDF.
-
-Under `q_s`,
-
-\[
-u\sim U([0,1]^6).
-\]
-
-This maps the six-dimensional problem to an ordinary unit cube.
-
----
-
-# 6. Non-overlapping regions
-
-Partition the complete cube `[0,1]^6` into axis-aligned boxes
-
-\[
-R_m=\prod_{j=1}^{6}[a_{mj},b_{mj}].
-\]
-
-The partition must satisfy
-
-\[
-R_m\cap R_n=\varnothing\quad(m\ne n),
-\]
-
-and
-
-\[
-\bigcup_mR_m=[0,1]^6.
-\]
-
-No finite Gaussian cutoff is introduced.
-
-The reference-Gaussian probability of a region is simply its cube volume:
-
-\[
-\boxed{B_m=\prod_j(b_{mj}-a_{mj}).}
-\]
-
-This quantity is used for the broad-coverage allocation component.
-
----
-
-# 7. Exact target probability mass of each region
-
-A reference-cube box maps to an axis-aligned box in the independent latent coordinates.
-
-For each bound,
-
-\[
-\ell_{mj}=s\Phi^{-1}(a_{mj}),
-\qquad
-h_{mj}=s\Phi^{-1}(b_{mj}).
-\]
-
-Under the **target** Gaussian \(p(d)=N(0,I_6)\), the exact physical probability of region `m` is
-
-\[
-\boxed{
-P_m=
-\prod_{j=1}^{6}
-[\Phi(h_{mj})-\Phi(\ell_{mj})].
-}
-\]
-
-At `u=0` or `u=1`, use latent bounds `-inf` and `+inf`.
-
-Required invariant:
-
-\[
-\boxed{\sum_mP_m=1}
-\]
-
-up to floating-point roundoff.
-
-This `P_m` is the actual fraction of the electron bunch represented by the region.
-
----
-
-# 8. Sample the true target conditional inside each region
-
-Do **not** sample production particles from the broad reference Gaussian and then use pointwise `p/q`.
-
-Instead, sample directly from the target Gaussian conditioned on the region.
-
-For one coordinate, define
-
-\[
-A_{mj}=\Phi(\ell_{mj}),
-\qquad
-H_{mj}=\Phi(h_{mj}).
-\]
-
-Given a low-discrepancy coordinate `v_j` in `(0,1)`, set
-
-\[
-\boxed{
-d_j=
-\Phi^{-1}
-[A_{mj}+v_j(H_{mj}-A_{mj})].
-}
-\]
-
-Because the target latent Gaussian factorizes and the region is axis-aligned in latent space, this exactly samples
-
-\[
-p(d\mid R_m).
-\]
-
-Map the resulting `d` through the shared beam transform.
-
----
-
-# 9. Exact constant macroparticle weights
-
-If region `m` receives `n_m` production particles, every particle in that region gets
-
-\[
-\boxed{w_{mi}=P_m/n_m.}
-\]
-
-This is exact for the stratified estimator.
-
-The total relative bunch weight before the existing prefilter is automatically
-
-\[
-\sum_iw_i=
-\sum_mn_m\frac{P_m}{n_m}
+[
+d longmapsto
+Y(d)
 =
-\sum_mP_m
+(gamma,	heta_x,	heta_y,a0_{m shape},ar C,
+operatorname{Var}(a0_{m shape}),
+operatorname{Var}(C),
+operatorname{Cov}(a0_{m shape},C),
+L),
+]
+
+where (L) is the current carrier-weighted luminosity.
+
+For a Gaussian laser and ballistic trajectories, this map is expected to be smooth over most of the source measure.
+
+For any smooth observable (f(Y(d))),
+
+[
+mathbb E[f]
 =
-1.
-\]
+int_{mathbb R^6}
+p(d) f(Y(d)),d^6d
+]
 
-Therefore:
+should therefore be amenable to deterministic high-order cubature and low-discrepancy integration.
 
-- no pointwise `p/q_s` weights are needed;
-- no post-hoc self-normalization is needed;
-- all particles in one region have equal weight;
-- a change in `n_m` changes only numerical resolution, not represented physical mass.
-
-This supersedes the older pointwise-importance-weight formulation.
+Ordinary IID Monte Carlo converges only statistically, approximately as (N^{-1/2}). The purpose of this phase is to **measure the convergence law** of deterministic methods instead of assuming the final binned Stage-1 spectrum has the same convergence behavior.
 
 ---
 
-# 10. Low-discrepancy points inside each region
+# 3. Methods to compare
 
-Use an extensible low-discrepancy sequence instead of IID RNG inside each region.
+Implement the following as experiment-level samplers/integrators. Reuse existing latent-to-physical mapping and Stage-0 code.
 
-A minimal first implementation can use Halton bases `(2,3,5,7,11,13)`.
+## 3.1 IID control
 
-Requirements:
+The existing `sample_gaussian_bunch()` path.
 
-- start from index 1, not the all-zero Halton point;
-- use deterministic Cranley-Patterson shifts;
-- shift must depend on global seed, stable region ID, and stream tag (`pilot` vs `production`);
-- region prefixes must be stable when more points are requested;
-- map local `v` points through the truncated-target inverse-CDF construction above;
-- avoid exact 0/1 before inverse-normal evaluation.
+This is the baseline only. Do not modify it.
 
-Do not add SciPy solely for QMC.
+## 3.2 Global Gaussian QMC
 
-Implement a vectorized normal inverse CDF using a standard high-accuracy rational approximation and validate it against `statistics.NormalDist().inv_cdf`.
+No regions, no luminosity pilot, no nonuniform allocation.
 
----
+Generate a single extensible low-discrepancy sequence
 
-# 11. Correct current-main luminosity predictor
+[
+u_iin(0,1)^6
+]
 
-The pilot must estimate the same physical relevance that current Stage 0 uses.
+and map directly to target latent normals
 
-For an electron with slopes `(theta_x, theta_y)`, define
+[
+d_{ij}=Phi^{-1}(u_{ij}).
+]
 
-\[
-\mathbf e=
-\frac{(\theta_x,\theta_y,1)}
-{\sqrt{1+\theta_x^2+\theta_y^2}}.
-\]
+Use equal weights
 
-Let `n0` be the laser propagation direction.
+[
+w_i=1/N.
+]
 
-Define
+Start by reusing the existing deterministic shifted Halton implementation.
 
-\[
-\boxed{F=1-\mathbf e\cdot\mathbf n_0.}
-\]
+If `scipy.stats.qmc.Sobol` is already available in the experiment environment, it may be added as an **experiment-only comparison** with scrambling, but do not add SciPy as a GammaForge runtime dependency solely for this work.
 
-Current main also includes the carrier correction.
+Required property: increasing (N) should preserve or naturally extend the existing sequence where the chosen QMC construction permits it.
 
-Along the ballistic trajectory
+## 3.3 Existing fixed target stratification
 
-\[
-\mathbf r(t)=\mathbf r_0+c\mathbf e\,t,
-\]
+Keep the current `s=1, lambda=0`, no-splitting arm as a comparator.
 
-the encountered carrier ratio is
+This tells us whether explicit regional stratification adds anything beyond global low-discrepancy sampling.
 
-\[
-\boxed{
-C(t)=
-1+
-\frac{
-\partial_t\delta\Phi+
-\mathbf v\cdot\nabla\delta\Phi
+## 3.4 Tensor Gauss-Hermite cubature
+
+This is the most important new experiment.
+
+For the standard-normal expectation,
+
+[
+mathbb E[f(d)]
+=
+rac{1}{pi^3}
+int_{mathbb R^6}
+e^{-|x|^2}
+f(sqrt2 x),d^6x.
+]
+
+Let ((x_k,w_k)) be the ordinary one-dimensional Gauss-Hermite rule for weight (e^{-x^2}), available from `numpy.polynomial.hermite.hermgauss(n)`.
+
+The six-dimensional tensor rule is
+
+[
+d_{i_1dots i_6}
+=
+sqrt2
+(x_{i_1},ldots,x_{i_6}),
+]
+
+with normalized positive weight
+
+[
+W_{i_1dots i_6}
+=
+rac{
+w_{i_1}cdots w_{i_6}
 }{
-\omega_0F
-},
-}
-\]
+pi^3
+}.
+]
 
-with `v = c e`.
+All weights are positive and should sum to one to roundoff.
 
-The pilot relevance score should therefore be
+Test at least orders
 
-\[
-\boxed{
-\ell(X)
+[
+n=3,4,5,6,7,8,
+]
+
+and use (n=9) or (10) where computationally practical.
+
+The corresponding trajectory counts are:
+
+| 1D order | 6D nodes |
+|---:|---:|
+| 3 | 729 |
+| 4 | 4,096 |
+| 5 | 15,625 |
+| 6 | 46,656 |
+| 7 | 117,649 |
+| 8 | 262,144 |
+| 9 | 531,441 |
+| 10 | 1,000,000 |
+
+This directly probes the user's original expectation: can a smooth six-dimensional Gaussian source be represented accurately with (10^4)–(10^5) carefully chosen Stage-0 trajectories instead of millions of random particles?
+
+The Gauss-Hermite path should use the existing shared latent-to-physical transformation and produce positive `Bunch.weight = W` when exercising the existing pipeline.
+
+Do **not** reject Gauss-Hermite because its weight-based Monte-Carlo effective sample size is low. (N_{m eff}) is a Monte-Carlo diagnostic and is not an accuracy criterion for deterministic Gaussian quadrature.
+
+## 3.5 Sparse-grid / Smolyak probe
+
+Only after the tensor Gauss-Hermite baseline is working.
+
+Implement an **experiment-only** Smolyak-type Gaussian cubature using one-dimensional Gauss-Hermite rules if feasible without a large new dependency.
+
+Purpose:
+
+- determine whether the smooth-observable convergence of tensor Gauss-Hermite can be reached with substantially fewer than (n^6) evaluations;
+- estimate the effective dimension/anisotropy of the Stage-0 map.
+
+Important limitation: ordinary Smolyak combination rules may have signed weights.
+
+Signed cubature weights are acceptable for **smooth-observable experiments** but are not automatically acceptable as production `Bunch.weight`, Stage-1 histogram mass, or variance channels.
+
+Do not wire a signed sparse-grid rule into the production Xigma table path in this phase.
+
+If a reliable sparse-grid implementation would become a project by itself, stop after the tensor Gauss-Hermite and global-QMC experiments and report that rather than building a fragile rule.
+
+---
+
+# 4. First experiment: remove Stage-1 discontinuity entirely
+
+Before judging any method on the histogrammed spectrum, test the smooth Stage-0 map directly.
+
+For every sampling/cubature method, compute a fixed vector of luminosity-weighted smooth observables.
+
+At minimum include:
+
+[
+M_0 = int L(d),p(d),dd,
+]
+
+[
+M_{y_i} = int L(d)y_i(d),p(d),dd,
+]
+
+[
+M_{y_i y_j}
 =
-F\int C(t)I(\mathbf r(t),t)\,dt.
-}
-\]
+int L(d)y_i(d)y_j(d),p(d),dd,
+]
 
-Here `I=<a^2>` is the same cycle-averaged intensity used by Stage 0.
+for
 
-For built-in unchirped lasers, `C(t)=1`, so the predictor reduces to
+[
+y=
+(gamma,	heta_x,	heta_y,a0_{m shape},ar C).
+]
 
-\[
-\ell=F\int I\,dt.
-\]
+Also include several nonlinear but smooth observables, for example:
 
-The older intensity-only pilot is not sufficient for current-main chirped pulses.
+[
+int L a0_{m shape}^3,p,dd,
+]
 
----
+[
+int Lexp[-(	heta_x/	heta_*)^2-(	heta_y/	heta_*)^2],p,dd,
+]
 
-# 12. Predictor implementation
+and several low-frequency characteristic/Fourier probes of the push-forward:
 
-Implement the pilot as a separate pure/vectorized helper.
-
-Suggested API:
-
-```python
-def trajectory_luminosity_predictor(
-    bunch: Bunch,
-    laser: LaserField,
-    *,
-    n_quad: int = 64,
-    threshold: float = 1e-8,
-) -> np.ndarray:
-    ...
-```
-
-It should return a nonnegative per-particle score proportional to the expected Stage-0 luminosity **without** `bunch.weight` and `N_e`.
-
-Required procedure:
-
-1. Compute the same normalized electron direction as Stage 0.
-2. Compute the same encounter factor `F`.
-3. Use `overlap_time_window()` to obtain a conservative finite trajectory interval.
-4. Use Gauss-Legendre quadrature on each nonempty interval.
-5. Evaluate `laser.intensity_profile`.
-6. Evaluate `laser.carrier_phase_four_gradient`.
-7. Construct `C(t)` with the same convention and positivity checks as Stage 0.
-8. Integrate `C * I`.
-9. Multiply by `F`.
-10. Return zero for genuinely empty conservative windows.
-
-Do not use `illumination_window()` as the sole integration domain. Its current contract is an estimate, not a conservative bound.
-
-The pilot is allowed to be approximate. Its approximation may affect efficiency, but never the represented target distribution.
-
----
-
-# 13. Relationship to the mature analytical engine
-
-The analytical engine now has mature Gaussian overlap reductions, including exact 2D crossing-angle handling and a dedicated flying-focus path.
-
-Use it as a validation reference where applicable.
-
-Do **not** tightly couple the new sampler to `AnalyticalEngine` classes.
-
-The long-term clean design may expose a shared single-electron Gaussian-overlap primitive.
-
-For the first implementation, a small direct Gauss-Legendre trajectory integral through the `LaserField` protocol is acceptable and more general.
-
----
-
-# 14. Pilot can cheaply estimate current Stage-0 table coordinates too
-
-While evaluating the pilot trajectory, define
-
-\[
-r(t)=I(t)/I_{\rm peak}.
-\]
-
-Current main uses
-
-\[
-\boxed{
-a0_{\rm shape}
+[
+Phi(k)
 =
-\frac{\int Cr^2dt}{\int Crdt}.
-}
-\]
+int
+L(d)
+exp[i,kcdot 	ilde y(d)]
+p(d),dd,
+]
 
-Current carrier mean is
+where (	ilde y) is a dimensionless standardized version of the five Stage-1 coordinates.
 
-\[
-\boxed{
-\bar C=
-\frac{\int C^2r\,dt}{\int Cr\,dt}.
-}
-\]
+Choose a small fixed set of (k) vectors spanning individual axes and mixed directions.
 
-The current second moments are similarly available from the same quadrature.
-
-The first implementation does **not** need these values for allocation.
-
-However, if easy to expose, retain them as pilot diagnostics because they enable a future explicitly Stage-1-aware refinement metric.
+These characteristic-function probes are important: they test the **shape** of the pushed-forward distribution while remaining smooth, unlike histogram cell indicators.
 
 ---
 
-# 15. Pilot statistics inside a region
+# 5. Reference for smooth observables
 
-Pilot particles in a region are drawn from the target conditional distribution `p(d|R_m)`.
+Do not use a noisy 4M IID result as the only authority if deterministic methods themselves can establish convergence.
 
-For pilot luminosities `ell_i`, estimate
+Build the reference hierarchically.
 
-\[
-\mu_m=E[\ell\mid R_m],
-\]
+Suggested procedure:
 
-\[
-M_{2,m}=E[\ell^2\mid R_m],
-\]
+1. run tensor Gauss-Hermite at increasing order;
+2. run global QMC at large (N) with several deterministic scrambles/shifts;
+3. compare both to the large IID reference already available;
+4. declare a reference quantity resolved only when two independent numerical constructions agree within the requested tolerance.
 
-\[
-\sigma_m=
-\sqrt{\max(M_{2,m}-\mu_m^2,0)}.
-\]
+For each observable, record the difference between successive Gauss-Hermite orders.
 
-The expected physical photon contribution of the region is
-
-\[
-\boxed{C_m=P_m\mu_m.}
-\]
+If orders 8, 9 and 10 agree closely while IID still fluctuates, use the converged deterministic value as the stronger reference for that smooth observable.
 
 ---
 
-# 16. Scalar optimality and the practical production score
+# 6. Measure convergence rate, not only equal-N ratios
 
-If the only goal were minimizing variance of the **total yield**, ordinary stratified Neyman allocation would give
+For each observable and method, measure error versus expensive Stage-0 evaluation count (N).
 
-\[
-n_m\propto P_m\sigma_m.
-\]
+Fit an empirical power law over the resolved range:
 
-GammaForge does not only need total yield. It needs the distribution deposited into the 5D Stage-1 table.
+[
+epsilon(N)propto N^{-alpha}.
+]
 
-A region with nearly constant luminosity can still need multiple particles because its samples may map into different `(gamma, theta_x, theta_y, a0_shape, chirp_mean)` cells.
+The critical comparison is the exponent and the particle count required for target errors.
 
-Therefore use the more conservative initial production importance
+Report at least:
 
-\[
-\boxed{A_m=P_m\sqrt{M_{2,m}}.}
-\]
+- error at fixed (N);
+- fitted (alpha);
+- (N) required to reach (10^{-2}), (10^{-3}), and where possible (10^{-4}) relative error.
 
-Normalize
+The central research question is:
 
-\[
-L_m=A_m/\sum_jA_j.
-\]
+> Does global QMC or Gaussian cubature show substantially faster-than-(N^{-1/2}) convergence on smooth Stage-0 observables?
 
-This is not claimed to be mathematically optimal for the complete Stage-1 table. It is the first implementation target.
-
-A later improvement may use pilot-predicted Stage-1 coordinate variation directly.
+If yes, quantify whether the resulting trajectory reduction is 10x, 30x, 100x, or more for realistic accuracy targets.
 
 ---
 
-# 17. Mix luminosity allocation with broad coverage
+# 7. Second experiment: locate where the high-order advantage is lost
 
-Do not allocate the complete sample budget from `L_m`.
+Only after the smooth-observable experiment.
 
-Keep an explicit broad-coverage component:
+Pass IID, global QMC, fixed target stratification, and tensor Gauss-Hermite through the existing Stage-1/Stage-2 pipeline.
 
-\[
-\boxed{
-Q_m=(1-\lambda)B_m+\lambda L_m.
-}
-\]
+Compare **two deposition schemes**:
 
-Initial default:
+1. nearest;
+2. CIC.
 
-\[
-\boxed{\lambda=0.75.}
-\]
+Hypothesis:
 
-Interpretation:
+- nearest deposition introduces discontinuous cell-indicator functions and may destroy much of the high-order cubature convergence;
+- CIC is continuous piecewise-linear in the deposited coordinates and may preserve more of the QMC/cubature advantage.
 
-- `lambda = 0`: purely broad space-filling coverage;
-- `lambda = 1`: purely luminosity-driven allocation;
-- intermediate values protect weak/tail phase-space regions.
-
-If all luminosity scores vanish numerically, use `Q_m=B_m`.
-
-For `s>=1`,
-
-\[
-p(d)/q_s(d)\le s^6,
-\]
-
-so
-
-\[
-P_m/B_m\le s^6.
-\]
-
-Since `Q_m >= (1-lambda) B_m`,
-
-\[
-\boxed{
-P_m/Q_m\le s^6/(1-\lambda).
-}
-\]
-
-For `s=sqrt(2)` and `lambda=0.75`, the bound is 32.
-
-This is a useful reason to retain the broad baseline mixture.
-
----
-
-# 18. Arbitrary integer production budget
-
-Let the final region count be `M`.
-
-Require `N >= M`.
-
-Every region receives at least one production particle.
-
-Define
-
-\[
-N_{\rm extra}=N-M.
-\]
-
-Allocate `N_extra` according to `Q_m` using largest-remainder apportionment:
-
-1. `r_m = N_extra * Q_m`;
-2. `a_m = floor(r_m)`;
-3. distribute the remaining particles to the largest fractional parts;
-4. `n_m = 1 + a_m`.
-
-Required invariants:
-
-\[
-n_m\ge1,
-\qquad
-\sum_mn_m=N.
-\]
-
-Particle weights remain `P_m/n_m`.
-
-No pilot needs to be rerun just because the requested `N` changes.
-
----
-
-# 19. Multiplicative refinement and plan reuse
-
-Create a reusable `AdaptiveSamplingPlan`.
-
-The plan should contain:
-
-- reference scale `s`;
-- region tree;
-- region bounds;
-- `B_m`;
-- `P_m`;
-- pilot moments;
-- final `Q_m`;
-- deterministic region IDs;
-- seed;
-- pilot configuration;
-- optional previous production allocation.
-
-For an exact multiplicative refinement, support
-
-\[
-n'_m=K n_m
-\]
-
-and extend the per-region low-discrepancy sequence prefix.
-
-No pilot reevaluation is needed.
-
-For an arbitrary new `N`, simply recompute integer allocation from the existing `Q_m`.
-
-Rebuild the plan only when a beam/laser property that affects the proposal changes.
-
----
-
-# 20. Adaptive pilot refinement
-
-The pilot itself should be adaptive.
-
-Suggested starting defaults to benchmark:
-
-```text
-initial_regions = 64
-max_regions = 256
-pilot_points_per_region = 8
-pilot_quad_nodes = 64
-pilot_window_threshold = 1e-8
-proposal_scale = sqrt(2)
-luminosity_fraction = 0.75
-```
-
-These are numerical starting values, not physics constants.
-
-## 20.1 Initial partition
-
-Build a deterministic balanced binary partition of the reference cube.
-
-For an arbitrary requested leaf count:
-
-- a node assigned `m` descendants splits into:
-  - `m_left = floor(m/2)`
-  - `m_right = m - m_left`;
-- split the current longest cube side;
-- if tied, use a deterministic axis order;
-- place the cut at fraction `m_left/m`.
-
-This produces arbitrary non-power-of-two region counts without overlap.
-
-## 20.2 Refinement priority
-
-For a scalar-yield objective, the unresolved contribution scales with
-
-\[
-P_m\sigma_m.
-\]
-
-Use
-
-\[
-\boxed{R_m=P_m\sigma_m}
-\]
-
-as the first refinement priority.
-
-Repeatedly:
-
-1. evaluate pilot statistics in current leaves;
-2. rank by `R_m`;
-3. split the highest-priority leaves;
-4. sample fresh pilot points in new children;
-5. stop at `max_regions`.
-
-Do not remove unsplit leaves.
-
-## 20.3 Important limitation
-
-`P_m sigma_m` only measures luminosity variation. It does not know whether a region spreads over many current Stage-1 cells.
-
-Keep this as an explicitly documented limitation and future improvement.
-
-A later refinement criterion should combine luminosity variation with predicted spread in
-
-\[
-\gamma,\theta_x,\theta_y,a0_{\rm shape},\bar C.
-\]
-
----
-
-# 21. Proposed code organization
-
-Create a focused module such as
-
-```text
-src/gammaforge/io/adaptive_sampling.py
-```
-
-or a similarly appropriate `io`-level location.
-
-Do not bury the algorithm inside Xigma Stage 0.
-
-The sampler produces a `Bunch`, and the interaction layer already owns bunch construction.
-
-Suggested internal types:
-
-```python
-@dataclass(frozen=True)
-class SamplingRegion:
-    id: int
-    lo: np.ndarray
-    hi: np.ndarray
-    reference_mass: float
-    target_mass: float
-    pilot_mean: float
-    pilot_second_moment: float
-    pilot_std: float
-    allocation_probability: float
-```
-
-```python
-@dataclass(frozen=True)
-class AdaptiveSamplingPlan:
-    seed: int
-    proposal_scale: float
-    luminosity_fraction: float
-    regions: tuple[SamplingRegion, ...]
-    pilot_config: ...
-    diagnostics: ...
-```
-
-Exact public/private split is an implementation decision.
-
----
-
-# 22. `SamplingSpec` integration
-
-Current `SamplingSpec` contains:
-
-- `n_particles`;
-- `seed`;
-- `prefilter`.
-
-Add the smallest public option needed to select the new strategy.
-
-For example:
-
-```python
-strategy: str = "iid"  # "iid" | "adaptive"
-```
-
-Do not expose all tuning constants to the GUI in the first implementation.
-
-Use module-level defaults initially.
-
-In `build_interaction()`:
-
-### IID
-
-Keep current code exactly unchanged.
-
-### Adaptive
-
-1. validate `GaussianElectronBeam`;
-2. build/reuse adaptive plan;
-3. materialize exactly `n_particles`;
-4. create an ordinary weighted `Bunch`;
-5. apply the existing geometric prefilter exactly as today;
-6. construct `InteractionParameters`.
-
----
-
-# 23. Preserve existing prefilter semantics
-
-Current `Bunch.weight` represents relative physical population.
-
-For an unfiltered adaptive bunch,
-
-\[
-\sum_iw_i=1.
-\]
-
-The existing geometric prefilter deliberately does **not** renormalize after dropping particles.
-
-Keep that behavior.
-
-Therefore after filtering,
-
-\[
-\sum_iw_i\le1
-\]
-
-honestly records the fraction of the original population retained.
-
-Do not renormalize adaptive weights after `prefilter_bunch()`.
-
-Do not make the adaptive luminosity pilot itself a filter.
-
----
-
-# 24. Engine compatibility audit
-
-Xigma Stage 0 already uses
-
-```python
-weight = n_electrons * bunch.weight
-```
-
-so it should naturally support adaptive weights.
-
-Before making adaptive sampling available to every engine, inspect each engine that consumes `Bunch`.
-
-Required outcome:
-
-- either confirm it respects per-particle `Bunch.weight`;
-- or explicitly restrict adaptive sampling for that engine;
-- or hard-fail instead of silently assuming equal weights.
-
-Do not alter `N_e` semantics.
-
----
-
-# 25. Metadata and diagnostics
-
-Adaptive bunch/plan metadata should be sufficient to reproduce and debug a run.
-
-At minimum record:
-
-- sampling strategy;
-- seed;
-- requested production `N`;
-- `proposal_scale`;
-- `luminosity_fraction`;
-- initial region count;
-- final region count;
-- pilot points per region;
-- pilot quadrature nodes;
-- pilot threshold;
-- regional production counts;
-- min/max/quantiles of `P_m/n_m`;
-- effective sample size:
-  \[
-  N_{\rm eff}=(\sum_iw_i)^2/\sum_iw_i^2;
-  \]
-- pilot build time if practical;
-- estimated regional luminosity fractions.
-
-Do not dump all pilot particles into metadata.
-
----
-
-# 26. Tests: exact Gaussian representation
-
-These should be fast and independent of Xigma physics.
-
-## 26.1 Region partition
-
-For many region counts:
-
-- every bound is inside `[0,1]`;
-- boxes are non-overlapping;
-- union covers the cube;
-- `sum(B_m) == 1`.
-
-## 26.2 Target masses
-
-Check
-
-\[
-P_m\ge0,
-\]
-
-and
-
-\[
-\sum_mP_m=1
-\]
-
-to floating-point precision.
-
-For selected simple boxes, compare `P_m` to an independent normal-CDF product.
-
-## 26.3 Conditional samples
-
-For individual boxes, verify transformed samples stay within the correct latent bounds.
-
-## 26.4 Exact total weight
-
-Before prefilter,
-
-\[
-\sum_iw_i=1
-\]
-
-to machine precision.
-
-No normalization pass should be needed.
-
-## 26.5 Exact budget
-
-For many `N>=M`,
-
-\[
-\sum_mn_m=N,
-\qquad
-n_m\ge1.
-\]
-
-## 26.6 Beam moments
-
-With sufficiently large adaptive `N`, weighted moments must converge to the same beam distribution as the analytic target.
-
-Include nonzero:
-
-- `alpha_x`;
-- `alpha_y`;
-- `rho_x_gamma`;
-- `rho_y_gamma`;
-- `rho_z_gamma`;
-- `rho_thx_gamma`;
-- `rho_thy_gamma`.
-
-This is a critical regression test.
-
----
-
-# 27. Tests: tail convergence
-
-Recover the latent `d` values or test directly in latent coordinates.
-
-Define
-
-\[
-r^2=d\cdot d.
-\]
-
-For the target,
-
-\[
-r^2\sim\chi^2_6.
-\]
-
-At equal `N`, compare:
-
-1. existing IID sampling;
-2. broad stratified sampling with `lambda=0`;
-3. full luminosity-adaptive sampling where appropriate.
-
-Measure:
-
-- global weighted CDF error;
-- high-quantile error;
-- tail probability error.
-
-Do not compare the **unweighted** adaptive samples to the Gaussian target; their spatial density is deliberately different.
-
----
-
-# 28. Tests: pilot convergence
-
-Compare `trajectory_luminosity_predictor()` to deliberately over-resolved current Stage 0.
-
-Cases should include:
-
-- head-on centered collision;
-- transverse offset;
-- timing offset;
-- angular offset;
-- crossing angle;
-- tight focus;
-- wide electron bunch;
-- astigmatic laser;
-- nonzero Twiss alpha;
-- nonzero beam/energy correlations;
-- intrinsic carrier chirp;
-- supported flying-focus cases if the live `LaserField` supports them.
+Use the same Stage-0 evaluations for both deposition schemes where possible.
 
 Compare:
 
-- 32 vs 64 pilot nodes;
-- 64 vs 128 pilot nodes;
-- pilot vs high-resolution Stage 0.
-
-The pilot does not need machine-precision equality.
-
-What matters is that its regional ranking and allocation are stable enough to improve convergence.
-
-Also add a deliberately low-quality predictor test proving that the final weighted electron distribution remains correct. This pins the architectural guarantee that pilot quality affects efficiency, not sampling correctness.
-
----
-
-# 29. Tests: current five-dimensional Stage 1
-
-Build high-statistics IID references for representative scenarios.
-
-At multiple smaller budgets compare IID vs adaptive.
-
-Compare:
-
-- total yield;
-- normalized 5D `ShapeTable.H`;
-- `H_var_a_shape`;
-- `H_var_chirp`;
-- `H_cov_a_chirp_shape`;
-- 1D marginals over each axis;
-- useful 2D marginals where informative.
-
-Use both nearest and, at least in a smaller case, CIC if adaptive sampling is intended to support both.
-
-Do not use only total yield as the acceptance metric.
-
----
-
-# 30. Tests: Stage 2
-
-For representative tables, compare adaptive and IID/reference results for several observation directions.
-
-At minimum compare:
-
-- raw spectral moment outputs;
-- reconstructed spectrum;
+- 5D table error/marginals;
+- spectrum L1;
 - centroid;
-- integrated yield;
-- representative angular spectra.
+- several observation directions;
+- convergence exponent versus (N).
 
-The adaptive plan itself is observer-independent, but the complete pipeline must still converge after current Stage-2 `Q` is applied.
-
----
-
-# 31. Benchmarks
-
-Report separately:
-
-- plan construction;
-- pilot evaluation;
-- production bunch construction;
-- Stage 0;
-- Stage 1;
-- Stage 2 where relevant;
-- total runtime.
-
-The key benchmark is:
-
-> For a fixed Stage-1/Stage-2 accuracy target, how many expensive Stage-0 particles are required by IID vs adaptive sampling?
-
-Do not judge the feature only at equal `N`.
-
-Do not hard-code an expected order-of-magnitude speedup before measuring it.
+If Gauss-Hermite/QMC has a large advantage for smooth observables but the advantage collapses under nearest deposition and partially returns under CIC, that is strong evidence that **Stage 1, not Stage 0 source integration, is the remaining bottleneck**.
 
 ---
 
-# 32. Loaded or imported bunches are a later feature
+# 8. Optional third experiment: smooth push-forward instead of a hard histogram
 
-The first implementation should work only for an analytic `GaussianElectronBeam`.
+Do this only if section 7 demonstrates that deposition is the bottleneck.
 
-Do not automatically Gaussian-resample arbitrary loaded particle data yet.
+Add an experiment-only smooth deposition/kernel, not a production redesign.
 
-Current `fit_gaussian()`:
+Possible choices:
 
-- uses unweighted means/covariances;
-- does not preserve an arbitrary nonzero 6D centroid as a reconstructable analytic beam;
-- is therefore not sufficient as a universal loaded-data replacement path.
+- triangular/B-spline deposition wider than one cell;
+- Gaussian kernel deposition with bandwidth tied to table spacing.
 
-Future path:
+The purpose is diagnostic:
 
-1. weighted full-6D Gaussian fit;
-2. fit-quality evaluation;
-3. explicit user/config acceptance of the Gaussian approximation;
-4. adaptive resampling of the fitted distribution.
+> Does smoothing the push-forward restore the deterministic convergence seen in the Stage-0 smooth observables?
 
-Keep this outside the first implementation.
+Do not tune a production kernel or change Stage-1 semantics in this phase.
+
+If the answer is yes, report it as evidence for a separate future Stage-1 representation task.
 
 ---
 
-# 33. Stage-0 quadrature optimization is a separate follow-up
+# 9. Scenario selection
 
-The adaptive sampler reduces the number of particles.
+Do not immediately repeat the complete expensive seven-arm Phase-I bank.
 
-A separate optimization can reduce the number of field evaluations per particle.
+Use a small but informative scenario set:
 
-Current Stage 0 still uses fixed midpoint sampling.
+1. `baseline`;
+2. `tight_focus`;
+3. `wide_bunch`;
+4. `crossing`;
+5. `twiss_corr` if cost permits.
 
-After adaptive sampling is implemented and benchmarked, investigate:
+These span smooth/general, concentrated illumination, severe beam/laser scale mismatch, oblique geometry, and correlated source coordinates.
 
-- Gauss-Legendre trajectory quadrature;
-- adaptive verified quadrature;
-- narrower-but-verified integration support;
-- fused GPU trajectory integration.
-
-Do not mix these changes into the adaptive-sampling PR unless necessary for the pilot helper.
-
-Re-profile after adaptive sampling before deciding where the next bottleneck is.
+The tensor Gauss-Hermite rule should be tested first on `baseline` and `tight_focus`; expand only after the method is numerically sound.
 
 ---
 
-# 34. Recommended implementation sequence
+# 10. Production-bin check
 
-1. Refactor the existing latent Gaussian-to-physical-bunch transform.
-2. Preserve and regression-test old IID bitwise reproducibility.
-3. Add vectorized normal CDF/inverse-CDF utilities as needed.
-4. Add extensible 6D low-discrepancy local sequences.
-5. Implement deterministic reference-cube partitioning.
-6. Implement exact `B_m`.
-7. Implement exact target mass `P_m`.
-8. Implement target-conditional sampling.
-9. Implement constant regional weights `P_m/n_m`.
-10. Validate the `lambda=0` broad-stratified sampler before adding laser physics.
-11. Implement current-main carrier-aware trajectory luminosity predictor.
-12. Implement regional pilot moments.
-13. Implement `Q_m`.
-14. Implement arbitrary integer allocation.
-15. Implement adaptive cell splitting.
-16. Implement `AdaptiveSamplingPlan` reuse.
-17. Integrate opt-in strategy into `SamplingSpec` and `build_interaction()`.
-18. Audit non-Xigma engine weight handling.
-19. Add Stage-1 current-5D convergence tests.
-20. Add representative Stage-2 convergence tests.
-21. Add performance benchmarks.
-22. Tune only numerical defaults supported by benchmark evidence.
+The Phase-I validation used reduced Stage-1 bins.
+
+Once the method comparison has been narrowed to the leading one or two deterministic methods, repeat a smaller subset at the current production Stage-1 resolution.
+
+Do not retain all replicate tables in memory.
+
+Change the experiment harness to stream/fold the required statistics so memory scales weakly with replicate count.
+
+The goal is to check whether the observed convergence ordering survives production binning, not to repeat every earlier arm.
 
 ---
 
-# 35. Settled constraints — do not reinterpret
+# 11. Expected interpretations
 
-The following are fixed for this implementation:
+The experiments should distinguish these cases.
 
-- The physical target is exactly the existing `GaussianElectronBeam`.
-- The latent variables are the six existing independent standard normals.
-- The broad Gaussian is only a coverage geometry.
-- Regions live in the broad-reference CDF cube.
-- Regions must be disjoint and cover the complete cube.
-- Every region has exact target mass `P_m`.
-- Production points are sampled from the target Gaussian conditional on the region.
-- Every production particle in region `m` has weight `P_m/n_m`.
-- No pilot estimate may delete a region.
-- The pilot luminosity for current main is
-  \[
-  F\int C(t)I(t)\,dt.
-  \]
-- Observer-dependent `Q` stays in Stage 2.
-- Current Stage 1 is 5D and carries the three moment channels.
-- Existing prefilter semantics remain unchanged.
-- Existing IID RNG behavior remains unchanged.
-- The new method is opt-in during validation.
-- Loaded-bunch Gaussian replacement is deferred.
+## Case A — smooth observables improve by 10–100x, histogram spectrum does not
 
----
+Conclusion:
 
-# 36. Definition of done
+- the Gaussian source and Stage-0 map are highly compressible;
+- the current Stage-1 histogram/deposition is destroying the high-order integration advantage;
+- stop tuning source sampling;
+- open a separate Stage-1 push-forward/representation task.
 
-The implementation is complete when all of the following are true:
+## Case B — tensor Gauss-Hermite and QMC also improve the final spectrum strongly
 
-1. The old IID sampler remains bit-for-bit compatible.
-2. Adaptive mode constructs exactly `N` production particles.
-3. The adaptive regions cover the complete latent target support through the reference cube.
-4. Exact regional target masses sum to one.
-5. Production weights sum to one before prefiltering without self-normalization.
-6. Weighted beam moments reproduce the target Gaussian and all current correlations.
-7. The carrier-aware pilot matches current Stage-0 luminosity well enough for stable allocation.
-8. No pilot-based false-negative region deletion exists.
-9. Xigma Stage 0 consumes adaptive particles without a physics special case.
-10. Current 5D Stage-1 tables and moment channels converge to the high-statistics reference.
-11. Representative Stage-2 outputs converge to the same reference.
-12. Benchmarks demonstrate a material reduction in expensive Stage-0 work at fixed output accuracy.
-13. The adaptive plan can be reused for arbitrary `N`, and local low-discrepancy prefixes can be extended for multiplicative refinement.
-14. The implementation documents measured pilot overhead, regional weight distribution, effective sample size, and convergence improvement.
+Conclusion:
+
+- adopt the simplest robust deterministic source rule;
+- compare global QMC against Gauss-Hermite on arbitrary-(N), reuse, GPU compatibility, and measured accuracy;
+- regional luminosity allocation becomes optional/secondary.
+
+## Case C — smooth observables themselves converge only modestly better than IID
+
+Conclusion:
+
+- the Stage-0 map has stronger effective non-smoothness/high-dimensionality than assumed;
+- the original expectation of 10–100x source compression is not supported;
+- retain the validated simpler stratified/QMC improvement and stop escalating the cubature approach.
+
+## Case D — Gauss-Hermite converges rapidly only in some scenarios
+
+Conclusion:
+
+- identify which physical geometry causes the loss of regularity;
+- report the boundary;
+- do not auto-select a method until there is a deterministic pre-run diagnostic.
 
 ---
 
-# 37. Final note to the coding agent
+# 12. What not to do in this phase
 
-Treat this as an implementation task.
+Do not:
 
-Do not spend time re-deriving the sampling method.
+- further tune `lambda`, `s`, or adaptive splitting as the main task;
+- implement the Phase-I proposed `N_eff` guard as a production policy yet;
+- replace IID as the default;
+- redesign Stage-1 table semantics before the diagnostic experiments;
+- use signed sparse-grid weights as production macroparticle weights without a separate design review;
+- change DER015/DER016/DER024 physics;
+- modify Stage-2 observer-dependent physics;
+- optimize Stage-0 trajectory quadrature simultaneously with source cubature;
+- claim speedup from the cheap source-generation time: the relevant cost is expensive Stage-0 evaluations at fixed final accuracy.
 
-If a repository detail conflicts with this handoff, verify `main` and adapt the software interface while preserving the mathematical invariants above.
+---
+
+# 13. Reuse current branch work
+
+Do not throw away Phase-I implementation.
+
+Reuse:
+
+- `_bunch_from_standard_deviates`;
+- the validated `norm_ppf`;
+- Halton/shift utilities where useful;
+- experiment scenario definitions;
+- paired-replicate statistics;
+- Stage-0 chunk controls;
+- validation result machinery.
+
+The existing regional adaptive sampler should remain available during the experiments as a comparator.
+
+Do not delete it until the new evidence supports a simplification decision.
+
+---
+
+# 14. Required deliverables
+
+1. Experiment-level implementation of:
+   - global target-Gaussian QMC;
+   - tensor Gauss-Hermite cubature;
+   - optional sparse-grid probe if straightforward.
+2. A smooth-observable convergence benchmark with machine-readable output.
+3. Error-vs-(N) plots/tables and fitted convergence exponents.
+4. A deposition comparison: nearest vs CIC for the leading deterministic methods.
+5. At least one production-bin confirmation after the candidate set is narrowed.
+6. An updated validation record that clearly separates:
+   - Phase-I conclusions;
+   - smooth Stage-0 cubature results;
+   - Stage-1 deposition results.
+7. A short recommendation choosing among Cases A–D above.
+8. Focused regression tests only for reusable numerical utilities that survive the experiment.
+
+Do not turn every experimental branch into permanent public API.
+
+---
+
+# 15. Acceptance criteria
+
+This phase is complete when the report can answer all of the following quantitatively:
+
+1. Does global target QMC outperform the existing fixed `s=1` regional stratifier, match it, or lose to it?
+2. How fast does tensor Gauss-Hermite converge on smooth Stage-0 observables as one-dimensional order increases?
+3. For representative scenarios, how many Stage-0 evaluations are required for (10^{-2}), (10^{-3}), and where resolvable (10^{-4}) error?
+4. Is the convergence substantially faster than IID's effective (N^{-1/2}) behavior?
+5. Does nearest deposition destroy that advantage?
+6. Does CIC retain more of it?
+7. Does the ordering survive at production Stage-1 resolution?
+8. Is a 10–100x reduction in expensive Stage-0 trajectories supported for any scientifically relevant accuracy target?
+9. If the answer is no, what numerical stage is actually limiting convergence?
+
+Stop after producing this evidence and recommendation. Do **not** automatically redesign Stage 1 or promote a new production default without review.
+
+---
+
+# 16. Completion / merge note
+
+This handoff remains temporary execution context and must be removed from the branch before PR #21 is ready to merge.
+
+Durable conclusions belong in:
+
+- DER024 only where they concern the already-derived exact Gaussian sampling mathematics;
+- RES093 / a follow-up decision for lasting software-design choices;
+- `docs/validation/` for the numerical evidence;
+- issue #20 and PR #21 for the work history.
+
+Do not promote DER024 automatically as a consequence of numerical performance results.
