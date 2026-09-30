@@ -19,14 +19,13 @@ The agent should implement the experiments and the minimal supporting code neede
 
 Phase I established three different facts.
 
-1. **The exact weighted Gaussian representation is sound.**  
+1. **The exact weighted Gaussian representation is sound.**
    The region partition tiles the reference cube, exact target masses sum to one, and regional weights `P_m / n_m` preserve the configured Gaussian measure. Pilot errors affect efficiency rather than correctness.
 
-2. **Replacing IID clustering by deterministic/stratified sampling is the robust win.**  
-   In the 10-scenario validation bank, plain target stratification (`s=1, lambda=0`) beat IID on resolved spectrum error in 9 of 10 scenarios.
+2. **Replacing IID clustering by deterministic/stratified sampling is the robust win.**
+   In the 10-scenario validation bank, plain target stratification (`s=1, lambda=0`) beat IID on resolved-spectrum error in 9 of 10 scenarios.
 
 3. **The additional luminosity-aware machinery is not a robust general-purpose win.**
-   - `s=sqrt(2)` was worse than `s=1` in 9 of 10 scenarios without allocation.
    - luminosity allocation helped concentrated interactions by roughly 12–15%, but was neutral or harmful elsewhere;
    - `wide_bunch` produced a severe weight collapse;
    - adaptive region splitting had no measurable benefit;
@@ -38,60 +37,39 @@ The new question is more fundamental:
 
 > How many expensive Stage-0 evaluations are actually required to integrate a smooth known 6D Gaussian source when the source integral is treated as cubature rather than as a Monte-Carlo particle cloud?
 
-The target of a 10–100x reduction in Stage-0 trajectories is **not ruled out** by Phase I. The previous benchmark was dominated by the discontinuous Stage-1 deposition and was not a clean test of smooth 6D integration.
+The target of a 10–100x reduction in Stage-0 trajectories is **not ruled out** by Phase I. The previous benchmark was dominated by discontinuous Stage-1 deposition and was not a clean test of smooth 6D integration.
 
 ---
 
 # 2. Central hypothesis
 
-Let
+Let the six independent latent coordinates already used by `GaussianElectronBeam` be
 
-[
-d=(d_x,d_y,d_z,d_{	heta x},d_{	heta y},d_gamma)
-sim mathcal N(0,I_6)
-]
+`d = (dx, dy, dz, dtheta_x, dtheta_y, dgamma)`
 
-be the six independent latent coordinates already used by `GaussianElectronBeam`.
+with each coordinate independently standard normal.
 
-Stage 0 defines a deterministic map
+Stage 0 defines a deterministic map from `d` to
 
-[
-d longmapsto
-Y(d)
-=
-(gamma,	heta_x,	heta_y,a0_{m shape},ar C,
-operatorname{Var}(a0_{m shape}),
-operatorname{Var}(C),
-operatorname{Cov}(a0_{m shape},C),
-L),
-]
-
-where (L) is the current carrier-weighted luminosity.
+`Y(d) = (gamma, theta_x, theta_y, a0_shape, chirp_mean, var_a_shape, var_chirp, cov_a_chirp_shape, luminosity)`.
 
 For a Gaussian laser and ballistic trajectories, this map is expected to be smooth over most of the source measure.
 
-For any smooth observable (f(Y(d))),
+For any smooth observable `f(Y(d))`, the desired quantity is a six-dimensional Gaussian expectation:
 
-[
-mathbb E[f]
-=
-int_{mathbb R^6}
-p(d) f(Y(d)),d^6d
-]
+`E[f] = integral p(d) * f(Y(d)) d^6d`.
 
-should therefore be amenable to deterministic high-order cubature and low-discrepancy integration.
-
-Ordinary IID Monte Carlo converges only statistically, approximately as (N^{-1/2}). The purpose of this phase is to **measure the convergence law** of deterministic methods instead of assuming the final binned Stage-1 spectrum has the same convergence behavior.
+Ordinary IID Monte Carlo converges only statistically, approximately as `N^(-1/2)`. The purpose of this phase is to **measure the convergence law** of deterministic methods instead of assuming the final binned Stage-1 spectrum has the same convergence behavior.
 
 ---
 
 # 3. Methods to compare
 
-Implement the following as experiment-level samplers/integrators. Reuse existing latent-to-physical mapping and Stage-0 code.
+Implement the following as experiment-level samplers/integrators. Reuse the existing latent-to-physical mapping and Stage-0 code.
 
 ## 3.1 IID control
 
-The existing `sample_gaussian_bunch()` path.
+Use the existing `sample_gaussian_bunch()` path.
 
 This is the baseline only. Do not modify it.
 
@@ -101,27 +79,21 @@ No regions, no luminosity pilot, no nonuniform allocation.
 
 Generate a single extensible low-discrepancy sequence
 
-[
-u_iin(0,1)^6
-]
+`u_i in (0,1)^6`
 
-and map directly to target latent normals
+and map directly to target latent normals:
 
-[
-d_{ij}=Phi^{-1}(u_{ij}).
-]
+`d_ij = Phi^-1(u_ij)`.
 
-Use equal weights
+Use equal weights:
 
-[
-w_i=1/N.
-]
+`w_i = 1 / N`.
 
 Start by reusing the existing deterministic shifted Halton implementation.
 
 If `scipy.stats.qmc.Sobol` is already available in the experiment environment, it may be added as an **experiment-only comparison** with scrambling, but do not add SciPy as a GammaForge runtime dependency solely for this work.
 
-Required property: increasing (N) should preserve or naturally extend the existing sequence where the chosen QMC construction permits it.
+Required property: increasing `N` should preserve or naturally extend the existing sequence where the chosen QMC construction permits it.
 
 ## 3.3 Existing fixed target stratification
 
@@ -133,51 +105,25 @@ This tells us whether explicit regional stratification adds anything beyond glob
 
 This is the most important new experiment.
 
-For the standard-normal expectation,
+For a standard-normal expectation in six dimensions, use the ordinary one-dimensional Gauss-Hermite rule returned by:
 
-[
-mathbb E[f(d)]
-=
-rac{1}{pi^3}
-int_{mathbb R^6}
-e^{-|x|^2}
-f(sqrt2 x),d^6x.
-]
+`numpy.polynomial.hermite.hermgauss(n)`
 
-Let ((x_k,w_k)) be the ordinary one-dimensional Gauss-Hermite rule for weight (e^{-x^2}), available from `numpy.polynomial.hermite.hermgauss(n)`.
+for the weight `exp(-x^2)`.
 
-The six-dimensional tensor rule is
+If `(x_k, w_k)` are the 1D nodes and weights, then the six-dimensional standard-normal cubature nodes are:
 
-[
-d_{i_1dots i_6}
-=
-sqrt2
-(x_{i_1},ldots,x_{i_6}),
-]
+`d_(i1...i6) = sqrt(2) * (x_i1, ..., x_i6)`.
 
-with normalized positive weight
+The normalized positive tensor weight is:
 
-[
-W_{i_1dots i_6}
-=
-rac{
-w_{i_1}cdots w_{i_6}
-}{
-pi^3
-}.
-]
+`W_(i1...i6) = (w_i1 * ... * w_i6) / pi^3`.
 
-All weights are positive and should sum to one to roundoff.
+All weights must be positive and sum to one to roundoff.
 
-Test at least orders
+Test at least orders `n = 3, 4, 5, 6, 7, 8`, and use `n = 9` or `10` where computationally practical.
 
-[
-n=3,4,5,6,7,8,
-]
-
-and use (n=9) or (10) where computationally practical.
-
-The corresponding trajectory counts are:
+The corresponding Stage-0 trajectory counts are:
 
 | 1D order | 6D nodes |
 |---:|---:|
@@ -190,11 +136,11 @@ The corresponding trajectory counts are:
 | 9 | 531,441 |
 | 10 | 1,000,000 |
 
-This directly probes the user's original expectation: can a smooth six-dimensional Gaussian source be represented accurately with (10^4)–(10^5) carefully chosen Stage-0 trajectories instead of millions of random particles?
+This directly probes the user's original expectation: can a smooth six-dimensional Gaussian source be represented accurately with 10^4–10^5 carefully chosen Stage-0 trajectories instead of millions of random particles?
 
 The Gauss-Hermite path should use the existing shared latent-to-physical transformation and produce positive `Bunch.weight = W` when exercising the existing pipeline.
 
-Do **not** reject Gauss-Hermite because its weight-based Monte-Carlo effective sample size is low. (N_{m eff}) is a Monte-Carlo diagnostic and is not an accuracy criterion for deterministic Gaussian quadrature.
+Do **not** reject Gauss-Hermite because its weight-based Monte-Carlo effective sample size is low. `N_eff` is a Monte-Carlo diagnostic and is not an accuracy criterion for deterministic Gaussian quadrature.
 
 ## 3.5 Sparse-grid / Smolyak probe
 
@@ -204,7 +150,7 @@ Implement an **experiment-only** Smolyak-type Gaussian cubature using one-dimens
 
 Purpose:
 
-- determine whether the smooth-observable convergence of tensor Gauss-Hermite can be reached with substantially fewer than (n^6) evaluations;
+- determine whether the smooth-observable convergence of tensor Gauss-Hermite can be reached with substantially fewer than `n^6` evaluations;
 - estimate the effective dimension/anisotropy of the Stage-0 map.
 
 Important limitation: ordinary Smolyak combination rules may have signed weights.
@@ -225,51 +171,23 @@ For every sampling/cubature method, compute a fixed vector of luminosity-weighte
 
 At minimum include:
 
-[
-M_0 = int L(d),p(d),dd,
-]
-
-[
-M_{y_i} = int L(d)y_i(d),p(d),dd,
-]
-
-[
-M_{y_i y_j}
-=
-int L(d)y_i(d)y_j(d),p(d),dd,
-]
+- `M0 = E[L]`;
+- `M1_i = E[L * y_i]`;
+- `M2_ij = E[L * y_i * y_j]`;
 
 for
 
-[
-y=
-(gamma,	heta_x,	heta_y,a0_{m shape},ar C).
-]
+`y = (gamma, theta_x, theta_y, a0_shape, chirp_mean)`.
 
 Also include several nonlinear but smooth observables, for example:
 
-[
-int L a0_{m shape}^3,p,dd,
-]
+- `E[L * a0_shape^3]`;
+- `E[L * exp(-(theta_x/theta_star)^2 - (theta_y/theta_star)^2)]`;
+- several low-frequency characteristic/Fourier probes of the push-forward:
+  `Phi(k) = E[L * exp(i * k dot y_tilde)]`,
+  where `y_tilde` is a standardized dimensionless version of the five Stage-1 coordinates.
 
-[
-int Lexp[-(	heta_x/	heta_*)^2-(	heta_y/	heta_*)^2],p,dd,
-]
-
-and several low-frequency characteristic/Fourier probes of the push-forward:
-
-[
-Phi(k)
-=
-int
-L(d)
-exp[i,kcdot 	ilde y(d)]
-p(d),dd,
-]
-
-where (	ilde y) is a dimensionless standardized version of the five Stage-1 coordinates.
-
-Choose a small fixed set of (k) vectors spanning individual axes and mixed directions.
+Choose a small fixed set of `k` vectors spanning individual axes and mixed directions.
 
 These characteristic-function probes are important: they test the **shape** of the pushed-forward distribution while remaining smooth, unlike histogram cell indicators.
 
@@ -284,7 +202,7 @@ Build the reference hierarchically.
 Suggested procedure:
 
 1. run tensor Gauss-Hermite at increasing order;
-2. run global QMC at large (N) with several deterministic scrambles/shifts;
+2. run global QMC at large `N` with several deterministic scrambles/shifts;
 3. compare both to the large IID reference already available;
 4. declare a reference quantity resolved only when two independent numerical constructions agree within the requested tolerance.
 
@@ -296,25 +214,23 @@ If orders 8, 9 and 10 agree closely while IID still fluctuates, use the converge
 
 # 6. Measure convergence rate, not only equal-N ratios
 
-For each observable and method, measure error versus expensive Stage-0 evaluation count (N).
+For each observable and method, measure error versus expensive Stage-0 evaluation count `N`.
 
 Fit an empirical power law over the resolved range:
 
-[
-epsilon(N)propto N^{-alpha}.
-]
+`epsilon(N) proportional to N^(-alpha)`.
 
 The critical comparison is the exponent and the particle count required for target errors.
 
 Report at least:
 
-- error at fixed (N);
-- fitted (alpha);
-- (N) required to reach (10^{-2}), (10^{-3}), and where possible (10^{-4}) relative error.
+- error at fixed `N`;
+- fitted `alpha`;
+- `N` required to reach `1e-2`, `1e-3`, and where possible `1e-4` relative error.
 
 The central research question is:
 
-> Does global QMC or Gaussian cubature show substantially faster-than-(N^{-1/2}) convergence on smooth Stage-0 observables?
+> Does global QMC or Gaussian cubature show substantially faster-than-N^(-1/2) convergence on smooth Stage-0 observables?
 
 If yes, quantify whether the resulting trajectory reduction is 10x, 30x, 100x, or more for realistic accuracy targets.
 
@@ -344,7 +260,7 @@ Compare:
 - spectrum L1;
 - centroid;
 - several observation directions;
-- convergence exponent versus (N).
+- convergence exponent versus `N`.
 
 If Gauss-Hermite/QMC has a large advantage for smooth observables but the advantage collapses under nearest deposition and partially returns under CIC, that is strong evidence that **Stage 1, not Stage 0 source integration, is the remaining bottleneck**.
 
@@ -421,7 +337,7 @@ Conclusion:
 Conclusion:
 
 - adopt the simplest robust deterministic source rule;
-- compare global QMC against Gauss-Hermite on arbitrary-(N), reuse, GPU compatibility, and measured accuracy;
+- compare global QMC against Gauss-Hermite on arbitrary-`N`, reuse, GPU compatibility, and measured accuracy;
 - regional luminosity allocation becomes optional/secondary.
 
 ## Case C — smooth observables themselves converge only modestly better than IID
@@ -454,7 +370,7 @@ Do not:
 - change DER015/DER016/DER024 physics;
 - modify Stage-2 observer-dependent physics;
 - optimize Stage-0 trajectory quadrature simultaneously with source cubature;
-- claim speedup from the cheap source-generation time: the relevant cost is expensive Stage-0 evaluations at fixed final accuracy.
+- claim speedup from cheap source-generation time: the relevant cost is expensive Stage-0 evaluations at fixed final accuracy.
 
 ---
 
@@ -485,7 +401,7 @@ Do not delete it until the new evidence supports a simplification decision.
    - tensor Gauss-Hermite cubature;
    - optional sparse-grid probe if straightforward.
 2. A smooth-observable convergence benchmark with machine-readable output.
-3. Error-vs-(N) plots/tables and fitted convergence exponents.
+3. Error-vs-`N` plots/tables and fitted convergence exponents.
 4. A deposition comparison: nearest vs CIC for the leading deterministic methods.
 5. At least one production-bin confirmation after the candidate set is narrowed.
 6. An updated validation record that clearly separates:
@@ -505,8 +421,8 @@ This phase is complete when the report can answer all of the following quantitat
 
 1. Does global target QMC outperform the existing fixed `s=1` regional stratifier, match it, or lose to it?
 2. How fast does tensor Gauss-Hermite converge on smooth Stage-0 observables as one-dimensional order increases?
-3. For representative scenarios, how many Stage-0 evaluations are required for (10^{-2}), (10^{-3}), and where resolvable (10^{-4}) error?
-4. Is the convergence substantially faster than IID's effective (N^{-1/2}) behavior?
+3. For representative scenarios, how many Stage-0 evaluations are required for `1e-2`, `1e-3`, and where resolvable `1e-4` error?
+4. Is the convergence substantially faster than IID's effective `N^(-1/2)` behavior?
 5. Does nearest deposition destroy that advantage?
 6. Does CIC retain more of it?
 7. Does the ordering survive at production Stage-1 resolution?
@@ -524,7 +440,7 @@ This handoff remains temporary execution context and must be removed from the br
 Durable conclusions belong in:
 
 - DER024 only where they concern the already-derived exact Gaussian sampling mathematics;
-- RES093 / a follow-up decision for lasting software-design choices;
+- RES093 or a follow-up decision for lasting software-design choices;
 - `docs/validation/` for the numerical evidence;
 - issue #20 and PR #21 for the work history.
 
