@@ -98,3 +98,4 @@ one lifecycle folder; the type column matches the file's `Type:` tag.
 | RES091 | Emission-supported single-bin reductions | bug-fix | implemented | implemented/RES091-emission-supported-single-bin-reductions.md |
 | RES092 | Bounded production refinement | testing | implemented | implemented/RES092-bounded-production-refinement.md |
 | RES093 | Uniform raw-`ahat` production retarget grid | bug-fix | implemented | implemented/RES093-uniform-raw-ahat-production-retarget.md |
+| RES094 | Completion requires active tracker reconciliation | process | implemented | implemented/RES094-completion-requires-active-tracker-reconciliation.md |
