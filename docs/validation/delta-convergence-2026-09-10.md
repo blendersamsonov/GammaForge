@@ -8,12 +8,9 @@ refinement packets were saved under `/tmp` and are not committed; the tables bel
 are the surviving measurements. They do not establish independent Stage-0 physics
 or angular-aperture agreement.
 
-The committed early pilot packets
-[`delta-doppler-transverse`](delta-doppler-transverse-2026-09-09.json),
-[`delta-numpy-transverse`](delta-numpy-transverse-pilot-2026-09-09.json), and
-[`delta-numpy-refined`](delta-numpy-refined-pilot-2026-09-09.json) preserve
-their original source fingerprints and intermediate measurements. Their grids
-are historical diagnostics; use the later production gate for current acceptance.
+The early transverse and refined pilot packets were removed from the current tree
+after the measurements below were retained. Their grids are historical diagnostics;
+use the later production gate for current acceptance.
 
 The bounded baseline probe held 16,000 particles, 64 Stage-0 steps, seed 20260721,
 24 common physical energy bins, gamma/shape-`ahat` bins at 32, retarget bins at

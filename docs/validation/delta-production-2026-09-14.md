@@ -16,9 +16,9 @@ PYTHONPATH=src .venv/bin/python -m gammaforge.validation.run --production
 This CPU command takes substantially longer than the restricted alpha gate. It
 returns nonzero for numerical failures and outstanding scientific coverage.
 
-The [raw packet](delta-production-2026-09-14.json) contains input representations,
-geometry, observation directions, physical energy-bin edges, arrays of bin masses
-and moments, environment and source SHA256 fingerprints. To save the same matrix
+The original raw packet recorded input representations, geometry, observation
+directions, physical energy-bin edges, bin masses and moments, environment and
+source SHA256 fingerprints. The measured conclusions are below. To save the same matrix
 independently of the other production sections:
 
 ```python
@@ -91,7 +91,7 @@ RES032/RES053. No tuned grid default is changed by this validation integration.
 
 The methods share trajectories, luminosities, ahat and reduced-model assumptions.
 Particle/seed, Stage-0, gamma/shape-grid, angular-aperture and independent CUDA
-convergence are not measured here. The packet retains scientific acceptance as
+convergence are not measured here. This measurement leaves scientific acceptance
 false, and the production runner keeps this coverage and four-method coverage
 as explicit blockers even if every numerical check passes.
 

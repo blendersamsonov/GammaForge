@@ -10,9 +10,9 @@ nonzero agreement with NumPy within 5%.
 
 ## Accuracy and warm runtime
 
-[Raw benchmark](gamma-proposal-benchmark-2026-09-13.json) compares the validated sampler
-at commit 9ce2d26 with the candidate on identical tables. Source hashes identify both
-samplers. Nine cases cover the shared bank, crossing, off-axis/high-gamma tables, and
+The recorded benchmark compared the validated sampler
+at commit 9ce2d26 with the candidate on identical tables. Nine cases cover the
+shared bank, crossing, off-axis/high-gamma tables, and
 an energy-angle-correlated broad-intensity stress case. All CPU references pass angular
 input refinement (8/16, or 32/64 at gamma 10,000). At rings=32, subsampling=32:
 
@@ -30,7 +30,7 @@ input refinement (8/16, or 32/64 at gamma 10,000). At rings=32, subsampling=32:
 
 Runtime is median wall time over three warm calls, including transfer/preparation; it
 excludes kernel compilation and Stage 0/1. Millisecond-scale timings are noisy and do not
-establish a universal speedup. The packet includes rings/subsampling 16/16, 32/32,
+establish a universal speedup. Measurements also covered rings/subsampling 16/16, 32/32,
 64/128 and 64/256. Both samplers satisfy the existing 3% yield, 5% L1 and 1% centroid
 budgets at every measured setting. The new proposal improves accuracy per sample for
 Gaussian narrow-energy cases; it can lose accuracy when one intensity mean and a
@@ -40,7 +40,8 @@ prevents exclusion but does not guarantee lower finite-quadrature error in every
 Reproduce from this checkout with actual CUDA:
 
 ```sh
-PYTHONPATH=src .venv/bin/python scripts/benchmark_gamma_proposal.py --output gamma-proposal-benchmark.json
+mkdir -p output/validation
+PYTHONPATH=src .venv/bin/python scripts/benchmark_gamma_proposal.py --output output/validation/gamma-proposal-benchmark.json
 ```
 
 The benchmark is a numerical efficiency comparison, not independent physics closure.
@@ -54,11 +55,11 @@ The fast tier passed 489 tests. The full `pytest --run-heavy -q` suite passed
 existing Doppler, CDF and sampler-control checks pass on actual CUDA. The alpha
 validation command and all walkthrough notebooks also passed.
 
-The [standalone CUDA release gate](cupy-release-gamma-proposal-2026-09-13.json)
+The standalone CUDA release gate
 passed all required checks across eight cases on the GTX 1660 Ti, including gamma
-10,000 and off-axis support. The packet records 80 convergence diagnostics and
+10,000 and off-axis support. The run recorded 80 convergence diagnostics and
 unchanged source fingerprints. Reproduce with:
 
 ```sh
-PYTHONPATH=src .venv/bin/python scripts/validate_cupy_release.py --output cupy-release-gamma-proposal.json
+PYTHONPATH=src .venv/bin/python scripts/validate_cupy_release.py --output output/validation/cupy-release-gamma-proposal.json
 ```

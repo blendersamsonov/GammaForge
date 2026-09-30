@@ -288,9 +288,7 @@ calculation.
 
 The recorded real-CUDA run passed all 80 numerical checks across eight cases, plus
 both public crossed-overflow runs. Environment: GTX 1660 Ti, CuPy 14.2.0, CUDA runtime
-12.9, NumPy 2.5.1, Python 3.14.6. The complete report is
-[`validation/cupy-release-2026-09-08.json`](cupy-release-2026-09-08.json).
-This report was rerun after the Stokes and temporal-modulation updates through
+12.9, NumPy 2.5.1, Python 3.14.6. The run was repeated after the Stokes and temporal-modulation updates through
 549c801, with the CuPy changes in the working tree. Its before/after source
 fingerprints agree.
 The final complete actual-CUDA pytest run passed 673 tests with one skip. The
@@ -314,9 +312,7 @@ the gate correctly rejected that reference until it was refined further.
 
 After merging the author's local per-electron transverse-dipole correction, all
 80 numerical checks across eight cases and both public crossed-angle runs pass
-again, with unchanged limits. The corrected report is
-[`validation/cupy-release-transverse-2026-09-09.json`](cupy-release-transverse-2026-09-09.json).
-Before/after source fingerprints agree. Hardware and software versions match the
+again, with unchanged limits. Before/after source fingerprints agree. Hardware and software versions match the
 previous report. Historical timings above were not rerun for this correction.
 
 | Maximum over the eight finite-window cases | Integral | Integrated density L1 | Spectral centroid |

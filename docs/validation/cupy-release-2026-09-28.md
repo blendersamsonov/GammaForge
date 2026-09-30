@@ -45,6 +45,8 @@ Per-stage stderr progress and JSON timings now expose this cost.
 This closes the outstanding aggregate CPU/CUDA numerical gate for these sources.
 It does not close independent arbitrary-angle scientific acceptance. The six
 low-a0 refinement failures recorded in `delta-production-2026-09-14.md` belong
-to the separate particle-reference validation schedule and remain unresolved.
+to the separate particle-reference validation schedule; the later
+[production report](delta-production-2026-09-29.md) resolves them with a bounded
+finer-grid retry.
 Independent finite-line, trajectory, particle/seed and angular-aperture acceptance
 work remains open. Result metadata states this limitation explicitly.

@@ -12,6 +12,10 @@ dist/
 .coverage
 htmlcov/
 
+# Regenerable examples and validation runs
+/examples/output/
+/output/
+
 # Environments
 .venv
 .venv/

@@ -10,14 +10,15 @@ DER012/DER013 formulas; no new physics convention is introduced (RES085).
 
 ```sh
 PYTHONPATH=src .venv/bin/python -m pytest tests/test_delta_cupy.py -q
-PYTHONPATH=src .venv/bin/python scripts/validate_delta_cupy.py --output delta-cupy.json
+mkdir -p output/validation
+PYTHONPATH=src .venv/bin/python scripts/validate_delta_cupy.py --output output/validation/delta-cupy.json
 ```
 
 Actual CUDA is mandatory for the standalone gate. Pytest's GPU tests skip on a
 CPU-only machine; such a run does not establish GPU validation. The commands use
 the checkout explicitly because the local editable environment can point to another
-worktree. The [recorded packet](delta-cupy-2026-09-14.json) fingerprints its sources
-before and after the measurement and records its device and numerical environment.
+worktree. The recorded run fingerprinted its sources before and after the
+measurement and recorded its device and numerical environment.
 
 The full repository run (`pytest --run-heavy -q`) passed 881 tests with one skipped
 in 466.14 seconds on actual CUDA. All three walkthrough notebooks were rebuilt and
