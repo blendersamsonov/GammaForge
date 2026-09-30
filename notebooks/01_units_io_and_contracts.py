@@ -182,6 +182,9 @@ fig_3d.show()
 #    $a_0$ is merely a reported linear-equivalent convention.
 # 3. **Extrinsic Euler angles**:
 #    $R = R_y(\theta_{xz}) R_x(\theta_{yz})$ defines laser propagation and roll cleanly.
+# 4. **Pulse front and carrier are distinct**: the built-in temporal envelope follows
+#    $\eta=(t-t_{off})-u/c$. Gouy and curvature affect the period-resolved carrier phase
+#    in `field()`, but do not translate the baseline envelope (DER023, DER025).
 
 # %%
 from gammaforge.io.laser import GaussianParaxialLaser

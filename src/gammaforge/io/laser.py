@@ -294,20 +294,15 @@ def lab_frame_axes(
 # ---------------------------------------------------------------------------
 @runtime_checkable
 class TemporalEnvelope(Protocol):
-    """Protocol for temporal envelopes in phase time.
+    """Protocol for normalized envelopes in retarded time."""
 
-    Phase time τ = φ(x,y,z,t) / ω₀ is the optical phase divided by carrier frequency.
-    This makes the envelope follow the actual paraxial phase structure including
-    Gouy phase and wavefront curvature.
-    """
-
-    def envelope(self, phase_time: float | np.ndarray, xp: ModuleType) -> float | np.ndarray:
-        """Evaluate envelope at given phase time(s).
+    def envelope(self, retarded_time: float | np.ndarray, xp: ModuleType) -> float | np.ndarray:
+        """Evaluate envelope at given retarded time(s).
 
         Parameters
         ----------
-        phase_time : float or array
-            Phase time τ = φ/ω₀ in seconds.
+        retarded_time : float or array
+            Retarded time in seconds.
         xp : module
             Array module (numpy or cupy).
 
@@ -318,8 +313,8 @@ class TemporalEnvelope(Protocol):
         """
         ...
 
-    def phase_time_width(self) -> float:
-        """RMS width of the envelope in phase time (seconds)."""
+    def retarded_time_width(self) -> float:
+        """RMS width of the envelope in retarded time (seconds)."""
         ...
 
     def peak_value(self, xp: ModuleType) -> float:
@@ -329,13 +324,9 @@ class TemporalEnvelope(Protocol):
 
 @dataclass(frozen=True)
 class GaussianTemporalEnvelope:
-    """Simple Gaussian envelope in phase time.
+    """Simple Gaussian envelope in retarded time."""
 
-    This reproduces the current GaussianParaxialLaser behavior when used with
-    the full paraxial phase.
-    """
-
-    duration: Quantity  # RMS duration in phase time
+    duration: Quantity  # RMS duration in retarded time
 
     UNITS = {"duration": "s"}
     LIGHT_TIME_FIELDS = frozenset({"duration"})
@@ -352,13 +343,13 @@ class GaussianTemporalEnvelope:
     def m(self, name: str) -> float:
         return float(getattr(self, name).magnitude)
 
-    def envelope(self, phase_time, xp):
+    def envelope(self, retarded_time, xp):
         """Gaussian envelope: exp(-τ²/2σ²) / √(2π)σ"""
         sigma_t = self.m("duration")
         norm = 1.0 / (xp.sqrt(2.0 * xp.pi) * sigma_t)
-        return norm * xp.exp(-0.5 * (phase_time / sigma_t) ** 2)
+        return norm * xp.exp(-0.5 * (retarded_time / sigma_t) ** 2)
 
-    def phase_time_width(self) -> float:
+    def retarded_time_width(self) -> float:
         return self.m("duration")
 
     def peak_value(self, xp) -> float:
@@ -368,10 +359,7 @@ class GaussianTemporalEnvelope:
 
 @dataclass(frozen=True)
 class PulseTrainTemporalEnvelope:
-    """Train of Gaussian sub-pulses in phase time.
-
-    Reproduces PulseTrainParaxialLaser behavior with phase-aware envelope.
-    """
+    """Train of Gaussian sub-pulses in retarded time."""
 
     subpulse_duration: Quantity  # RMS duration of one sub-pulse
     repetition_period: Quantity  # Time between sub-pulses
@@ -407,20 +395,19 @@ class PulseTrainTemporalEnvelope:
         k = np.arange(1, self.n_subpulses + 1, dtype=float)
         return (k - 0.5 * (self.n_subpulses + 1)) * self.m("repetition_period")
 
-    def envelope(self, phase_time, xp):
-        """Sum of Gaussian sub-pulses in phase time."""
+    def envelope(self, retarded_time, xp):
+        """Sum of Gaussian sub-pulses in retarded time."""
         sigma_t = self.m("subpulse_duration")
         delays = xp.asarray(self.subpulse_delays())
 
-        # phase_time and delays broadcast: (..., n_subpulses)
-        phase_time = xp.asarray(phase_time)
-        diff = xp.expand_dims(phase_time, -1) - delays
+        retarded_time = xp.asarray(retarded_time)
+        diff = xp.expand_dims(retarded_time, -1) - delays
         longitudinal = xp.sum(xp.exp(-0.5 * (diff / sigma_t) ** 2), axis=-1) / (
             xp.sqrt(2.0 * xp.pi) * sigma_t * self.n_subpulses
         )
         return longitudinal
 
-    def phase_time_width(self) -> float:
+    def retarded_time_width(self) -> float:
         # For a single sub-pulse, the width is the sub-pulse duration.
         # For a train, approximate as n_subpulses * repetition_period.
         if self.n_subpulses == 1:
@@ -438,13 +425,10 @@ class PulseTrainTemporalEnvelope:
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class SeparableParaxialLaser:
-    """Paraxial beam × phase-aware temporal envelope.
+    """Paraxial beam with a retarded-time envelope and full carrier phase.
 
     The photon density factorizes as:
-        density(x,y,z,t) = transverse(xi1,xi2,u) × temporal(φ(x,y,z,t)/ω₀)
-
-    where φ is the full paraxial phase including Gouy and curvature.
-    This makes the envelope follow the actual optical phase structure.
+        density(x,y,z,t) = transverse(xi1,xi2,u) × temporal(t-t_off-u/c)
     """
 
     # Spatial (paraxial beam)
@@ -570,9 +554,9 @@ class SeparableParaxialLaser:
         phase = k0 * (u - ct) - gouy + 0.5 * k0 * (xi1**2 * inv_r1 + xi2**2 * inv_r2)
         return phase
 
-    def _phase_time(self, xi1, xi2, u, u_spot, ct, xp):
-        """Phase time τ = φ/ω₀."""
-        return self._paraxial_phase(xi1, xi2, u, u_spot, ct, xp) / self.omega0()
+    def _retarded_time(self, u, ct):
+        """Baseline pulse-front coordinate; carrier Gouy/curvature do not enter."""
+        return (ct - u) / C_CGS
 
     # -- local coordinates --------------------------------------------------
     def _local_coordinates(self, x, y, z, t):
@@ -591,7 +575,7 @@ class SeparableParaxialLaser:
 
     # -- photon density (separable) -----------------------------------------
     def photon_density(self, x, y, z, t):
-        """Photon density = transverse(xi1,xi2,u) × temporal(phase_time).
+        """Photon density = transverse(xi1,xi2,u) × temporal(retarded time).
 
         Normalized to integrate to 1 over all space at fixed time.
         """
@@ -604,11 +588,10 @@ class SeparableParaxialLaser:
             -0.5 * ((xi1 / s1) ** 2 + (xi2 / s2) ** 2)
         )
 
-        # Temporal envelope in phase time (normalized to 1 over phase_time).
-        # The Jacobian du/d(phase_time) = C_CGS, so we divide by C_CGS to
+        # The Jacobian |du/d(retarded_time)| = C_CGS, so divide by C_CGS to
         # normalize the integral over u to 1.
-        phase_time = self._phase_time(xi1, xi2, u, u_spot, ct, xp)
-        temporal = self.temporal_envelope.envelope(phase_time, xp) / C_CGS
+        retarded_time = self._retarded_time(u, ct)
+        temporal = self.temporal_envelope.envelope(retarded_time, xp) / C_CGS
 
         return transverse * temporal
 
@@ -622,8 +605,7 @@ class SeparableParaxialLaser:
     def carrier_phase_four_gradient(self, x, y, z, t):
         """Zero additional carrier-phase gradient for the current unchirped fields.
 
-        The paraxial phase used by :meth:`field` and the temporal envelope is
-        deliberately excluded from this API.
+        The paraxial phase used by :meth:`field` is deliberately excluded from this API.
         """
         xp = _get_array_module(x, y, z, t)
         shape = xp.broadcast_arrays(
@@ -668,7 +650,7 @@ class SeparableParaxialLaser:
         # Use peak envelope value for bounding
         xp = np  # active_region runs on host
         reach = 2.0 * math.sqrt(math.log(1.0 / threshold))
-        half_length = reach * C_CGS * self.temporal_envelope.phase_time_width()
+        half_length = reach * C_CGS * self.temporal_envelope.retarded_time_width()
 
         slide = abs(1.0 + self.beta_ff)
         drift = abs(self.beta_ff) * half_length
@@ -719,13 +701,9 @@ class SeparableParaxialLaser:
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class GaussianParaxialLaser(SeparableParaxialLaser):
-    """Elliptical, astigmatic paraxial Gaussian pulse with phase-aware envelope.
+    """Elliptical, astigmatic paraxial Gaussian pulse with retarded-time envelope."""
 
-    This is the phase-aware version of the original GaussianParaxialLaser.
-    The temporal envelope is a Gaussian in phase time τ = φ/ω₀.
-    """
-
-    duration: Quantity | None = None  # RMS duration in phase time
+    duration: Quantity | None = None  # RMS duration in retarded time
 
     # Override UNITS to include duration
     UNITS = {
@@ -770,16 +748,16 @@ class GaussianParaxialLaser(SeparableParaxialLaser):
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class PulseTrainParaxialLaser(SeparableParaxialLaser):
-    """Train of N_p paraxial Gaussian sub-pulses with phase-aware envelope.
+    """Train of N_p paraxial Gaussian sub-pulses with retarded-time envelope.
 
     CGS-Gaussian throughout (P1, RES013, RES054). Conserves total laser energy E_tot across
     configurations, so each sub-pulse carries energy E_tot / N_p.
 
-    The temporal envelope is a train of Gaussians in phase time τ = φ/ω₀.
+    The temporal envelope is a train of Gaussians in retarded time.
     When N_p = 1, reproduces GaussianParaxialLaser identically.
     """
 
-    subpulse_duration: Quantity | None = None  # RMS duration of one sub-pulse in phase time
+    subpulse_duration: Quantity | None = None  # RMS duration of one sub-pulse in retarded time
     repetition_period: Quantity | None = None  # Time between sub-pulses
     n_subpulses: int = 10  # Number of sub-pulses (N_p >= 1)
 
@@ -893,7 +871,7 @@ class PulseTrainParaxialLaser(SeparableParaxialLaser):
         return xi1, xi2, u, u + self.beta_ff * ct, ct
 
     def photon_density(self, x, y, z, t):
-        """Photon density = transverse(xi1,xi2,u) × temporal(phase_time).
+        """Photon density = transverse(xi1,xi2,u) × temporal(retarded time).
 
         Normalized to integrate to 1 over all space at fixed time.
         """
@@ -906,11 +884,10 @@ class PulseTrainParaxialLaser(SeparableParaxialLaser):
             -0.5 * ((xi1 / s1) ** 2 + (xi2 / s2) ** 2)
         )
 
-        # Temporal envelope in phase time (normalized to 1 over phase_time).
-        # The Jacobian du/d(phase_time) = C_CGS, so we divide by C_CGS to
+        # The Jacobian |du/d(retarded_time)| = C_CGS, so divide by C_CGS to
         # normalize the integral over u to 1.
-        phase_time = self._phase_time(xi1, xi2, u, u_spot, ct, xp)
-        temporal = self.temporal_envelope.envelope(phase_time, xp) / C_CGS
+        retarded_time = self._retarded_time(u, ct)
+        temporal = self.temporal_envelope.envelope(retarded_time, xp) / C_CGS
 
         return transverse * temporal
 

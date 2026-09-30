@@ -20,6 +20,20 @@ DER023 specifies the Stage-0 reduction and numerical applicability gate. DER025 
 
 Implement the DER023 Stage-0 optimization in the existing Xigma architecture without creating separate CPU/GPU physics implementations.
 
+## Branch pilot status (2026-09-30)
+
+The built-in separable envelope now uses retarded time, and an opt-in circular
+Gaussian Stage-0 rule, geometry bound, and conservative discard certificate are
+implemented. The engine still defaults to midpoint. The measured 24-node rule
+misses baseline total yield by 1.1%; 256 nodes resolves total yield but provides
+no speedup over midpoint and some particle moments converge more slowly. See
+`docs/validation/der023-stage0-pilot-2026-09-30.md` for settings and limits.
+
+Before selecting a production default or removing this handoff, complete the
+planned node/tolerance scan across the scenario bank, group-delay applicability
+study against an explicitly chromatic model, DER001 cross-check, and real-CUDA
+agreement/performance measurement. The PR remains draft during that work.
+
 The branch should deliver, in the supported Gaussian regime:
 
 - a conservative per-particle luminosity upper bound based on the full Gaussian spatial profile and diffraction;

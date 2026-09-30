@@ -76,6 +76,20 @@ def test_carrier_phase_gradient_broadcasts_on_device():
 
 
 @gpu
+def test_der023_temporal_quadrature_cpu_gpu_agreement():
+    inputs = interaction()
+    kwargs = dict(quadrature="auto", gaussian_order=64)
+    cpu = stages.integrate_trajectories(inputs.bunch, inputs.laser, inputs.N_e,
+                                        backend="numpy", **kwargs)
+    device = stages.integrate_trajectories(inputs.bunch, inputs.laser, inputs.N_e,
+                                           backend="cupy", chunk=19, **kwargs)
+    for name in ("luminosity", "a0_shape", "chirp_mean", "var_a_shape",
+                 "var_chirp", "cov_a_chirp_shape"):
+        np.testing.assert_allclose(getattr(device, name), getattr(cpu, name),
+                                   rtol=2e-11, atol=2e-14)
+
+
+@gpu
 @pytest.mark.parametrize('scheme',['nearest','cic'])
 def test_stage1_device_deposition_and_retry_preserve_mass(scheme, monkeypatch):
     cp = spectrum_sampler.cp
