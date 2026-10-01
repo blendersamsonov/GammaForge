@@ -36,7 +36,8 @@ from __future__ import annotations
 
 import itertools
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from functools import lru_cache
 
 import numpy as np
 
@@ -48,10 +49,20 @@ except ImportError:
     _HAS_CUPY = False
 
 from ...io.bunch import Bunch, illumination_window, overlap_time_window
-from ...io.laser import LaserField, fit_gaussian_paraxial
+from ...io.laser import (GaussianParaxialLaser, LaserField, PulseTrainParaxialLaser,
+                         fit_gaussian_paraxial)
 from ...io.units import C_CGS, E_ESU, HBAR_CGS, ME_CGS, SIGMA_T_CGS
 from . import chunking
 from .chunking import run_in_chunks
+from .gaussian_bound import luminosity_lower_bound, luminosity_upper_bound
+
+
+@lru_cache(maxsize=16)
+def _hermite_rule(order: int):
+    nodes, weights = np.polynomial.hermite.hermgauss(order)
+    nodes.setflags(write=False)
+    weights.setflags(write=False)
+    return nodes, weights
 
 
 def _get_array_module(*arrays):
@@ -822,6 +833,9 @@ class TrajectorySamples:
     in this dataclass carries a polarization convention, because ``<a^2>`` at fixed pulse
     energy does not depend on one (RES054).
 
+    ``discard_certificate`` bounds the true luminosity fraction removed by the optional
+    unchirped DER023 Gaussian prefilter; it excludes retained quadrature error.
+
     It is one scalar per particle rather than a per-timestep distribution, and that is
     physics, not an optimization: in this weakly nonlinear regime the photon formation
     length spans the whole trajectory, so — unlike synchrotron radiation — the trajectory
@@ -841,6 +855,7 @@ class TrajectorySamples:
     var_chirp: np.ndarray
     cov_a_chirp_shape: np.ndarray
     diagnostics: TrajectoryDiagnostics | None = None
+    discard_certificate: float = 0.0
 
     @property
     def n_particles(self) -> int:
@@ -884,6 +899,9 @@ def integrate_trajectories(
     n_electrons: float,
     *,
     n_steps: int = 200,
+    gaussian_order: int = 24,
+    quadrature: str = "midpoint",
+    discard_tolerance: float = 0.0,
     threshold: float = 1e-3,
     window: str = "active_region",
     backend: str = "numpy",
@@ -896,7 +914,10 @@ def integrate_trajectories(
     Each particle travels a straight line at ``c`` (§2.3) across its own overlap window —
     the closed-form window `gammaforge.io.bunch.overlap_time_window` derives from the
     laser's active region, so a particle is integrated over exactly the interval in which
-    it can see the pulse and no longer. The integral is a midpoint sum over ``n_steps``.
+    it can see the pulse and no longer. The default integral is a midpoint sum over
+    ``n_steps``. ``quadrature="auto"`` uses common DER023 temporal nodes for supported
+    circular Gaussian pulses when diagnostics are absent. ``gaussian_order`` controls
+    that opt-in rule; ``discard_tolerance`` enables its cumulative spatial prefilter.
 
     ``n_electrons`` is the interaction's ``N_e``. The bunch's own weights are *relative*
     (§3.2), so absolute photon counts enter here and only here — which is what makes every
@@ -935,6 +956,12 @@ def integrate_trajectories(
     """
     if n_steps < 1:
         raise ValueError(f"integrate_trajectories: n_steps must be >= 1, got {n_steps}")
+    if not 1 <= gaussian_order <= 256:
+        raise ValueError("gaussian_order must be in [1, 256]")
+    if quadrature not in ("midpoint", "auto"):
+        raise ValueError("quadrature must be 'midpoint' or 'auto'")
+    if not 0.0 <= discard_tolerance < 1.0:
+        raise ValueError("discard_tolerance must be in [0, 1)")
     if window not in ("active_region", "illumination"):
         raise ValueError(
             f"integrate_trajectories: window must be 'active_region' or 'illumination', got {window!r}"
@@ -942,6 +969,70 @@ def integrate_trajectories(
     backend = _check_backend(backend)
     xp = cp if backend == "cupy" else np
     to_host = cp.asnumpy if backend == "cupy" else np.asarray
+    gaussian = (
+        quadrature == "auto"
+        and type(laser) in (GaussianParaxialLaser, PulseTrainParaxialLaser)
+        and laser.m("sigma_x") == laser.m("sigma_y")
+        and laser.m("z_fx") == laser.m("z_fy")
+        and laser.beta_ff == 0.0
+        and laser.rayleigh_x() ** 2 > 2.0 * laser.m("sigma_x") ** 2
+        and t_edges is None and spatial_edges is None
+    )
+    if gaussian and discard_tolerance and bunch.n_particles > 1:
+        upper = luminosity_upper_bound(bunch, laser)
+        common = (n_electrons * bunch.weight * photon_density_scale(laser) *
+                  C_CGS * SIGMA_T_CGS * laser.intensity_peak() /
+                  laser.temporal_envelope.peak_value(np))
+        physical_upper = common * upper
+        order = np.argsort(physical_upper)
+        physical_lower = common * luminosity_lower_bound(bunch, laser)
+        cumulative = np.cumsum(physical_upper[order])
+        retained_lower = np.maximum(
+            float(np.sum(physical_lower)) - np.cumsum(physical_lower[order]), 0.0
+        )
+        candidate_certificate = cumulative / np.maximum(
+            retained_lower + cumulative, 1e-300
+        )
+        eligible = np.flatnonzero(candidate_certificate[:-1] <= discard_tolerance)
+        count = int(eligible[-1] + 1) if eligible.size else 0
+        if count:
+            discarded = np.zeros(bunch.n_particles, dtype=bool)
+            discarded[order[:count]] = True
+            discarded_upper = float(np.sum(physical_upper[discarded]))
+            retained_lower_total = float(np.sum(physical_lower[~discarded]))
+            total_bound = retained_lower_total + discarded_upper
+            certificate = discarded_upper / total_bound if total_bound > 0.0 else 0.0
+            if certificate <= discard_tolerance:
+                retained = integrate_trajectories(
+                    bunch.select(~discarded), laser, n_electrons, n_steps=n_steps,
+                    gaussian_order=gaussian_order, quadrature=quadrature, threshold=threshold,
+                    window=window, backend=backend, chunk=chunk,
+                )
+                fields = {}
+                for name in ("a0_shape", "luminosity", "chirp_mean", "var_a_shape",
+                             "var_chirp", "cov_a_chirp_shape"):
+                    values = np.zeros(bunch.n_particles)
+                    values[~discarded] = getattr(retained, name)
+                    fields[name] = values
+                return replace(retained, gamma=bunch.gamma, theta_x=bunch.thx,
+                               theta_y=bunch.thy, discard_certificate=certificate, **fields)
+            # The proposed set failed its cumulative certificate; retain everyone.
+    if gaussian:
+        hermite_x, hermite_w = _hermite_rule(gaussian_order)
+        envelope = laser.temporal_envelope
+        if type(laser) is GaussianParaxialLaser:
+            eta_nodes = np.sqrt(2.0) * envelope.m("duration") * hermite_x
+            eta_weights = hermite_w / np.sqrt(np.pi)
+        else:
+            delays = envelope.subpulse_delays()
+            eta_nodes = (delays[:, None] + np.sqrt(2.0) *
+                         envelope.m("subpulse_duration") * hermite_x[None, :]).ravel()
+            eta_weights = np.tile(hermite_w / (np.sqrt(np.pi) * len(delays)), len(delays))
+        eta_density = np.asarray(envelope.envelope(eta_nodes, np))
+        quadrature_scale = xp.asarray(eta_weights / eta_density)
+        sample_count = len(eta_nodes)
+    else:
+        sample_count = n_steps
 
     def checked_edges(edges):
         values = np.array(edges, dtype=float, copy=True)
@@ -971,7 +1062,7 @@ def integrate_trajectories(
     start = np.where(span > 0.0, t0, 0.0)
     # Midpoint rule: no sample sits on the window edge, where the integrand is smallest and
     # the window definition is least meaningful.
-    offsets = (xp.arange(n_steps) + 0.5) / n_steps
+    offsets = (xp.arange(n_steps) + 0.5) / n_steps if not gaussian else None
 
     if hasattr(laser, "intensity_peak"):
         intensity_peak = laser.intensity_peak()
@@ -1007,8 +1098,15 @@ def integrate_trajectories(
         local_rate = xp.asarray(rate[sl])
         local_encounter = xp.asarray(rel_vel[sl])
         local_weight = xp.asarray(weight[sl])
-        times = xp.asarray(start[sl, None]) + offsets[None, :] * local_span[:, None]
         local_velocity = tuple(xp.asarray(speed[sl, None]) for speed in velocity)
+        if gaussian:
+            focus = np.array([laser.m("x_off"), laser.m("y_off"), 0.0])
+            initial = (bunch.x[sl] - focus[0], bunch.y[sl] - focus[1], bunch.z[sl])
+            u_initial = sum(k_hat[j] * initial[j] for j in range(3))
+            times = (xp.asarray(eta_nodes)[None, :] + laser.m("t_off") +
+                     xp.asarray(u_initial[:, None]) / C_CGS) / local_encounter[:, None]
+        else:
+            times = xp.asarray(start[sl, None]) + offsets[None, :] * local_span[:, None]
         positions = tuple(
             xp.asarray(position[sl, None]) + speed * times
             for position, speed in zip((bunch.x, bunch.y, bunch.z), local_velocity)
@@ -1034,35 +1132,41 @@ def integrate_trajectories(
         # The photon density an electron flies through, and the rate it scatters at.
         # In CGS this is simply flux x cross-section x time; no coordinate-normalization
         # Jacobian belongs here (RES015).
-        dt = local_span / n_steps
-        contributing = (intensity > 0.0) & (dt[:, None] > 0.0)
+        if gaussian:
+            sample_measure = quadrature_scale[None, :] / local_encounter[:, None]
+            contributing = intensity > 0.0
+        else:
+            dt = local_span / n_steps
+            sample_measure = dt[:, None]
+            contributing = (intensity > 0.0) & (dt[:, None] > 0.0)
         if xp.any(contributing & ((carrier_ratio <= 0.0) | ~xp.isfinite(carrier_ratio))):
             raise ValueError(
                 "encountered carrier phase ratio C must be finite and positive over contributing samples"
             )
         carrier_ratio = xp.where(contributing, carrier_ratio, 1.0)
         weighted_intensity = carrier_ratio * intensity
-        luminosity = local_rate * local_weight * dt * xp.sum(weighted_intensity, axis=1)
+        luminosity = local_rate * local_weight * xp.sum(
+            weighted_intensity * sample_measure, axis=1)
 
         # `ratio` is the local intensity as a fraction of the pulse's peak. a0_shape is its
         # second moment over the trajectory, normalized by its first: the intensity an
         # electron *effectively* experiences, weighted by where it actually radiated. Being
         # a ratio of intensities, it is polarization-agnostic like everything else here.
         ratio = intensity / intensity_peak
-        weighted_ratio = carrier_ratio * ratio
+        weighted_ratio = carrier_ratio * ratio * sample_measure
         moment_1 = xp.sum(weighted_ratio, axis=1)
         # A particle with no window saw nothing, whatever the envelope reads at the
         # anchor time above; its effective intensity is zero, not the value at t = 0.
-        usable = (moment_1 > 0.0) & (dt > 0.0)
+        usable = moment_1 > 0.0
         safe_moment_1 = xp.maximum(moment_1, 1e-300)
         a0_shape = xp.where(
-            usable, xp.sum(carrier_ratio * ratio**2, axis=1) / safe_moment_1, 0.0
+            usable, xp.sum(carrier_ratio * ratio**2 * sample_measure, axis=1) / safe_moment_1, 0.0
         )
         chirp_mean = xp.where(
-            usable, xp.sum(carrier_ratio**2 * ratio, axis=1) / safe_moment_1, 0.0
+            usable, xp.sum(carrier_ratio**2 * ratio * sample_measure, axis=1) / safe_moment_1, 0.0
         )
-        second_a = xp.sum(carrier_ratio * ratio**3, axis=1) / safe_moment_1
-        second_chirp = xp.sum(carrier_ratio**3 * ratio, axis=1) / safe_moment_1
+        second_a = xp.sum(carrier_ratio * ratio**3 * sample_measure, axis=1) / safe_moment_1
+        second_chirp = xp.sum(carrier_ratio**3 * ratio * sample_measure, axis=1) / safe_moment_1
         var_a_shape_raw = xp.where(usable, second_a - a0_shape**2, 0.0)
         var_chirp_raw = xp.where(usable, second_chirp - chirp_mean**2, 0.0)
 
@@ -1081,7 +1185,7 @@ def integrate_trajectories(
         )
         cov_a_chirp_shape = xp.where(
             usable,
-            xp.sum(carrier_ratio**2 * ratio**2, axis=1) / safe_moment_1
+            xp.sum(carrier_ratio**2 * ratio**2 * sample_measure, axis=1) / safe_moment_1
             - a0_shape * chirp_mean,
             0.0,
         )
@@ -1090,7 +1194,7 @@ def integrate_trajectories(
             contribution = (
                 local_rate[:, None]
                 * local_weight[:, None]
-                * dt[:, None]
+                * sample_measure
                 * weighted_intensity
             )
             if t_edges is not None:
@@ -1127,7 +1231,7 @@ def integrate_trajectories(
         # particles, where no such measurement exists, and inventing one would be the
         # cargo-culting the chunking module's own docstring warns the constants against.
         bytes_per_item=(BYTES_PER_PARTICLE_STEP + (32 if spatial_edges is not None else
-                                                 8 if t_edges is not None else 0)) * n_steps,
+                                                 8 if t_edges is not None else 0)) * sample_count,
         backend=backend,
     )
     # An empty bunch is reachable, not hypothetical: the prefilter discards every particle
@@ -1169,7 +1273,7 @@ def integrate_trajectories(
         a0_shape=a0_shape,
         luminosity=luminosity,
         intensity_peak=intensity_peak,
-        n_steps=n_steps,
+        n_steps=sample_count,
         chirp_mean=chirp_mean,
         var_a_shape=var_a_shape,
         var_chirp=var_chirp,

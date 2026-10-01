@@ -24,6 +24,32 @@ XIGMA_SPECS: tuple[FieldSpec, ...] = (
         value_range=(1, 100_000),
     ),
     FieldSpec(
+        key="gaussian_order",
+        label="Gaussian temporal quadrature order",
+        kind=FieldKind.SCALAR,
+        unit=DIMENSIONLESS,
+        default=24,
+        integer=True,
+        value_range=(1, 256),
+    ),
+    FieldSpec(
+        key="stage0_quadrature",
+        label="Stage-0 quadrature",
+        kind=FieldKind.CHOICE,
+        unit=DIMENSIONLESS,
+        # Midpoint remains the production default (RES096).
+        default="midpoint",
+        choices=("midpoint", "auto"),
+    ),
+    FieldSpec(
+        key="discard_tolerance",
+        label="Gaussian Stage-0 discard fraction",
+        kind=FieldKind.SCALAR,
+        unit=DIMENSIONLESS,
+        default=0.0,
+        value_range=(0.0, 0.999),
+    ),
+    FieldSpec(
         key="threshold",
         label="Active-region threshold",
         kind=FieldKind.SCALAR,

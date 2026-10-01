@@ -158,7 +158,10 @@ from gammaforge.engines.xigma.collision import Collision
 notebook_xigma_params = xigma.schema.with_values(backend="numpy", line_model="moment2")
 collision = Collision(interaction=interaction, params=notebook_xigma_params)
 
-# The schema backend selects Stage 0/1 as well as Stage 2 (RES083).
+# The schema backend selects Stage 0/1 as well as Stage 2 (RES083). The default Stage 0
+# rule remains midpoint. `stage0_quadrature="auto"` opts into DER023 common temporal
+# nodes for circular coincident-focus Gaussian pulses; `gaussian_order` sets its order.
+# Diagnostics and unsupported laser geometries use the generic midpoint rule.
 # Use xigma.schema.with_values(backend="numpy") for CPU-only execution, or "auto"
 # for CUDA/CPU selection. Geometry windows and public stage arrays stay on the host;
 # trajectory evaluation, source histograms and nearest/CIC deposition run on CUDA
