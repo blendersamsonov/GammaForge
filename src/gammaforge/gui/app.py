@@ -15,6 +15,7 @@ try:
 except ModuleNotFoundError:  # Physics/documentation-only installations omit the GUI extra.
     ui = None
 
+from ..engines.catalog import EngineRole, engine_names
 from ..io.bunch import validate as validate_beam
 from ..io.fields import beam_from_parameters, laser_from_parameters, to_parameters
 from ..io.formats.yaml_spec import SPEC_VERSION, parameters_to_yaml_dict
@@ -75,6 +76,15 @@ body { background: #f3f6fa; color: #26364a; }
 .gf-input-layout { display: flex; width: 100%; height: 100%; }
 .gf-input-main { flex: 1; overflow-y: auto; min-width: 0; }
 """
+
+
+def _visible_engine_names() -> tuple[str, ...]:
+    """Engine names a user can actually reach: a calculation choice or the estimate overlay.
+
+    Read from the public catalog rather than written out here, so the caption cannot drift
+    from the engines the workspace really offers (RES095).
+    """
+    return engine_names((EngineRole.CALCULATION, EngineRole.ESTIMATE))
 
 
 class BrowserWorkspace:
@@ -576,7 +586,7 @@ class Pane:
                 ui.label(
                     "Version: 0.1.0 (development)  |  "
                     "Physics: Compton scattering in CGS-Gaussian units  |  "
-                    "Engines: analytical, xigma (GPU), kascade"
+                    f"Engines: {', '.join(_visible_engine_names())}"
                 ).classes("text-caption text-grey-7")
                 ui.separator()
                 ui.label("Documentation:").classes("text-subtitle1")

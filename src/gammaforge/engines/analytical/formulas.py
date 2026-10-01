@@ -832,7 +832,7 @@ def angle_integrated_spectrum(
     `gammaforge.engines.xigma.stages.angle_integrated_spectrum` and
     `gammaforge.validation.references.delta.single_electron_spectrum` also implement,
     **deliberately not imported from either**. Analytical is the third independent leg of
-    §7's four-method cross-validation (xigma vs delta vs analytical vs kascade); importing
+    the cross-validation that now has no Monte-Carlo counterpart (RES095); importing
     the shape from either of the other two would make that specific comparison circular,
     the same reasoning `xigma/stages.py`'s own copy already documents.
 

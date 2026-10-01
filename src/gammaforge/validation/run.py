@@ -153,7 +153,9 @@ def production_checks(scenarios: Sequence[Scenario]) -> tuple[list[Check], list[
     checks: list[Check] = []
     notes: list[str] = []
     blockers = [
-        "kascade is not part of this tier: the independent four-method comparison remains unwired",
+        "no independent emission-physics leg remains: with kascade retired (RES095), "
+        "xigma/analytical share the Gaussian overlap regime and delta shares xigma's "
+        "Stage 0 trajectories, so cross-validation cannot separate emission-model error",
     ]
     xigma = XigmaEngine()
     analytical = AnalyticalEngine()
@@ -302,7 +304,7 @@ def run_suite(
         if alpha:
             report.note(
                 "HEADLESS ALPHA SCOPE: Gaussian analytical/xigma total yields and head-on "
-                "weak-field spectrum checks. GUI, kascade and independent arbitrary-angle "
+                "weak-field spectrum checks. GUI and independent arbitrary-angle "
                 "emission certification are outside this release gate (RES065)."
             )
         checks, notes, blockers = production_checks(scenarios)
@@ -319,7 +321,8 @@ def run_suite(
         report.note(
             "not run — use `python -m gammaforge.validation.run --production`; this opt-in "
             "tier runs xigma and analytical over every scenario, with delta only as a "
-            "shared-input Stage-2 angular reference. Kascade/four-method coverage remains open."
+            "shared-input Stage-2 angular reference. No independent emission-physics leg "
+            "remains (RES095)."
         )
 
     if production:

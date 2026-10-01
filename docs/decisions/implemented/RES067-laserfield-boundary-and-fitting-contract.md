@@ -108,7 +108,7 @@ misapplication of Gaussian overlap integrals.
 ## Consequences
 
 - Conforming quasi-monochromatic `LaserField` implementations run through `auto_ranges`,
-  `XigmaEngine`, and `KascadeEngine` without calling `fit_gaussian_paraxial`.
+  `XigmaEngine`, and the `delta` reference without calling `fit_gaussian_paraxial`.
 - `AnalyticalEngine` cleanly rejects non-Gaussian inputs with `TypeError`.
 - `GRAND_PLAN.md` P15 and §3.3 accurately reflect the engine boundaries without speculative
   claims.

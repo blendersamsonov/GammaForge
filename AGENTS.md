@@ -85,6 +85,10 @@ tracker has been reconciled with the result (RES094).
 - There is no `gammaforge.core` package. `gammaforge.io` is the shared layer.
   Keep kernels pure and engine caching in the thin facade. Engine numeric knobs
   belong in typed `Parameters`/`FieldSpec`, never a mutable adapter `Config`.
+- `gammaforge.engines.catalog` is the only place that enumerates engines (RES095).
+  Scripts, the runner, serialization and the GUI resolve an engine by stable name and
+  role there; no frontend imports an engine implementation module or branches on an
+  engine name. An in-repository engine is one catalog entry, not a frontend edit.
 - An engine consumes the `LaserField` protocol, not a concrete Gaussian laser,
   except where a particular analytical method explicitly requires one (RES067).
   Gaussian laser geometry uses `R_y(theta_xz) R_x(theta_yz)`; the transported
@@ -98,10 +102,10 @@ tracker has been reconciled with the result (RES094).
 - Do not add speculative capability registries, generic spec adapters, `Results.cfg`
   back-references or duplicated derived properties. Superseded interfaces and
   compatibility shims should be removed rather than maintained as legacy code.
-- Xigma and analytical are the main engines; Kascade is a minimal independent
-  comparison method and Delta is a validation reference. Scientific acceptance
-  requires independent physics checks, not only backend agreement. Use current
-  DER records for emission formulas and `docs/validation/` for measured scope.
+- Xigma is the calculation engine and analytical is the always-visible estimate; Delta is
+  a validation-only reference. Scientific acceptance requires independent physics checks,
+  not only backend agreement. Use current DER records for emission formulas and
+  `docs/validation/` for measured scope.
 
 ## Development and evidence
 

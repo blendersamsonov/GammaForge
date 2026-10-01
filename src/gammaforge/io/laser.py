@@ -5,7 +5,7 @@ Two things live here, and the split is the point:
 * :class:`LaserField` — the **sampling contract engines are typed against**. Vectorized,
   lab-frame methods (``intensity_profile``, ``carrier_phase_four_gradient``,
   ``a0_profile``, ``field``, ``active_region``) plus the reference ``omega0``.
-  Quasi-monochromatic engines (xigma, kascade) consume field sampling alongside physical
+  Quasi-monochromatic engines (xigma, delta) consume field sampling alongside physical
   carrier and polarization invariants; analytical explicitly requires `GaussianParaxialLaser`
   (RES067).
 * :class:`GaussianParaxialLaser` — today's primary implementation. It owns the four

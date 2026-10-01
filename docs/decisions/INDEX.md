@@ -64,7 +64,7 @@ one lifecycle folder; the type column matches the file's `Type:` tag.
 | RES056 | Code comments citing a decision are trimmed to a pointer; the rationale lives only in the decision file | process | implemented | implemented/RES056-code-comments-citing-a-decision-are-pointers.md |
 | RES057 | *docs/DERIVATIONS.md* is split into `docs/derivations/`, one file per result on a confidence pipeline instead of a lifecycle | process | implemented | implemented/RES057-derivations-migrated-to-per-file-confidence-pipeline.md |
 | RES058 | NiceGUI local browser UI with a separate calculation runner | architecture | implemented | implemented/RES058-nicegui-local-browser-execution-boundary.md |
-| RES059 | minimal kascade ports the emission chain, not the predecessor's framework | feature | implemented | implemented/RES059-minimal-kascade-emission-chain.md |
+| RES059 | minimal kascade ports the emission chain, not the predecessor's framework | feature | implemented | archived/RES059-minimal-kascade-emission-chain.md |
 | RES060 | Polarization uses each particle's field-free lab velocity | bug-fix | implemented | implemented/RES060-polarization-uses-per-particle-lab-velocity.md |
 | RES061 | Slice integration measure is explicit per axis | architecture | implemented | implemented/RES061-slice-measure-is-explicit-per-axis.md |
 | RES062 | CuPy ring/annulus sampler integrated experimentally; NumPy remains the alpha default | architecture | implemented | implemented/RES062-cupy-importance-sampler-production-path.md |
@@ -99,3 +99,4 @@ one lifecycle folder; the type column matches the file's `Type:` tag.
 | RES092 | Bounded production refinement | testing | implemented | implemented/RES092-bounded-production-refinement.md |
 | RES093 | Uniform raw-`ahat` production retarget grid | bug-fix | implemented | implemented/RES093-uniform-raw-ahat-production-retarget.md |
 | RES094 | Completion requires active tracker reconciliation | process | implemented | implemented/RES094-completion-requires-active-tracker-reconciliation.md |
+| RES095 | One public engine catalog, with engine role as declarative data | architecture | implemented | implemented/RES095-public-engine-catalog-and-roles.md |

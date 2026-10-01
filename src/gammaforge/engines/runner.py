@@ -12,11 +12,8 @@ from ..io.calculation import CalculationRequest
 from ..io.interaction import InteractionParameters, build_interaction
 from ..io.results import Results
 from ..io.target import OutputKind, OutputRequest
-from .analytical.engine import AnalyticalEngine
 from .base import Engine
-from .delta.engine import DeltaEngine
-from .kascade.engine import KascadeEngine
-from .xigma.engine import XigmaEngine
+from .catalog import estimate_engine, selectable_engines
 
 __all__ = ["LocalRunner"]
 
@@ -26,15 +23,17 @@ StatusCallback = Callable[[str, str], None]
 class LocalRunner:
     """Run the concrete local engines sequentially and retain one sampled interaction.
 
+    Default engines come from the public catalog rather than an import list here, so this
+    module never names an engine implementation (RES095). `engines` stays injectable for
+    tests and specialized callers.
+
     The cache deliberately stops at the sampled bunch.  It avoids resampling for target,
     output, engine-numeric, and charge-only edits without claiming any xigma stage reuse.
     """
 
     def __init__(self, engines: dict[str, Engine] | None = None) -> None:
         self.engines: dict[str, Engine] = (
-            {"xigma": XigmaEngine(), "kascade": KascadeEngine(), "delta": DeltaEngine()}
-            if engines is None
-            else engines
+            selectable_engines() if engines is None else engines
         )
         self.errors: dict[str, str] = {}
         self._cached_sampling_key: tuple[object, ...] | None = None
@@ -43,11 +42,11 @@ class LocalRunner:
     def estimate(self, request: CalculationRequest) -> Results:
         """Return the analytical total-yield preview without sampling macroparticles."""
         target = replace(request.target, outputs=(OutputRequest(OutputKind.TOTAL_YIELD),))
-        return self._analytical(request, target)
+        return self._run_estimate(request, target)
 
-    def _analytical(self, request: CalculationRequest, target) -> Results:
-        """Evaluate the bunch-independent analytical engine for ``target``."""
-        interaction = InteractionParameters(
+    def _estimate_interaction(self, request: CalculationRequest, target) -> InteractionParameters:
+        """Build the bunch-independent interaction the estimate engine evaluates."""
+        return InteractionParameters(
             beam=request.beam,
             laser=request.laser,
             bunch=_empty_bunch(),
@@ -55,7 +54,26 @@ class LocalRunner:
             N_e=request.beam.n_electrons(),
             sampling=request.sampling,
         )
-        return AnalyticalEngine().run(interaction, AnalyticalEngine.schema)
+
+    def _run_estimate(self, request: CalculationRequest, target) -> Results:
+        """Evaluate the catalog's estimate engine for ``target``."""
+        engine = estimate_engine()
+        return engine.run(self._estimate_interaction(request, target), engine.schema)
+
+    def _overlay(self, request: CalculationRequest, results: dict[str, Results],
+                 on_status: StatusCallback | None) -> None:
+        """Run the estimate engine as an always-present overlay, per RES058.
+
+        The estimate role is why this is not an ordinary selectable engine, so the name
+        comes from the catalog rather than being written here.
+        """
+        engine = estimate_engine()
+        self._run_one(
+            engine.name,
+            lambda: engine.run(self._estimate_interaction(request, request.target), engine.schema),
+            results,
+            on_status,
+        )
 
     def calculate(
         self, request: CalculationRequest, on_status: StatusCallback | None = None
@@ -69,9 +87,9 @@ class LocalRunner:
         self.errors.clear()
         results: dict[str, Results] = {}
 
-        # Analytical is always an overlay, not a selectable calculation engine.  Calculate
-        # retains every analytical output from this snapshot; preview uses `estimate()`.
-        self._run_one("analytical", lambda: self._analytical(request, request.target), results, on_status)
+        # Calculate retains every analytical output from this snapshot; preview uses
+        # `estimate()`, which is why the overlay runs before the engine loop below.
+        self._overlay(request, results, on_status)
 
         if not request.engine_params:
             return results
@@ -104,8 +122,8 @@ class LocalRunner:
         self.errors.clear()
         results: dict[str, Results] = {}
 
-        # Always run analytical as overlay
-        self._run_one("analytical", lambda: self._analytical(request, request.target), results, on_status)
+        # Always run the estimate engine as an overlay (RES058).
+        self._overlay(request, results, on_status)
 
         try:
             interaction = self._interaction(request)

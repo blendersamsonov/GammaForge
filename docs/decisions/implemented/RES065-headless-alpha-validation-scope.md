@@ -37,4 +37,5 @@ GPU kernel checks remain separate tests and do not independently certify emissio
 ## Consequences
 
 A passing alpha gate is not a complete physics certification. Arbitrary-angle angular
-spectra remain a validation limitation, and kascade/four-method work remains open.
+spectra remain a validation limitation, and no independent emission-physics leg remains
+after kascade's retirement (RES095).

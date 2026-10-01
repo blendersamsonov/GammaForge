@@ -8,7 +8,7 @@
 # inspect intermediate stage representations, and compare results between different physics engines.
 # 
 # ### What you will learn in this notebook:
-# 1. **The 3 Engines in GammaForge**: `AnalyticalEngine`, `XigmaEngine`, and `KascadeEngine`.
+# 1. **The Engines in GammaForge**: enumerated by one public catalog, each with a role.
 # 2. **Engine Architecture Rules**: Why engines have no mutable `Config` (P5) and recompute costs (`RecomputeCost`).
 # 3. **The Xigma Pipeline Deep Dive (`Collision`)**:
 #    - **Stage 0**: Trajectory integration (`TrajectorySamples`) & active region filtering.
@@ -88,13 +88,24 @@ print(f"Interaction built: {interaction.bunch.n_particles} particles, {interacti
 # - **No mutable `Config` on an engine (P5)**: Engine knobs live in the typed `Parameters` schema, validated.
 # - **Engines never branch the GUI, and the GUI never touches engine internals (P3)**.
 # - **Uniform Results (P10)**: Every engine returns a `Results` object holding `PhasespaceSlice` entries.
+# - **One public catalog (RES095)**: `gammaforge.engines.catalog` is the only place engines are
+#   enumerated. Each entry declares a *role*, so a frontend offers calculation engines as
+#   choices and reaches the estimate and validation-only reference by name, without ever
+#   importing an engine implementation module.
 
 # %%
-from gammaforge.engines.xigma.engine import XigmaEngine
-from gammaforge.engines.analytical.engine import AnalyticalEngine
+from gammaforge.engines.catalog import EngineRole, engine_names, get_engine, selectable_engines
 
-xigma = XigmaEngine()
-analytical = AnalyticalEngine()
+for role in EngineRole:
+    names = engine_names((role,))
+    print(f"{role.name:12s} -> {', '.join(names)}")
+
+print(f"\nUser-facing engine choices: {', '.join(selectable_engines())}")
+
+# %%
+# Resolving an engine needs no knowledge of which module implements it.
+xigma = get_engine("xigma")
+analytical = get_engine("analytical")
 
 print(f"Engine 1: '{xigma.name}', outputs: {[o.name for o in xigma.supported_outputs]}")
 print(f"Engine 2: '{analytical.name}', outputs: {[o.name for o in analytical.supported_outputs]}")
