@@ -128,15 +128,20 @@ def main() -> int:
     print(f"scenarios: {len(bank)}  workers: {args.workers}")
     print(f"reference: {args.ref_n} particles x {args.ref_seeds} seeds "
           f"({'quick' if args.quick else 'full'})")
-    print(f"replicates: {args.replicates} seeds/arm, paired against control "
-          f"{args.control!r}")
+    if any(s in ("scenarios", "ablation", "cell-aware") for s in stages):
+        print(f"replicates: {args.replicates} seeds/arm, paired against control "
+              f"{args.control!r}")
+    else:
+        print("stages: smooth-observable / deposition -- deterministic source rules, "
+              "no replicate pairing")
     print(f"memory: Stage-0 chunk capped at {args.chunk_mb:.0f} MiB/worker "
           f"(~{args.workers * args.chunk_mb / 1000:.0f} GB across {args.workers} workers)")
     print(f"results -> {RESULTS}\n", flush=True)
 
     # exp1 and exp5 are single-process, not per-scenario, so they are run here directly rather
     # than through the per-scenario fan-out below.
-    if "ablation" in stages or "cell-aware" in stages:
+    single_process = ("ablation", "cell-aware", "smooth", "deposition")
+    if any(s in stages for s in single_process):
         for stage, script, extra in (
             ("ablation", "exp1_ablation.py", []),
             ("cell-aware", "exp5_cell_aware.py", []),
