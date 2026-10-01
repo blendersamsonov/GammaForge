@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from functools import lru_cache
 
 import numpy as np
 
@@ -22,6 +23,32 @@ def _temporal_bins(laser):
                     0.5 * math.erfc(-x / math.sqrt(2.0)) for x in standardized])
     masses = np.diff(cdf) / len(delays)
     return [(delay + sigma_t * standardized, masses) for delay in delays]
+
+
+@lru_cache(maxsize=16)
+def _convolution_bank(sigma_t: float, b0: float):
+    """Laser-only upper tables for the DER023 ``D_k`` Gaussian convolutions.
+
+    Each grid value is a binwise upper integral. Linear interpolation gets a
+    second-derivative allowance; outside the grid, Gaussian tail mass gets its
+    own positive allowance. The bank can be reused by every pulse in a train.
+    """
+    d_bank = np.exp2(np.arange(64, dtype=float))
+    grid = np.linspace(-8.0 * sigma_t, 8.0 * sigma_t, 2049)
+    step = grid[1] - grid[0]
+    standardized = np.r_[-np.inf, np.linspace(-8.0, 8.0, 129), np.inf]
+    cdf = np.array([0.0 if x == -np.inf else 1.0 if x == np.inf else
+                    0.5 * math.erfc(-x / math.sqrt(2.0)) for x in standardized])
+    masses = np.diff(cdf)
+    edges = sigma_t * standardized
+    distance = np.maximum(np.maximum(edges[:-1, None] - grid[None, :],
+                                     grid[None, :] - edges[1:, None]), 0.0)
+    table = np.empty((len(d_bank), len(grid)))
+    for index, d in enumerate(d_bank):
+        table[index] = np.sum(masses[:, None] / (d + b0**2 * distance**2), axis=0)
+    for array in (d_bank, grid, table):
+        array.setflags(write=False)
+    return d_bank, grid, step, table, math.erfc(8.0 / math.sqrt(2.0))
 
 
 def trajectory_bound_geometry(bunch: Bunch, laser: GaussianParaxialLaser | PulseTrainParaxialLaser):
@@ -56,24 +83,41 @@ def trajectory_bound_geometry(bunch: Bunch, laser: GaussianParaxialLaser | Pulse
 def luminosity_upper_bound(bunch: Bunch, laser: GaussianParaxialLaser | PulseTrainParaxialLaser):
     """Bound ``integral T(eta) S_i(eta) d eta`` without particle trajectory sampling.
 
-    A fixed geometric D bank rounds ``1+d²`` downward. Gaussian bin masses are
-    prepared once; the maximum Lorentzian kernel in each bin gives an upper sum.
+    A fixed geometric D bank rounds ``1+d²`` downward. Its Gaussian-Lorentzian
+    convolution table is prepared once per laser envelope/Rayleigh combination.
+    Particle work consists of table interpolation and positive error allowances.
     """
     _, d2, eta_min, _ = trajectory_bound_geometry(bunch, laser)
     if not len(d2):
         return np.zeros(0)
-    d_bank = np.exp2(np.arange(1024, dtype=float))
-    indices = np.minimum(np.searchsorted(d_bank, 1.0 + d2, side="right") - 1, 1023)
-    d_low = d_bank[indices]
     b0 = C_CGS / (2.0 * laser.rayleigh_x())
+    envelope = laser.temporal_envelope
+    if type(laser) is GaussianParaxialLaser:
+        sigma_t, delays = envelope.m("duration"), np.array([0.0])
+    else:
+        sigma_t, delays = envelope.m("subpulse_duration"), envelope.subpulse_delays()
+    d_bank, grid, step, table, tail_mass = _convolution_bank(sigma_t, b0)
+    d_actual = 1.0 + d2
+    indices = np.minimum(np.searchsorted(d_bank, d_actual, side="right") - 1,
+                         len(d_bank) - 1)
+    d_low = d_bank[indices]
     upper = np.zeros_like(d2)
-    for edges, masses in _temporal_bins(laser):
-        for first in range(0, len(d2), 4096):
-            last = min(first + 4096, len(d2))
-            distance = np.maximum(np.maximum(edges[:-1][None, :] - eta_min[first:last, None],
-                                             eta_min[first:last, None] - edges[1:][None, :]), 0.0)
-            upper[first:last] += np.sum(masses[None, :] /
-                                         (d_low[first:last, None] + b0**2 * distance**2), axis=1)
+    in_bank = d_actual <= d_bank[-1]
+    for delay in delays:
+        relative = eta_min - delay
+        location = np.clip((relative - grid[0]) / step, 0.0, len(grid) - 1.0)
+        left = np.minimum(location.astype(int), len(grid) - 2)
+        fraction = location - left
+        interpolated = ((1.0 - fraction) * table[indices, left]
+                        + fraction * table[indices, left + 1]
+                        + b0**2 * step**2 / (4.0 * d_low**2))
+        distance = np.maximum(np.abs(relative) - 8.0 * sigma_t, 0.0)
+        outside = ((1.0 - tail_mass) / (d_low + b0**2 * distance**2)
+                   + tail_mass / d_low)
+        upper += np.where(np.abs(relative) <= 8.0 * sigma_t, interpolated, outside)
+    upper /= len(delays)
+    # Beyond the finite bank, the unit-mass envelope and S <= 1/D give a bound.
+    upper = np.where(in_bank, upper, 1.0 / d_actual)
     return upper * (1.0 + 1e-12)
 
 

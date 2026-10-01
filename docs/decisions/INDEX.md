@@ -100,3 +100,4 @@ one lifecycle folder; the type column matches the file's `Type:` tag.
 | RES093 | Uniform raw-`ahat` production retarget grid | bug-fix | implemented | implemented/RES093-uniform-raw-ahat-production-retarget.md |
 | RES094 | Completion requires active tracker reconciliation | process | implemented | implemented/RES094-completion-requires-active-tracker-reconciliation.md |
 | RES095 | One public engine catalog, with engine role as declarative data | architecture | implemented | implemented/RES095-public-engine-catalog-and-roles.md |
+| RES096 | Gaussian Stage-0 quadrature remains opt-in | feature | implemented | implemented/RES096-gaussian-stage0-quadrature-remains-opt-in.md |

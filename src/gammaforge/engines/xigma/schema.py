@@ -37,6 +37,7 @@ XIGMA_SPECS: tuple[FieldSpec, ...] = (
         label="Stage-0 quadrature",
         kind=FieldKind.CHOICE,
         unit=DIMENSIONLESS,
+        # Midpoint remains the production default (RES096).
         default="midpoint",
         choices=("midpoint", "auto"),
     ),

@@ -58,6 +58,12 @@ def test_der023_geometry_and_upper_bound_against_direct_trajectory_integral(thet
     assert np.all(f > 0)
     assert np.all(d2 >= 0)
     assert np.all(curvature >= C_CGS / (2 * laser.rayleigh_x()) * (1 - 1e-12))
+    if theta_xz == theta_yz == 0.0:
+        headon = replace(bunch, thx=np.zeros_like(bunch.thx),
+                         thy=np.zeros_like(bunch.thy))
+        _, _, _, headon_curvature = trajectory_bound_geometry(headon, laser)
+        np.testing.assert_allclose(headon_curvature,
+                                   C_CGS / (2 * laser.rayleigh_x()), rtol=1e-14)
     k, f1, f2 = laser.focusing_axes()
     for eta in (-laser.m("duration"), 0.0, laser.m("duration")):
         norm = np.sqrt(1.0 + bunch.thx**2 + bunch.thy**2)
@@ -109,13 +115,14 @@ def test_cumulative_discard_bound_exceeds_measured_luminosity_loss():
                        sampling=replace(scenarios.BASELINE.sampling, n_particles=32))
     interaction = scenarios.build(scenario)
     bunch = replace(interaction.bunch,
-                    x=np.r_[interaction.bunch.x[:16], np.full(16, 0.01)])
+                    x=np.r_[interaction.bunch.x[:16], np.full(16, 0.1)])
     full = integrate_trajectories(bunch, interaction.laser, interaction.N_e,
                                   quadrature="auto", gaussian_order=64)
     filtered = integrate_trajectories(bunch, interaction.laser, interaction.N_e,
                                       quadrature="auto", gaussian_order=64,
-                                      discard_tolerance=0.1)
-    assert 0 < filtered.discard_certificate <= 0.1
+                                      discard_tolerance=0.01)
+    assert 0 < filtered.discard_certificate <= 0.01
+    assert np.count_nonzero((full.luminosity > 0) & (filtered.luminosity == 0)) >= 16
     measured_loss = (full.total_yield() - filtered.total_yield()) / full.total_yield()
     assert measured_loss <= filtered.discard_certificate
 

@@ -985,18 +985,22 @@ def integrate_trajectories(
                   laser.temporal_envelope.peak_value(np))
         physical_upper = common * upper
         order = np.argsort(physical_upper)
+        physical_lower = common * luminosity_lower_bound(bunch, laser)
         cumulative = np.cumsum(physical_upper[order])
-        count = min(int(np.searchsorted(cumulative, discard_tolerance *
-                                     float(np.max(physical_upper)), side="right")),
-                    bunch.n_particles - 1)
+        retained_lower = np.maximum(
+            float(np.sum(physical_lower)) - np.cumsum(physical_lower[order]), 0.0
+        )
+        candidate_certificate = cumulative / np.maximum(
+            retained_lower + cumulative, 1e-300
+        )
+        eligible = np.flatnonzero(candidate_certificate[:-1] <= discard_tolerance)
+        count = int(eligible[-1] + 1) if eligible.size else 0
         if count:
             discarded = np.zeros(bunch.n_particles, dtype=bool)
             discarded[order[:count]] = True
             discarded_upper = float(np.sum(physical_upper[discarded]))
-            retained_lower = float(np.sum(
-                common[~discarded] * luminosity_lower_bound(bunch.select(~discarded), laser)
-            ))
-            total_bound = retained_lower + discarded_upper
+            retained_lower_total = float(np.sum(physical_lower[~discarded]))
+            total_bound = retained_lower_total + discarded_upper
             certificate = discarded_upper / total_bound if total_bound > 0.0 else 0.0
             if certificate <= discard_tolerance:
                 retained = integrate_trajectories(
