@@ -1364,3 +1364,170 @@ def test_the_spectrum_primitives_reject_impossible_parameters():
         collision_averaged_shape(z, 4.0, -0.1)
     with pytest.raises(ValueError, match="h > -1"):
         shape_support_edge(-1.5)
+
+
+# ---------------------------------------------------------------------------
+# Cheap optimizer diagnostics (DER019 §24–§26)
+# ---------------------------------------------------------------------------
+def test_the_circular_aperture_fraction_is_the_aperture_share_of_the_verified_shape():
+    """DER019 §24.1's `F_cap`, pinned against the distribution that actually matters.
+
+    §24.1 writes `F_cap(u_c) = int_0^{u_c} dP/du du` next to `Pbar(u) = 1 - 2u/(1+u)^2`, but
+    those two cannot both be read literally: differentiating the closed form gives
+    `3(u^2+1)/(2(1+u)^4)`, which is neither `Pbar` nor `dPbar/du`. So the closed form is
+    checked against the distribution it must agree with — the one implied by the verified
+    `G(z;0)`, mapped through `u = 1/z - 1` — which agrees to machine precision and settles
+    that `Pbar` is the cumulative in that sentence.
+    """
+    from gammaforge.engines.analytical.diagnostics import circular_capture_fraction
+
+    def u_density_from_verified_shape(u):
+        """`d/du` of the shape `G(1/(1+u); 0)`, whose `z`-density integrates to exactly 1."""
+        z = 1.0 / (1.0 + u)
+        return 1.5 * (1.0 - 2.0 * z * (1.0 - z)) / (1.0 + u) ** 2
+
+    nodes, weights = leggauss(400)
+    for u_c in (1e-2, 0.1, 0.5, 1.0, 2.0, 10.0):
+        u = 0.5 * u_c * (nodes + 1.0)
+        integrated = float(np.sum(weights * 0.5 * u_c * u_density_from_verified_shape(u)))
+        assert integrated == pytest.approx(float(circular_capture_fraction(u_c)), rel=1e-9)
+
+
+def test_the_capture_fraction_obeys_its_stated_limits_and_stays_a_probability():
+    """`F_cap ~ (3/2) u_c` for a narrow collimator and `F_cap -> 1` for a wide one, and
+    monotonic in between — a capture fraction that could exceed 1 or decrease would be
+    worse than no diagnostic at all."""
+    from gammaforge.engines.analytical.diagnostics import circular_capture_fraction
+
+    # `F_cap/(3/2 u_c) = 1 - 2 u_c + O(u_c^2)`, so the small-aperture limit is approached at
+    # first order in u_c — the tolerance has to admit that correction rather than assume the
+    # limit is exact.
+    for u_c in (1e-4, 1e-3):
+        ratio = float(circular_capture_fraction(u_c)) / (1.5 * u_c)
+        assert ratio == pytest.approx(1.0 - 2.0 * u_c, rel=1e-3), f"wrong leading order at u_c={u_c}"
+    assert float(circular_capture_fraction(2.0**40)) == pytest.approx(1.0, abs=1e-9)
+    assert float(circular_capture_fraction(0.0)) == 0.0
+
+    grid = circular_capture_fraction(np.logspace(-8, 8, 400))
+    assert np.all(np.diff(grid) > 0.0)
+    assert np.all((grid >= 0.0) & (grid <= 1.0))
+
+    # A negative aperture is not physics, and sqrt/clip-style handling would hide it.
+    with pytest.raises(ValueError, match="u_c >= 0"):
+        circular_capture_fraction(np.array([-1.0]))
+
+
+def test_the_aperture_efficiency_is_a_gamma_average_and_closed_when_monoenergetic():
+    """DER019 §24.1: for a zero-emittance bunch the capture fraction is independent of `ahat`
+    and of the nonlinear distribution, so this is a pure one-dimensional gamma average — and
+    closed form when the beam has no energy spread. `io.bunch.validate` permits exactly zero
+    spread, so that path must be handled rather than dividing by a zero-width Gaussian."""
+    from gammaforge.engines.analytical.diagnostics import aperture_capture_efficiency
+
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    theta_c = 1e-3
+
+    mono = replace(beam, rel_energy_spread=0.0)
+    closed = aperture_capture_efficiency(mono, laser, theta_c)
+    assert closed.fraction == pytest.approx(closed.fraction_at_gamma0, rel=1e-12)
+    # Closed form: F_cap(gamma0^2 theta_c^2) directly.
+    from gammaforge.engines.analytical.diagnostics import circular_capture_fraction
+    assert closed.fraction == pytest.approx(
+        float(circular_capture_fraction(mono.gamma0() ** 2 * theta_c**2)), rel=1e-12
+    )
+
+    # A finite spread must move it only slightly, and monotonically toward the wider tail.
+    previous = closed.fraction
+    for spread in (1e-4, 1e-3, 1e-2):
+        capture = aperture_capture_efficiency(replace(beam, rel_energy_spread=spread), laser, theta_c)
+        assert capture.fraction != pytest.approx(previous, abs=1e-12), "energy spread had no effect"
+        previous = capture.fraction
+
+    # Independence from the nonlinear model is the point: varying pulse energy (hence a0,
+    # hence ahat) must not move an angular fraction at all.
+    strong = replace(laser, pulse_energy=Quantity(5.0, "J"))
+    assert aperture_capture_efficiency(mono, strong, theta_c).fraction == pytest.approx(
+        closed.fraction, rel=1e-12
+    )
+
+
+def test_the_on_axis_centroid_is_exactly_one_over_one_plus_the_mean_shape():
+    """The nonlinear resonance sits at `gamma^2/(1+h)`, so the on-axis centroid follows from
+    the first moment alone. Exact, not approximate — asserted at machine precision so a
+    future 'improvement' to this path has to justify itself."""
+    from gammaforge.engines.analytical.diagnostics import on_axis_bandwidth
+    from gammaforge.engines.analytical.fixed_width import fixed_width_reduction, nonlinear_moments
+
+    beam = scenarios.BASELINE.beam
+    for sigma_e_um, sigma_l_um in ((4.0, 1.0), (2.0, 1.0), (0.5, 1.0)):
+        b = replace(beam, sigma_x=Quantity(sigma_e_um, "um"), sigma_y=Quantity(sigma_e_um, "um"))
+        l = replace(scenarios.BASELINE.laser, sigma_x=Quantity(sigma_l_um, "um"),
+                    sigma_y=Quantity(sigma_l_um, "um"))
+        moments = nonlinear_moments(fixed_width_reduction(b, l))
+        assert on_axis_bandwidth(moments).centroid == pytest.approx(
+            1.0 / (1.0 + moments.mean_a), rel=1e-14
+        )
+
+
+def test_the_between_trajectory_bandwidth_vanishes_for_a_uniformly_illuminated_bunch():
+    """The physical check that makes the diagnostic trustworthy rather than merely
+    computable: when the bunch is much narrower than the spot every electron samples nearly
+    the same intensity, so the *between*-trajectory spread must go to zero. The
+    within-trajectory (DER016) term does not vanish, because a single trajectory still has a
+    finite line — which is exactly the separation DER019 §22.2 insists on."""
+    from gammaforge.engines.analytical.diagnostics import on_axis_bandwidth
+    from gammaforge.engines.analytical.fixed_width import fixed_width_reduction, nonlinear_moments
+
+    beam = scenarios.BASELINE.beam
+    widths = on_axis_bandwidth
+    narrow = widths(nonlinear_moments(fixed_width_reduction(
+        replace(beam, sigma_x=Quantity(0.01, "um"), sigma_y=Quantity(0.01, "um")),
+        replace(scenarios.BASELINE.laser, sigma_x=Quantity(1.0, "um"), sigma_y=Quantity(1.0, "um")),
+    )))
+    wide = widths(nonlinear_moments(fixed_width_reduction(
+        replace(beam, sigma_x=Quantity(100.0, "um"), sigma_y=Quantity(100.0, "um")),
+        replace(scenarios.BASELINE.laser, sigma_x=Quantity(1.0, "um"), sigma_y=Quantity(1.0, "um")),
+    )))
+
+    assert narrow.rms_between < 1e-3 * wide.rms_between
+    assert narrow.rms_finite_line == pytest.approx(wide.rms_finite_line, rel=0.2)
+    assert narrow.rms_bandwidth < wide.rms_bandwidth
+    # Quadrature composition of the two contributions, exactly.
+    assert narrow.rms_bandwidth == pytest.approx(
+        math.hypot(narrow.rms_between, narrow.rms_finite_line), rel=1e-12
+    )
+
+
+def test_photon_source_moments_match_the_precision_weighted_gaussian_and_the_round_limit():
+    """DER019 §26. Two Gaussians of covariances C_e and C_L give a luminosity-weighted
+    covariance `(C_e^-1 + C_L^-1)^-1`, so these close analytically — no image needed.
+
+    The round limit is the decisive arithmetic: equal variances `sigma_e^2` and `sigma_L^2`
+    must give exactly `sigma_e sigma_L / sqrt(sigma_e^2 + sigma_L^2)`.
+    """
+    from gammaforge.engines.analytical.diagnostics import photon_source_moments
+
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+
+    for sigma_e_um, sigma_l_um in ((4.0, 2.0), (1.0, 1.0), (8.0, 1.0)):
+        b = replace(beam, sigma_x=Quantity(sigma_e_um, "um"), sigma_y=Quantity(sigma_e_um, "um"))
+        l = replace(laser, sigma_x=Quantity(sigma_l_um, "um"), sigma_y=Quantity(sigma_l_um, "um"))
+        moments = photon_source_moments(b, l)
+        expected = (
+            b.m("sigma_x") * l.m("sigma_x")
+            / math.hypot(b.m("sigma_x"), l.m("sigma_x"))
+        )
+        assert moments.rms_x == pytest.approx(expected, rel=1e-12)
+        assert moments.rms_y == pytest.approx(expected, rel=1e-12)
+        assert moments.rms_size == pytest.approx(expected, rel=1e-12)
+        assert moments.correlation == 0.0
+
+    # A displaced pulse displaces the source, and the moments stay independent of how many
+    # photons there are: this is a statement about where, not how many.
+    offset = replace(laser, x_off=Quantity(0.5, "um"), y_off=Quantity(-0.25, "um"))
+    displaced = photon_source_moments(beam, offset)
+    assert displaced.mean_x == pytest.approx(offset.m("x_off"), rel=1e-12)
+    assert displaced.mean_y == pytest.approx(offset.m("y_off"), rel=1e-12)
+    assert displaced.rms_size == pytest.approx(photon_source_moments(beam, laser).rms_size, rel=1e-12)
+    doubled = photon_source_moments(beam, replace(laser, pulse_energy=Quantity(0.1, "J")))
+    assert doubled.rms_size == pytest.approx(photon_source_moments(beam, laser).rms_size, rel=1e-12)
