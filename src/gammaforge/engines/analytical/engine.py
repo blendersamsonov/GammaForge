@@ -23,6 +23,7 @@ from .formulas import (
     overlap_mean_a0_sq,
     overlap_yield,
 )
+from .models import AnalyticalModel, ModelChoice, ModelInputs, ModelSelector
 from .schema import default_parameters
 
 __all__ = ["AnalyticalEngine"]
@@ -43,7 +44,44 @@ RECOMPUTE_COSTS: dict[str, RecomputeCost] = {
     "n_quad": RecomputeCost.FULL_RERUN,
     "n_quad_overlap": RecomputeCost.FULL_RERUN,
     "n_quad_u": RecomputeCost.FULL_RERUN,
+    # Model selection is a handful of comparisons over a short registry, with no integral
+    # of its own. A different pin can select a different model, so it cannot be assumed
+    # QUERY_ONLY — but it is never more expensive than re-running the model it selects.
+    "model_mode": RecomputeCost.FULL_RERUN,
+    "model_pin": RecomputeCost.FULL_RERUN,
 }
+
+#: The DER001/DER002 tier, which is what this engine computed before the DER019 hierarchy
+#: existed. Registered as a model so the planner has something truthful to select and so
+#: higher tiers can be added as siblings rather than as branches inside `run`.
+#:
+#: `exact` is True for `TOTAL_YIELD` in the sense DER019 means it: the general Gaussian
+#: overlap is exact for the geometry, including a crossing angle and the flying-focus path
+#: (RES039/RES041/RES043). The same model serves `SPECTRUM`, where it is **not** exact — the
+#: spectrum is built from one luminosity-weighted mean `ahat` and normalized against the
+#: yield, which is a documented approximation. One model, two observables, one shared truth
+#: about its assumptions; the per-observable exactness is recorded in the provenance below
+#: rather than smuggled into the model's own flag.
+_OVERLAP_TIER = AnalyticalModel(
+    name="overlap_der001_mean_ahat",
+    outputs=(OutputKind.TOTAL_YIELD, OutputKind.SPECTRUM),
+    # Structurally universal within this engine's own domain: `run` has already rejected
+    # every laser that is not a GaussianParaxialLaser (RES067), and the DER001/DER002 overlap
+    # covers crossing angle, offsets, astigmatism and flying focus exactly.
+    applies=lambda inputs: True,
+    # Always accepted automatically: it is the current, tested behaviour of this engine.
+    acceptance=lambda inputs: True,
+    fidelity_rank=1,
+    cost_rank=0,
+    exact=True,
+    assumptions=(
+        "gaussian_beam_and_paraxial_gaussian_laser",
+        "luminosity_weighted_mean_ahat_for_spectrum_shape",
+        "spectrum_normalized_to_overlap_total_yield",
+    ),
+    outer_dimension=1,
+    trajectory_quadrature=False,
+)
 
 
 class AnalyticalEngine:
@@ -53,6 +91,10 @@ class AnalyticalEngine:
     schema: Parameters = default_parameters()
     supported_outputs: tuple[OutputKind, ...] = SUPPORTED_OUTPUTS
     recompute_costs: dict[str, RecomputeCost] = RECOMPUTE_COSTS
+
+    #: Single planner instance per engine. `ModelSelector` is immutable after construction,
+    #: so sharing one across calls keeps selection allocation-free on the real-time path.
+    _selector = ModelSelector((_OVERLAP_TIER,))
 
     def run(self, interaction: InteractionParameters, params: Parameters) -> Results:
         if not isinstance(interaction.laser, GaussianParaxialLaser):
@@ -93,6 +135,12 @@ class AnalyticalEngine:
         # this engine discards, defeating the whole point of being bunch-independent).
         supported_requests = tuple(r for r in target.outputs if r.kind in SUPPORTED_OUTPUTS)
         ranges = auto_ranges(replace(target, outputs=supported_requests), beam, interaction.laser)
+
+        # Model selection happens per observable, before anything is filled, so the choice is
+        # reported even for a requested kind this engine ultimately produces no slice for.
+        # A structurally invalid pin raises here rather than deep inside a formula.
+        choices = self._select_models(params, interaction, photon_energy, supported_requests)
+
         slices: dict[OutputKind, PhasespaceSlice] = {}
         for request in supported_requests:
             slices[request.kind] = self._fill(
@@ -109,8 +157,36 @@ class AnalyticalEngine:
                 "compton_edge_energy": 4.0 * beam.gamma0() ** 2 * photon_energy / (1.0 + ahat),
                 "n_photons": metrics.n_photons(),
                 "warnings": self._geometry_warnings(metrics, slices),
+                "models": {choice.observable: choice.as_metadata() for choice in choices},
             },
         )
+
+    def _select_models(
+        self, params: Parameters, interaction: InteractionParameters, photon_energy: float, requests
+    ) -> list[ModelChoice]:
+        """Ask the planner for a model per requested observable.
+
+        Every observable routes through the planner even though only one tier is registered
+        yet. That is the point of doing it now: registering the current behaviour as a model
+        before adding new ones is what makes the refactor provably inert, and it means a
+        later tier is a new registry entry rather than a rewrite of `run`.
+        """
+        metrics = interaction.laser
+        inputs = ModelInputs(
+            beam=interaction.beam,
+            laser=metrics,
+            photon_energy=photon_energy,
+            crossing_angle=math.hypot(metrics.m("theta_xz"), metrics.m("theta_yz")),
+            beta_ff=metrics.beta_ff,
+        )
+        mode = str(params["model_mode"])
+        pin = str(params["model_pin"])
+        pin = None if pin == "auto" else pin
+        # TOTAL_YIELD always participates: it is this engine's own normalization anchor, and
+        # selecting a spectrum model without selecting what normalizes it would leave the
+        # provenance claiming an independence the arithmetic does not have.
+        kinds = tuple(dict.fromkeys(r.kind for r in requests)) or SUPPORTED_OUTPUTS
+        return [self._selector.select(inputs, kind, mode=mode, pin=pin) for kind in kinds]
 
     @staticmethod
     def _geometry_warnings(metrics, slices) -> tuple[str, ...]:

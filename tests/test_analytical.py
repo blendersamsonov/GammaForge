@@ -698,3 +698,250 @@ def test_spectrum_grid_integral_correction_factor_is_near_one():
     raw = ais(interaction.beam.gamma0(), interaction.beam.sigma_gamma(), 1.0, s, 401)
     raw_integral = float(np.trapezoid(raw / (4.0 * photon_energy), values[Axis.ENERGY]))
     assert raw_integral == pytest.approx(1.0, abs=0.05)
+
+
+# ---------------------------------------------------------------------------
+# Model planner (DER019 §14, §17) — selection and provenance, no physics
+# ---------------------------------------------------------------------------
+#: Sentinel for `_tier`'s `acceptance`, so an explicit `None` (pinned-only) survives.
+_UNSET = object()
+
+
+def test_planner_reports_the_selected_model_per_observable():
+    """Every requested observable records which model served it, and the record is
+    serializable: `model_specific` goes through HDF5 as JSON with `allow_nan=False`
+    (RES063), so provenance that cannot round-trip is provenance nobody can read back."""
+    from gammaforge.engines.analytical.models import ModelSelector
+    from gammaforge.io.target import OutputKind
+
+    interaction = _interaction(
+        outputs=(OutputRequest(OutputKind.TOTAL_YIELD), OutputRequest(OutputKind.SPECTRUM, resolution=(200,)))
+    )
+    results = AnalyticalEngine().run(interaction, AnalyticalEngine.schema)
+
+    models = results.model_specific["models"]
+    assert set(models) == {"total_yield", "spectrum"}
+    for kind, record in models.items():
+        assert record["model"] == "overlap_der001_mean_ahat"
+        assert record["requested_mode"] == "auto"
+        assert record["assumptions"], "a model must declare what it assumed"
+        assert isinstance(record["outer_dimension"], int)
+        # The provenance must survive the exact encoder `save_results` uses.
+        from gammaforge.io.formats.hdf5 import _encode_metadata
+        import json as _json
+        _json.dumps(_encode_metadata(models), allow_nan=False)
+
+    # The schema's expert-pin choices and the selector's registry must not drift apart:
+    # a pin naming a model that does not exist would only fail at run time.
+    registered = set(AnalyticalEngine._selector.names())
+    offered = set(AnalyticalEngine.schema.spec("model_pin").choices) - {"auto"}
+    assert offered <= registered
+
+
+def _tier(name, *, cost_rank, fidelity_rank, exact=True, acceptance=_UNSET, applies=_UNSET):
+    """A synthetic planner entry.
+
+    Built here rather than reused from the registry because the point of these tests is the
+    planner's *ordering and gating logic*, and today's engine registers exactly one tier.
+    A property that only holds for one candidate cannot fail when the logic breaks, so it
+    would not be a test — these give the planner something to actually choose between, and
+    they keep doing so as real tiers are added.
+
+    `acceptance` and `applies` default through a sentinel rather than `None`, because
+    `acceptance=None` is itself meaningful to `AnalyticalModel` (it marks a pinned-only
+    tier). A plain `None` default would collapse "not specified" and "pinned-only" into the
+    same value, which is exactly the distinction these tests exist to check.
+    """
+    from gammaforge.engines.analytical.models import AnalyticalModel
+
+    always = lambda inputs: True  # noqa: E731
+    return AnalyticalModel(
+        name=name,
+        outputs=(OutputKind.SPECTRUM,),
+        applies=always if applies is _UNSET else applies,
+        acceptance=always if acceptance is _UNSET else acceptance,
+        fidelity_rank=fidelity_rank,
+        cost_rank=cost_rank,
+        exact=exact,
+        assumptions=("synthetic",),
+        outer_dimension=cost_rank,
+    )
+
+
+def _planner_inputs():
+    from gammaforge.engines.analytical.models import ModelInputs
+
+    interaction = _interaction()
+    metrics = fit_gaussian_paraxial(interaction.laser)
+    return ModelInputs(
+        beam=interaction.beam,
+        laser=metrics,
+        photon_energy=metrics.photon_energy(),
+        crossing_angle=0.0,
+        beta_ff=metrics.beta_ff,
+    )
+
+
+def test_auto_takes_the_cheapest_tier_and_reference_the_most_fidest():
+    """The two modes mean opposite things (DER019 §17.8): `auto` is "cheapest model judged
+    reliable", `reference` is "highest fidelity the geometry supports". With the real
+    single-tier registry both trivially agree, which is why this drives a synthetic ladder
+    where they must disagree — and asserts the cheap end and the faithful end separately."""
+    from gammaforge.engines.analytical.models import ModelSelector
+
+    cheap = _tier("cheap", cost_rank=0, fidelity_rank=1)
+    dear = _tier("dear", cost_rank=5, fidelity_rank=9)
+    selector = ModelSelector((cheap, dear))
+    inputs = _planner_inputs()
+
+    assert selector.select(inputs, OutputKind.SPECTRUM, mode="auto").model == "cheap"
+    assert selector.select(inputs, OutputKind.SPECTRUM, mode="fast").model == "cheap"
+    assert selector.select(inputs, OutputKind.SPECTRUM, mode="reference").model == "dear"
+
+
+def test_auto_refuses_an_approximate_tier_until_its_validity_is_established():
+    """DER019 §17.8 is explicit that automatic acceptance of a reduced model must wait for
+    validation evidence. A tier with `acceptance=None` is therefore pinned-only: `auto` must
+    skip it rather than adopt it, and must say so, because silently promoting a guessed
+    threshold into automatic selection is the specific failure this design guards against."""
+    from gammaforge.engines.analytical.models import ModelSelector
+
+    approximate = _tier("approximate", cost_rank=0, fidelity_rank=9, exact=False, acceptance=None)
+    exact_dear = _tier("exact_dear", cost_rank=5, fidelity_rank=1)
+    selector = ModelSelector((approximate, exact_dear))
+    inputs = _planner_inputs()
+
+    choice = selector.select(inputs, OutputKind.SPECTRUM, mode="auto")
+    assert choice.model == "exact_dear", "auto must not adopt an unvalidated approximate tier"
+    reasons = {entry["model"]: entry["reason"] for entry in choice.as_metadata()["rejected"]}
+    assert "pinned-only" in reasons["approximate"]
+    assert not reasons["approximate"].startswith("this geometry"), "a gating reason is not an applicability one"
+
+    # `reference` may use the highest-fidelity structurally supported tier even before an
+    # automatic threshold exists — but only when the caller pins it, not by default.
+    with pytest.raises(ValueError, match="model_mode must be one of"):
+        ModelSelector((approximate,)).select(inputs, OutputKind.SPECTRUM, mode="nonsense")
+    pinned = ModelSelector((approximate,)).select(inputs, OutputKind.SPECTRUM, pin="approximate")
+    assert pinned.model == "approximate" and pinned.exact is False
+
+
+def test_auto_promotes_to_the_next_tier_when_the_cheapest_is_rejected():
+    """DER019 §17.8: "a cheaper model rejected by validity checks causes `auto` to promote to
+    the next supported deterministic model" — and the reason must be recorded, because the
+    user is entitled to know which approximation they actually got."""
+    from gammaforge.engines.analytical.models import ModelSelector
+
+    rejected = _tier(
+        "rejected",
+        cost_rank=0,
+        fidelity_rank=1,
+        applies=lambda inputs: inputs.crossing_angle == 0.0,
+    )
+    fallback = _tier("fallback", cost_rank=3, fidelity_rank=4)
+    selector = ModelSelector((rejected, fallback))
+
+    crossed = _planner_inputs()
+    crossed = replace(crossed, crossing_angle=0.05)
+    choice = selector.select(crossed, OutputKind.SPECTRUM, mode="auto")
+    assert choice.model == "fallback"
+    metadata = choice.as_metadata()
+    reasons = {entry["model"]: entry for entry in metadata["rejected"]}
+    assert reasons["rejected"]["structural"] is True
+
+
+def test_pinning_cannot_force_a_structurally_invalid_model():
+    """An expert pin bypasses cost and validity ranking; it must not bypass the model's own
+    assumptions. Doing so would be the silent-problem-substitution failure this repo rejects
+    in favor of an explicit error."""
+    from gammaforge.engines.analytical.models import ModelSelector
+
+    flying = _tier("fixed_width", cost_rank=0, fidelity_rank=1, applies=lambda inputs: inputs.beta_ff == 0.0)
+    selector = ModelSelector((flying,))
+    flying_inputs = replace(_planner_inputs(), beta_ff=0.8)
+
+    with pytest.raises(ValueError, match="structurally invalid"):
+        selector.select(flying_inputs, OutputKind.SPECTRUM, pin="fixed_width")
+    # The message must name the actual physical reason, not restate the verdict.
+    with pytest.raises(ValueError, match="flying focus"):
+        selector.select(flying_inputs, OutputKind.SPECTRUM, pin="fixed_width")
+
+
+def test_the_registered_tier_serves_both_declared_observables():
+    """One model can serve two observables without claiming both are equally exact. This
+    pins the current truth: the DER001 overlap is exact for `TOTAL_YIELD`, while the
+    `SPECTRUM` built from one mean `ahat` is an approximation — recorded per observable
+    rather than asserted once for the model as a whole."""
+    interaction = _interaction(
+        outputs=(OutputRequest(OutputKind.TOTAL_YIELD), OutputRequest(OutputKind.SPECTRUM, resolution=(64,)))
+    )
+    results = AnalyticalEngine().run(interaction, AnalyticalEngine.schema)
+    models = results.model_specific["models"]
+
+    assert models["total_yield"]["observable"] == "total_yield"
+    assert models["spectrum"]["observable"] == "spectrum"
+    assert "spectrum_normalized_to_overlap_total_yield" in models["spectrum"]["assumptions"]
+
+
+def test_planner_rejects_an_unknown_model_and_an_invalid_mode():
+    """Both are user-input errors on a CHOICE field. `FieldSpec.validate` already rejects
+    them at the schema boundary, so this pins that the planner is not a second, laxer door
+    into the same mistake — it raises rather than defaulting."""
+    from gammaforge.engines.analytical.models import ModelInputs
+    from gammaforge.io.schema import SchemaError
+
+    selector = AnalyticalEngine._selector
+    interaction = _interaction()
+    metrics = fit_gaussian_paraxial(interaction.laser)
+    inputs = ModelInputs(
+        beam=interaction.beam,
+        laser=metrics,
+        photon_energy=metrics.photon_energy(),
+    )
+    with pytest.raises(ValueError, match="unknown analytical model"):
+        selector.select(inputs, OutputKind.SPECTRUM, pin="no_such_model")
+    with pytest.raises(ValueError, match="model_mode must be"):
+        selector.select(inputs, OutputKind.SPECTRUM, mode="turbo")
+    # And the schema itself, which is what a GUI actually validates against.
+    with pytest.raises(SchemaError):
+        AnalyticalEngine.schema.with_values(model_mode="turbo")
+
+
+def test_an_unknown_observable_is_refused_rather_than_silently_skipped():
+    """The engine declares `supported_outputs`, and `run` filters to it. Asking the planner
+    for an undeclared kind must still fail loudly: 'this engine does not do that' and
+    'the planner has a bug here' should not look the same from the outside."""
+    from gammaforge.engines.analytical.models import ModelInputs
+
+    interaction = _interaction()
+    metrics = fit_gaussian_paraxial(interaction.laser)
+    inputs = ModelInputs(beam=interaction.beam, laser=metrics, photon_energy=metrics.photon_energy())
+    with pytest.raises(ValueError, match="no analytical model produces"):
+        AnalyticalEngine._selector.select(inputs, OutputKind.COLLIMATED_SPECTRUM)
+
+
+def test_model_selection_leaves_every_physics_number_untouched():
+    """The point of registering the pre-existing behaviour as a model *before* adding new
+    ones: `auto`, `reference`, and an explicit pin must all produce the same results as
+    each other, because they currently select the same tier. A future tier that changes a
+    number under the default mode will fail this, which is the intended alarm."""
+    interaction = _interaction(
+        outputs=(OutputRequest(OutputKind.TOTAL_YIELD), OutputRequest(OutputKind.SPECTRUM, resolution=(200,)))
+    )
+    engine = AnalyticalEngine()
+    baseline = engine.run(interaction, engine.schema)
+
+    for mode in ("auto", "fast", "reference"):
+        results = engine.run(interaction, engine.schema.with_values(model_mode=mode))
+        assert results.photon_slices[OutputKind.TOTAL_YIELD].integrate() == pytest.approx(
+            baseline.photon_slices[OutputKind.TOTAL_YIELD].integrate(), rel=1e-12
+        )
+        assert results.model_specific["ahat"] == baseline.model_specific["ahat"]
+        assert results.model_specific["mean_a0_sq"] == baseline.model_specific["mean_a0_sq"]
+        assert results.photon_slices[OutputKind.SPECTRUM].integrate() == pytest.approx(
+            baseline.photon_slices[OutputKind.SPECTRUM].integrate(), rel=1e-12
+        )
+
+    pinned = engine.run(interaction, engine.schema.with_values(model_pin="overlap_der001_mean_ahat"))
+    assert pinned.photon_slices[OutputKind.SPECTRUM].integrate() == pytest.approx(
+        baseline.photon_slices[OutputKind.SPECTRUM].integrate(), rel=1e-12
+    )
