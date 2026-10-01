@@ -127,6 +127,19 @@ rule does not outperform 200-step midpoint on this measured CPU or GPU case.
 The much faster 24-node rule has material moment errors. Midpoint therefore
 remains the production default; Gaussian quadrature remains explicitly opt-in.
 
+## Repository gates
+
+On the branch rebased to `main` after the engine-catalog merge, focused
+DER023/DER025 tests passed (12), real-CUDA Gaussian and pulse-train tests
+passed (2), Tier 0 passed (56), all three notebooks built and executed, and
+`python -m gammaforge.validation.run --alpha` passed. The default real-CUDA
+suite passed with 443 tests and 28 deselections: 27 heavy tests and the one
+known Stage-2 CUDA sampler distribution test in issue #25. Running that test
+without exclusion gave the same 10.45% difference against its 10% threshold
+on current `main` and this PR. Before the final rebase, the fast suite passed
+(186 passed, 94 skipped) and the heavy suite passed with only issue #25
+excluded (466 passed, one deselected).
+
 ## Limits
 
 The reference midpoint path itself has a finite active-region window. The

@@ -1,5 +1,10 @@
 # DER023 Stage-0 pilot (2026-09-30)
 
+The later review measurements in
+`docs/validation/der023-stage0-review-2026-10-01.md` cover the cached
+laser-only bound bank and revised cumulative candidate selection. The pilot
+measurements below describe the earlier branch state.
+
 ## Question and method
 
 Can a shared Gaussian temporal quadrature replace the current 200-step midpoint
