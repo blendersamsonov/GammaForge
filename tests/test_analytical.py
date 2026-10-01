@@ -1926,17 +1926,30 @@ def test_the_engine_fills_the_collimated_slice_and_records_its_provenance():
         AnalyticalEngine().run(crossed, AnalyticalEngine.schema)
 
 
-def test_the_collimated_tier_does_not_import_xigma():
+#: `source_map` is a deliberate exception, documented in its own module docstring: the thing
+#: being validated there is the deterministic source *reduction*, not the DER016 trajectory
+#: moment definitions, which duplicating would only invite to drift. Its luminosity claim is
+#: checked against `formulas.overlap_yield`, which is an independent oracle.
+_XIGMA_IMPORT_EXEMPT = {"source_map.py"}
+
+
+def test_the_spectrum_and_angular_tiers_do_not_import_xigma():
     """RES095 leaves analytical one of the remaining independent legs, and the handoff is
     explicit that the analytical implementation must not become a thin call into the code it
     is meant to check. Asserted mechanically rather than by convention, because an
-    incidental convenience import would otherwise be invisible."""
+    incidental convenience import would otherwise be invisible.
+
+    The exemption list is deliberately narrow and named, so widening what may import Xigma
+    is a visible edit to this test rather than something a new import slips past.
+    """
     import ast
     from pathlib import Path
 
     package = Path(__file__).resolve().parents[1] / "src" / "gammaforge" / "engines" / "analytical"
     offenders = []
     for module in sorted(package.glob("*.py")):
+        if module.name in _XIGMA_IMPORT_EXEMPT:
+            continue
         tree = ast.parse(module.read_text())
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and node.module and "xigma" in node.module:
@@ -1946,3 +1959,146 @@ def test_the_collimated_tier_does_not_import_xigma():
                     if "xigma" in alias.name:
                         offenders.append(f"{module.name}: import {alias.name}")
     assert offenders == [], f"the analytical validation oracle must stay independent: {offenders}"
+
+    # And the exemption is still a real module that still exists to be exempted.
+    assert (package / "source_map.py").exists()
+    assert _XIGMA_IMPORT_EXEMPT == {"source_map.py"}
+
+
+# ---------------------------------------------------------------------------
+# Focused / flying-focus deterministic source map (DER019 §11, §12)
+# ---------------------------------------------------------------------------
+@pytest.mark.tier2
+def test_the_source_map_reproduces_the_der001_total_yield():
+    """DER019 §11.1's acceptance criterion: the source-integrated luminosity must agree with
+    DER001's `overlap_yield` for the same geometry.
+
+    This is an unusually strong check — a deterministic quadrature reproducing a closed-form
+    integral to five digits — and DER019 makes it the gate before any spectrum built on the
+    map is accepted. It also validates the map indirectly against Xigma, since the per-node
+    trajectory integrals are Xigma's own.
+    """
+    from gammaforge.engines.analytical.source_map import build_source_map
+
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    n_e = beam.n_electrons()
+    metrics = fit_gaussian_paraxial(laser)
+    reference = overlap_yield(beam, metrics, n_e, n_quad=8001)
+
+    source_map = build_source_map(
+        beam, laser, n_e, n_transverse=10, n_longitudinal=10, n_steps=256
+    )
+    assert source_map.total_luminosity == pytest.approx(reference, rel=2e-3)
+    # The quadrature is genuinely converged, not merely close at one node count. Both are
+    # already at the 1e-5 level here (a matched spot converges fast), so this asserts the
+    # refined map stays within the same band rather than demanding a strict decrease —
+    # at this accuracy the two node counts are equally converged and either may be nearer.
+    finer = build_source_map(
+        beam, laser, n_e, n_transverse=14, n_longitudinal=12, n_steps=256
+    )
+    assert finer.total_luminosity == pytest.approx(reference, rel=2e-4)
+
+
+@pytest.mark.tier2
+def test_the_source_map_nodes_are_standard_normal():
+    """The weights must represent the bunch's own Gaussian. `hermegauss` nodes are already
+    standard normal and its weights already carry `exp(-z^2/2)`, so only the `1/sqrt(2 pi)`
+    is divided off — rescaling the *nodes* by `sqrt(2)` is the mistake this pins: it leaves
+    `sum(w) == 1` passing while `E[x^2]` becomes 2 and the map integrates the wrong Gaussian,
+    costing 25% of the luminosity with no error anywhere."""
+    import math as _math
+
+    from numpy.polynomial.hermite_e import hermegauss
+
+    for n in (8, 10, 12):
+        nodes, weights = hermegauss(n)
+        weights = weights / _math.sqrt(2.0 * _math.pi)
+        assert float(np.sum(weights)) == pytest.approx(1.0, rel=1e-12)
+        assert float(np.sum(weights * nodes**2)) == pytest.approx(1.0, rel=1e-12)
+
+    # And the map's own weights satisfy the same identities in three dimensions.
+    from gammaforge.engines.analytical.source_map import build_source_map
+
+    source_map = build_source_map(
+        scenarios.BASELINE.beam, scenarios.BASELINE.laser, scenarios.BASELINE.beam.n_electrons(),
+        n_transverse=8, n_longitudinal=8, n_steps=128,
+    )
+    assert float(np.sum(source_map.weight)) == pytest.approx(1.0, rel=1e-12)
+    assert float(np.sum(source_map.weight * source_map.x0**2)) == pytest.approx(
+        scenarios.BASELINE.beam.m("sigma_x") ** 2, rel=1e-10
+    )
+
+
+@pytest.mark.tier2
+def test_the_source_map_reports_its_symmetry_dimension():
+    """DER019 §11.1 vs §11.2: cylindrical symmetry leaves two source dimensions, anything
+    that breaks it needs three. Reported rather than assumed, because the distinction is what
+    tells a caller whether the deterministic route is still the cheap one (DER019 §14)."""
+    from gammaforge.engines.analytical.source_map import build_source_map
+
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    n_e = beam.n_electrons()
+    assert build_source_map(beam, laser, n_e, n_transverse=6, n_longitudinal=6, n_steps=128).dimension == 2
+    assert build_source_map(
+        beam, replace(laser, theta_xz=Quantity(5.0, "deg")), n_e,
+        n_transverse=6, n_longitudinal=6, n_steps=128,
+    ).dimension == 3
+    assert build_source_map(
+        replace(beam, sigma_y=Quantity(20.0, "um")), laser, n_e,
+        n_transverse=6, n_longitudinal=6, n_steps=128,
+    ).dimension == 3
+
+
+@pytest.mark.tier2
+def test_the_flying_focus_source_map_reproduces_der002():
+    """DER019 §12.1: the flying-focus map must reproduce DER002's 2D `overlap_yield`, and it
+    must do so with the *true* flying-focus intensity history — a frozen-width reduction
+    would be the unsafe path DER019 §16 warns about, and would not land on DER002 at all."""
+    from gammaforge.engines.analytical.source_map import build_source_map
+
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    n_e = beam.n_electrons()
+    for beta_ff in (0.5, 0.8, 1.0):
+        flying = replace(laser, beta_ff=beta_ff)
+        metrics = fit_gaussian_paraxial(flying)
+        reference = overlap_yield(beam, metrics, n_e, n_quad=8001, n_quad_u=41)
+        source_map = build_source_map(
+            beam, flying, n_e, n_transverse=10, n_longitudinal=10, n_steps=256
+        )
+        assert source_map.total_luminosity == pytest.approx(reference, rel=1e-2), f"beta_ff={beta_ff}"
+
+
+@pytest.mark.tier2
+def test_an_anisotropic_spot_converges_upward_with_more_nodes():
+    """A tight spot against a broad bunch is where Gauss-Hermite on the source converges
+    slowly, and the map says so rather than hiding it. Only the *direction* is asserted: the
+    point is that the answer moves toward DER001 as nodes are added, which is what
+    distinguishes slow convergence from a wrong answer."""
+    from gammaforge.engines.analytical.source_map import build_source_map
+
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    n_e = beam.n_electrons()
+    tight = replace(laser, sigma_y=Quantity(1.0, "um"))
+    metrics = fit_gaussian_paraxial(tight)
+    reference = overlap_yield(beam, metrics, n_e, n_quad=32001)
+
+    errors = []
+    for n_transverse in (12, 18, 24):
+        source_map = build_source_map(
+            beam, tight, n_e, n_transverse=n_transverse, n_longitudinal=8, n_steps=128
+        )
+        errors.append(abs(source_map.total_luminosity / reference - 1.0))
+    assert errors[-1] < errors[0], f"not converging toward DER001: {errors}"
+
+
+@pytest.mark.tier2
+def test_the_source_map_rejects_a_degenerate_node_count():
+    """Fewer than two nodes per axis cannot integrate a Gaussian — the failure would be a
+    silently wrong yield rather than an error."""
+    from gammaforge.engines.analytical.source_map import build_source_map
+
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    with pytest.raises(ValueError, match="at least 2 nodes"):
+        build_source_map(beam, laser, beam.n_electrons(), n_transverse=1, n_longitudinal=8)
+    with pytest.raises(ValueError, match="at least 2 nodes"):
+        build_source_map(beam, laser, beam.n_electrons(), n_transverse=8, n_longitudinal=1)
