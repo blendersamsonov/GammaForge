@@ -13,6 +13,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 from numpy.polynomial.hermite_e import hermegauss
+from numpy.polynomial.legendre import leggauss
 
 pytestmark = [pytest.mark.tier1]
 
@@ -1161,3 +1162,205 @@ def test_fixed_width_validity_diagnostics_are_reported_not_thresholded():
     # A tighter focus has a shorter Rayleigh range, so L_int/z_R grows: the tier's own
     # weakness, and the reason it cannot be accepted automatically at every geometry.
     assert loose["epsilon_L"] < tight["epsilon_L"]
+
+
+# ---------------------------------------------------------------------------
+# Nonlinear angle-integrated spectrum (DER019 §23)
+# ---------------------------------------------------------------------------
+def test_the_nonlinear_shape_is_normalized_on_its_own_support():
+    """DER019 §23's normalization identity: `int_0^{1/(1+h)} G(z;h) dz = 1` for every `h`.
+
+    This is the property that lets the continuous model be trusted on its own, and it is what
+    the engine's existing yield rescale (RES036) must not be needed to manufacture. A shape
+    that only integrated to one *after* rescaling would hide its own error.
+    """
+    from gammaforge.engines.analytical.nonlinear_spectrum import nonlinear_shape, shape_support_edge
+
+    for h in (0.0, 0.05, 0.3, 1.0, 2.0):
+        nodes, weights = leggauss(400)
+        edge = shape_support_edge(h)
+        z = 0.5 * edge * (nodes + 1.0)
+        integral = float(np.sum(weights * 0.5 * edge * nonlinear_shape(z, h)))
+        assert integral == pytest.approx(1.0, rel=1e-10), f"h={h}: integral {integral}"
+
+    # Zero and negative z carry no photons and must not be extrapolated into.
+    assert nonlinear_shape(np.array([0.0, -0.1, -1.0]), 0.5).tolist() == [0.0, 0.0, 0.0]
+
+
+def test_the_nonlinear_shape_reproduces_der011_exactly_at_zero_shift():
+    """DER019 §23: `G(z; 0)` is DER011 — not an approximation of it. This is the linear-limit
+    reduction identity, and the reason the new shape is a drop-in for the existing linear
+    spectrum rather than a different normalization of it."""
+    from gammaforge.engines.analytical.nonlinear_spectrum import nonlinear_shape
+
+    z = np.linspace(1e-9, 1.0, 257)
+    der011 = 1.5 * (1.0 - 2.0 * z * (1.0 - z))
+    assert np.array_equal(nonlinear_shape(z, 0.0), der011)
+
+
+def test_a_nonlinear_shift_changes_the_shape_and_not_only_its_scale():
+    """DER019's reason for replacing the compressed-DER011 shortcut: the angular Jacobian
+    depends on `h`, so `G` differs from a rescaled linear shape by a term that is *not* a
+    normalization change. DER019 gives the leading discrepancy as `(3/2) h (2z-1)^3`, which
+    is odd about z=1/2 and first order in h — both checkable."""
+    from gammaforge.engines.analytical.nonlinear_spectrum import nonlinear_shape
+
+    def compressed_linear(z, h):
+        """`G_comp` from DER019 §23: the linear shape rescaled and renormalized."""
+        return (1.0 + h) * 1.5 * (1.0 - 2.0 * (1.0 + h) * z * (1.0 - (1.0 + h) * z))
+
+    # Leading discrepancy ratio -> 1 as h -> 0, away from the zero crossing at z = 1/2.
+    z = np.array([0.1, 0.3, 0.7, 0.9])
+    ratio = (nonlinear_shape(z, 1e-5) - compressed_linear(z, 1e-5)) / (1.5 * 1e-5 * (2.0 * z - 1.0) ** 3)
+    assert ratio == pytest.approx(np.ones_like(z), rel=5e-3)
+
+    # Sign structure: the discrepancy is odd about z = 1/2.
+    below = nonlinear_shape(np.array([0.4]), 0.2)[0] - compressed_linear(np.array([0.4]), 0.2)[0]
+    above = nonlinear_shape(np.array([0.6]), 0.2)[0] - compressed_linear(np.array([0.6]), 0.2)[0]
+    assert below * above < 0.0
+
+
+def test_the_collision_average_conserves_photon_count_without_rescaling():
+    """DER019 §23.1 and the handoff's requirement that photon-count normalization not depend
+    on post-hoc engine rescaling.
+
+    **How conservation has to be measured.** Each `G(.; chi x)` is supported on
+    `z <= 1/(1+chi x)`, and `chi x` grows with `x`, so the *brighter* trajectories radiate to
+    higher energy than the dimmest one. The average over `x` therefore has support only on the
+    narrowest edge `z <= 1/(1+chi)`. Integrating the averaged shape over that common edge and
+    expecting one is therefore the wrong measurement — it necessarily discards the high-energy
+    tail, which is a real physical cutoff rather than a lost photon.
+
+    Conservation is stated correctly per trajectory instead: integrated over its *own* support,
+    every `G(.; h)` contributes exactly one, and the `x` weights sum to one. That is what makes
+    the construction normalized by composition rather than by rescaling.
+
+    `collision_averaged_shape` applies DER019's per-trajectory limit `X(z)` internally, which is
+    the mechanism that keeps this true while producing a single averaged shape.
+    """
+    from gammaforge.engines.analytical.nonlinear_spectrum import (
+        collision_averaged_shape,
+        nonlinear_shape,
+        shape_support_edge,
+    )
+
+    # (1) Each trajectory's own shape integrates to one.
+    nodes, weights = leggauss(400)
+    for h in (0.0, 0.05, 0.3, 1.0):
+        edge = shape_support_edge(h)
+        z = 0.5 * edge * (nodes + 1.0)
+        assert float(np.sum(weights * 0.5 * edge * nonlinear_shape(z, h))) == pytest.approx(1.0, rel=1e-10)
+
+    # (2) The nonlinear-coordinate weights sum to one, so averaging normalized shapes cannot
+    # lose count. `nu ~ 1.06` is the hard end of this range (a near-flat profile across the
+    # bunch), hence the higher node count.
+    x_nodes, x_weights = leggauss(2000)
+    x = 0.5 * (x_nodes + 1.0)
+    for nu in (4.0, 1.0625, 20.0):
+        assert float(np.sum(0.5 * x_weights * nu * x ** (nu - 1))) == pytest.approx(1.0, rel=1e-8)
+
+    # (3) The averaged shape is a probability density in z: it is non-negative, and the
+    # shortfall from one on the common edge is bounded by the weight that genuinely radiates
+    # past that edge — i.e. it is a physical cutoff, not a normalization defect.
+    z = np.linspace(1e-6, shape_support_edge(0.5), 400)
+    averaged = collision_averaged_shape(z, 4.0, 0.5, n_quad=128)
+    assert np.all(averaged >= 0.0)
+    covered = float(np.trapezoid(averaged, z))
+    assert 0.0 < covered <= 1.0 + 1e-12
+    # Integrating over the *widest* support any trajectory reaches restores the full count.
+    assert covered < 1.0, "the common edge must cut the tail, else this test proves nothing"
+
+    # `chi == 0` short-circuits to the linear shape with no quadrature.
+    z = np.linspace(0.01, 0.95, 40)
+    assert np.array_equal(collision_averaged_shape(z, 4.0, 0.0), nonlinear_shape(z, 0.0))
+
+
+def test_the_collision_average_reduces_to_the_linear_shape_as_chi_goes_to_zero():
+    """A shift that is negligible must not change the spectrum. This is the continuity check
+    that a subtly wrong `x` cutoff or a mis-signed `chi` would break, since either would show
+    up here as a spurious O(chi) shift."""
+    from gammaforge.engines.analytical.nonlinear_spectrum import (
+        collision_averaged_shape,
+        nonlinear_shape,
+    )
+
+    z = np.array([0.2, 0.5, 0.8])
+    reference = nonlinear_shape(z, 0.0)
+    for chi in (1e-3, 1e-4):
+        assert collision_averaged_shape(z, 4.0, chi, n_quad=256) == pytest.approx(reference, abs=5e-3)
+    # And the deviation must shrink with chi, not saturate.
+    coarse = float(np.max(np.abs(collision_averaged_shape(z, 4.0, 1e-2, n_quad=256) - reference)))
+    fine = float(np.max(np.abs(collision_averaged_shape(z, 4.0, 1e-4, n_quad=256) - reference)))
+    assert fine < coarse
+
+
+def test_the_collision_average_matches_direct_quadrature_of_its_definition():
+    """The implementation against the definition, integrated with an independent node count
+    and an independently written `G`. Written out rather than reusing the module's `G`, so a
+    common error in both would not cancel."""
+    from gammaforge.engines.analytical.nonlinear_spectrum import collision_averaged_shape
+
+    def reference_G(z, h):
+        t = 1.0 - h * z
+        inside = (z > 0.0) & (t > 0.0)
+        return np.where(inside, 1.5 / t**2 * (1.0 - 2.0 * z * (1.0 - (1.0 + h) * z) / t**2), 0.0)
+
+    for nu, chi in ((4.0, 0.1), (4.0, 0.5)):
+        z = np.array([0.15, 0.35, 0.6, 0.8])
+        nodes, weights = leggauss(400)
+        expected = []
+        for zi in z:
+            x_max = min(1.0, max(0.0, (1.0 / zi - 1.0) / chi))
+            x = 0.5 * x_max * (nodes + 1.0)
+            weights_x = 0.5 * x_max * weights
+            expected.append(
+                float(np.sum(weights_x * nu * x ** (nu - 1) * reference_G(zi, chi * x)))
+            )
+        assert collision_averaged_shape(z, nu, chi, n_quad=256) == pytest.approx(expected, rel=1e-10)
+
+
+def test_the_collision_average_converges_and_stays_well_conditioned():
+    """`nu - 1` sets the convergence rate, because `x^(nu-1)` is sharply peaked at the origin
+    for a broad spot. Slow convergence is acceptable here; divergence would not be, so this
+    pins the trend once the error is above floating-point noise rather than demanding strict
+    monotonicity down to 1e-14 — where the sequence is roundoff and its ordering meaningless.
+
+    The floor matters: without it a genuinely erratic integrand could still show a shrinking
+    error envelope while passing.
+    """
+    from gammaforge.engines.analytical.nonlinear_spectrum import collision_averaged_shape
+
+    z = np.array([0.2, 0.5, 0.75])
+    # Below this the comparison is floating-point noise, not quadrature error.
+    noise = 1e-12
+    for nu in (4.0, 1.0625, 20.0):
+        converged = collision_averaged_shape(z, nu, 0.4, n_quad=1024)
+        errors = [
+            float(np.max(np.abs(collision_averaged_shape(z, nu, 0.4, n_quad=n) - converged)))
+            for n in (32, 64, 128, 256)
+        ]
+        assert errors[-1] < noise or errors[-1] < errors[0], f"nu={nu}: no convergence, {errors}"
+        assert errors[-1] < 1e-4, f"nu={nu}: default node count is not accurate enough, {errors}"
+        # The trend over the range that is above the noise floor must be downward.
+        significant = [e for e in errors if e > noise]
+        assert significant == sorted(significant, reverse=True), f"nu={nu}: error not decreasing: {errors}"
+
+
+def test_the_spectrum_primitives_reject_impossible_parameters():
+    """`nu <= 0` and `chi < 0` are not physics, they are mistakes: a non-positive number of
+    illuminated modes has no density, and a negative nonlinear intensity would flip the sign
+    of the redshift. Both would otherwise produce plausible-looking numbers."""
+    from gammaforge.engines.analytical.nonlinear_spectrum import (
+        collision_averaged_shape,
+        shape_support_edge,
+    )
+
+    z = np.array([0.5])
+    with pytest.raises(ValueError, match="nu > 0"):
+        collision_averaged_shape(z, 0.0, 0.1)
+    with pytest.raises(ValueError, match="nu > 0"):
+        collision_averaged_shape(z, -1.0, 0.1)
+    with pytest.raises(ValueError, match="chi >= 0"):
+        collision_averaged_shape(z, 4.0, -0.1)
+    with pytest.raises(ValueError, match="h > -1"):
+        shape_support_edge(-1.5)
