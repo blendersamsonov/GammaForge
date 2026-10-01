@@ -49,7 +49,7 @@ class OutputKind(Enum):
     (P10) — no registry, no capability-negotiation protocol.
     """
 
-    TOTAL_YIELD = "0d_yield"
+    TOTAL_YIELD = "total_yield"
     SPECTRUM = "spectrum"
     TEMPORAL_ENVELOPE = "temporal_envelope"
     SPATIAL_DISTRIBUTION = "spatial_distribution"
