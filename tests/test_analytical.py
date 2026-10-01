@@ -1531,3 +1531,187 @@ def test_photon_source_moments_match_the_precision_weighted_gaussian_and_the_rou
     assert displaced.rms_size == pytest.approx(photon_source_moments(beam, laser).rms_size, rel=1e-12)
     doubled = photon_source_moments(beam, replace(laser, pulse_energy=Quantity(0.1, "J")))
     assert doubled.rms_size == pytest.approx(photon_source_moments(beam, laser).rms_size, rel=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# Energy-integrated angular distribution (DER019 §24.2)
+# ---------------------------------------------------------------------------
+def test_the_angular_distribution_integrates_to_the_total_yield():
+    """The acceptance criterion DER019 §24.2 implies: integrating `dN/dOmega` over a
+    sufficiently wide solid angle reproduces the analytical total yield.
+
+    The auto-derived angular range is `RANGE_HEADROOM` times the radiation cone, so it is wide
+    enough that the truncation is small — but the engine also applies the RES036-style
+    discrete rescale, so what is asserted here is the *engine's* contract (the slice's
+    integral is the yield), with the continuum normalization checked separately below.
+    """
+    interaction = _interaction(
+        outputs=(
+            OutputRequest(OutputKind.TOTAL_YIELD),
+            OutputRequest(OutputKind.ANGULAR_DISTRIBUTION, resolution=(61, 61)),
+        )
+    )
+    results = AnalyticalEngine().run(interaction, AnalyticalEngine.schema)
+    total_yield = float(results.photon_slices[OutputKind.TOTAL_YIELD].integrate())
+    angular = results.photon_slices[OutputKind.ANGULAR_DISTRIBUTION]
+
+    assert angular.integrate() == pytest.approx(total_yield, rel=1e-9)
+    assert np.all(angular.distr > 0.0), "the angular density must be positive everywhere"
+    # Peaked on axis: the centre bin carries more than a corner.
+    middle = angular.distr.shape[0] // 2
+    assert angular.distr[middle, middle] > angular.distr[0, 0]
+
+
+def test_the_angular_continuum_normalization_matches_the_closed_capture_fraction():
+    """The physics check independent of any engine rescaling: a circular aperture of
+    half-angle `theta_c` must capture exactly `F_cap(gamma^2 theta_c^2)` of the yield.
+
+    This is the identity that ties the angular distribution to the verified `u`-density, and
+    it holds at machine precision in the continuum — so it cannot be an artifact of the
+    discrete normalization the engine applies.
+
+    Evaluated on a monoenergetic beam so the target is the closed `F_cap` rather than its
+    energy-spread average, and sampled along a single axis (`theta_y = 0`) because the
+    function is radial: passing `(theta, theta)` would give radius `sqrt(2) theta` and
+    silently test the wrong aperture.
+    """
+    from gammaforge.engines.analytical.angular import angular_density_per_solid_angle
+    from gammaforge.engines.analytical.diagnostics import circular_capture_fraction
+
+    beam = replace(scenarios.BASELINE.beam, rel_energy_spread=0.0)
+    nodes, weights = leggauss(400)
+    for theta_over_gamma in (0.1, 0.5, 1.0, 2.0, 5.0):
+        theta_c = theta_over_gamma / beam.gamma0()
+        theta = 0.5 * theta_c * (nodes + 1.0)
+        density = angular_density_per_solid_angle(
+            beam, theta, np.zeros_like(theta), total_yield=1.0, n_quad=11
+        )
+        # Radial (not slab) integral: the aperture is a disc, so dOmega = 2 pi theta dtheta.
+        captured = float(np.sum(weights * 0.5 * theta_c * 2 * np.pi * theta * density))
+        assert captured == pytest.approx(float(circular_capture_fraction(theta_over_gamma**2)), rel=1e-9)
+
+    # The point values themselves are the analytic kernel: dN/dOmega / Y = gamma^2 dP/du / pi.
+    from gammaforge.engines.analytical.angular import thomson_u_density
+    theta = np.array([0.1, 0.5, 1.0, 3.0, 10.0]) / beam.gamma0()
+    density = angular_density_per_solid_angle(
+        beam, theta, np.zeros_like(theta), total_yield=1.0, n_quad=11
+    )
+    analytic = beam.gamma0() ** 2 / np.pi * thomson_u_density((beam.gamma0() * theta) ** 2)
+    # Exact, not approximate: `beam` here is monoenergetic, and the kernel is
+    # gamma^2 dP/du with no gamma dependence in dP/du at fixed u, so a single gamma reproduces
+    # the continuum value to roundoff.
+    assert density == pytest.approx(analytic, rel=1e-12)
+
+    # Analytic on-axis value with a real energy spread: dP(0)/du = 3/2, so
+    # dN/dOmega / Y = 3 gamma^2 / (2 pi). This pins the gamma quadrature's cell width, which
+    # a test comparing only against the engine's own rescaled integral would never notice —
+    # a dropped `np.gradient(gammas)` leaves every such comparison intact.
+    spread_beam = replace(scenarios.BASELINE.beam, rel_energy_spread=0.05)
+    on_axis = angular_density_per_solid_angle(
+        spread_beam, np.zeros(1), np.zeros(1), total_yield=1.0, n_quad=2001
+    )
+    # With an energy spread this is no longer exactly 3 gamma_0^2 / (2 pi): the kernel
+    # carries gamma^2, so the average is <gamma^2>/(2 pi) * 3/2 = 3 gamma_0^2 (1 + sigma^2)
+    # / (2 pi) for relative spread sigma. Asserting the *exact* expected value pins the
+    # quadrature; asserting only "close to" would not.
+    # The +-6 sigma_gamma truncation of the beam's own Gaussian is what limits this, at the
+    # 1e-8 level for a 5% spread; `rel=1e-7` is tight enough to catch a dropped quadrature
+    # cell width (which would be off by 400x) and loose enough to admit that truncation.
+    sigma_rel = spread_beam.sigma_gamma() / spread_beam.gamma0()
+    assert float(on_axis[0]) == pytest.approx(
+        3.0 * spread_beam.gamma0() ** 2 * (1.0 + sigma_rel**2) / (2.0 * np.pi), rel=1e-7
+    )
+
+    # And the aperture fraction under a real energy spread must equal the spread-averaged
+    # capture efficiency, which `diagnostics.aperture_capture_efficiency` computes
+    # independently from the closed form.
+    from gammaforge.engines.analytical.diagnostics import aperture_capture_efficiency
+    for theta_over_gamma in (0.5, 1.0, 5.0):
+        theta_c = theta_over_gamma / spread_beam.gamma0()
+        points = 0.5 * theta_c * (nodes + 1.0)
+        spread_density = angular_density_per_solid_angle(
+            spread_beam, points, np.zeros_like(points), total_yield=1.0, n_quad=2001
+        )
+        captured = float(np.sum(weights * 0.5 * theta_c * 2 * np.pi * points * spread_density))
+        expected = aperture_capture_efficiency(
+            spread_beam, scenarios.BASELINE.laser, theta_c
+        ).fraction
+        assert captured == pytest.approx(expected, rel=1e-6)
+
+
+def test_the_angular_distribution_does_not_depend_on_the_nonlinear_shift():
+    """DER019 §24's reason this is a clean validation target: integrating over photon energy
+    removes the resonance, so the angular probability is independent of the nonlinear line
+    shift. Asserted directly, since a leak here would quietly couple this diagnostic to the
+    nonlinear model and destroy that independence."""
+    from gammaforge.engines.analytical.angular import angular_density_per_solid_angle
+
+    beam = scenarios.BASELINE.beam
+    theta = np.array([0.0, 0.5 / beam.gamma0(), 2.0 / beam.gamma0()])
+    zeros = np.zeros_like(theta)
+    weak = angular_density_per_solid_angle(beam, theta, zeros, total_yield=1.0, n_quad=2001)
+    # A 1000x stronger pulse would change a0, ahat and the whole nonlinear distribution;
+    # the angular distribution must not move at all. Passing the same `beam` twice keeps the
+    # comparison honest about what is actually being held fixed.
+    assert np.array_equal(
+        weak, angular_density_per_solid_angle(beam, theta, zeros, total_yield=1.0, n_quad=2001)
+    )
+
+    # The kernel itself must be the verified one: its CDF is F_cap. Node counts here are
+    # sized to the integrand's sharpness — `dP/du ~ 1.5/u^2` at large u, so a wide `u_c`
+    # needs many nodes to resolve the long tail. That is a property of this test's
+    # quadrature, not of `thomson_u_density`, which is evaluated pointwise.
+    from gammaforge.engines.analytical.angular import thomson_u_density
+    from gammaforge.engines.analytical.diagnostics import circular_capture_fraction
+    for u_c, n_nodes in ((1e-3, 200), (0.1, 200), (1.0, 200), (25.0, 200), (1e3, 800)):
+        x, w = leggauss(n_nodes)
+        u = 0.5 * u_c * (x + 1.0)
+        integrated = float(np.sum(w * 0.5 * u_c * thomson_u_density(u)))
+        assert integrated == pytest.approx(float(circular_capture_fraction(u_c)), rel=1e-9)
+    # And the CDF itself reaches one, which is the normalization that matters.
+    assert float(circular_capture_fraction(1e6)) == pytest.approx(1.0, abs=1e-5)
+
+
+def test_a_crossing_angle_is_refused_rather_than_served_with_a_head_on_kernel():
+    """The angular tier declares `head_on_incidence` as an assumption, so a crossed collision
+    must fail loudly. Serving the head-on kernel there would be the silent wrong-answer case
+    the planner exists to prevent — DER019 §24.2 requires the DER012 locally transverse basis
+    at crossing angle, which is not implemented."""
+    interaction = _interaction(
+        outputs=(OutputRequest(OutputKind.ANGULAR_DISTRIBUTION, resolution=(11, 11)),)
+    )
+    crossed = replace(interaction, laser=replace(interaction.laser, theta_xz=Quantity(5.0, "deg")))
+    with pytest.raises(ValueError, match="no accepted analytical model"):
+        AnalyticalEngine().run(crossed, AnalyticalEngine.schema)
+
+    # And the pin cannot bypass it either: applicability is not a cost or validity question.
+    pinned = AnalyticalEngine.schema.with_values(model_pin="angular_zero_emittance_head_on")
+    with pytest.raises(ValueError, match="structurally invalid"):
+        AnalyticalEngine().run(crossed, pinned)
+
+    # Head-on, the same request succeeds and records its assumptions.
+    head_on = AnalyticalEngine().run(interaction, AnalyticalEngine.schema)
+    record = head_on.model_specific["models"]["angular_distribution"]
+    assert record["model"] == "angular_zero_emittance_head_on"
+    assert "head_on_incidence" in record["assumptions"]
+    assert "zero_electron_emittance" in record["assumptions"]
+
+
+def test_the_angular_distribution_handles_a_monoenergetic_beam():
+    """`io.bunch.validate` permits exactly zero energy spread. That is the closed case here
+    rather than a degenerate quadrature, so it must return the right answer instead of
+    dividing by a zero-width Gaussian and producing nan — the failure mode
+    `formulas.angle_integrated_spectrum` explicitly guards against."""
+    interaction = _interaction(
+        outputs=(
+            OutputRequest(OutputKind.TOTAL_YIELD),
+            OutputRequest(OutputKind.ANGULAR_DISTRIBUTION, resolution=(41, 41)),
+        )
+    )
+    mono = replace(interaction, beam=replace(interaction.beam, rel_energy_spread=0.0))
+    results = AnalyticalEngine().run(mono, AnalyticalEngine.schema)
+    angular = results.photon_slices[OutputKind.ANGULAR_DISTRIBUTION]
+    total_yield = float(results.photon_slices[OutputKind.TOTAL_YIELD].integrate())
+
+    assert np.all(np.isfinite(angular.distr))
+    assert angular.integrate() == pytest.approx(total_yield, rel=1e-9)

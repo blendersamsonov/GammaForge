@@ -28,7 +28,11 @@ __all__ = ["ANALYTICAL_SPECS", "default_parameters"]
 #: Expert pinning is offered for every registered model plus `"auto"`. Kept as a plain tuple
 #: rather than imported from `models` so the schema (what users see) and the registry (what
 #: exists) cannot silently disagree: `test_analytical.py` asserts they match.
-_PIN_CHOICES: tuple[str, ...] = ("auto", "overlap_der001_mean_ahat")
+_PIN_CHOICES: tuple[str, ...] = (
+    "auto",
+    "overlap_der001_mean_ahat",
+    "angular_zero_emittance_head_on",
+)
 
 ANALYTICAL_SPECS: tuple[FieldSpec, ...] = (
     FieldSpec(

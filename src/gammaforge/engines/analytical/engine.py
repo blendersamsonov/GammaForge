@@ -17,6 +17,7 @@ from ...io.results import Axis, PhasespaceSlice, Results
 from ...io.schema import Parameters
 from ...io.target import OutputKind, OutputRequest, auto_ranges, slice_axis_values
 from ..base import RecomputeCost
+from .angular import angular_density_per_solid_angle
 from .formulas import (
     angle_integrated_spectrum,
     estimate_spectrum_width,
@@ -28,10 +29,17 @@ from .schema import default_parameters
 
 __all__ = ["AnalyticalEngine"]
 
-#: analytical produces only the 0D total yield and the 1D angle-integrated spectrum
-#: (§4.3) — never `COLLIMATED_SPECTRUM` (the 3D (E, θx, θy) slice), which the GUI is
-#: expected to overlay this 1D estimate onto rather than receive from this engine.
-SUPPORTED_OUTPUTS: tuple[OutputKind, ...] = (OutputKind.TOTAL_YIELD, OutputKind.SPECTRUM)
+#: analytical produces the 0D total yield, the 1D angle-integrated spectrum, and the 2D
+#: angular distribution (§4.3) — never `COLLIMATED_SPECTRUM` (the 3D (E, θx, θy) slice),
+#: which the GUI is expected to overlay this 1D estimate onto rather than receive from this
+#: engine. `ANGULAR_DISTRIBUTION` is added by DER019 §24.2 and, unlike the collimated slice,
+#: is genuinely cheap: one deterministic gamma quadrature per angular point, no particle
+#: dependence.
+SUPPORTED_OUTPUTS: tuple[OutputKind, ...] = (
+    OutputKind.TOTAL_YIELD,
+    OutputKind.SPECTRUM,
+    OutputKind.ANGULAR_DISTRIBUTION,
+)
 
 #: Bunch charge is exactly linear in `N_e` for every engine and is handled entirely at
 #: the `io` level (`InteractionParameters.with_charge`/`Results.scaled`) without an
@@ -84,6 +92,39 @@ _OVERLAP_TIER = AnalyticalModel(
 )
 
 
+#: The DER019 §24.2 angular-distribution tier: zero-emittance, head-on, unchirped.
+#:
+#: Structurally limited to *head-on* on purpose. A crossing angle changes the polarization
+#: basis, and DER019 §24.2 requires the DER012 locally transverse kernel for it; returning
+#: the head-on kernel for a crossed collision would be exactly the silent wrong-answer case
+#: the planner exists to prevent. A non-zero emittance is a real further quadrature, so this
+#: is stated as an approximation rather than hidden — the engine has no electron-direction
+#: input to condition on at this tier.
+_ANGULAR_TIER = AnalyticalModel(
+    name="angular_zero_emittance_head_on",
+    outputs=(OutputKind.ANGULAR_DISTRIBUTION,),
+    # Head-on only. The crossing angle is already available on ModelInputs.
+    applies=lambda inputs: inputs.crossing_angle == 0.0,
+    # Exact for the energy-integrated angular probability: integrating over photon energy
+    # removes the resonance, so this does not depend on the nonlinear shift at all
+    # (DER019 §24). The *finite-emittance* extension is not implemented, which is recorded
+    # as an assumption rather than claimed as exactness.
+    acceptance=lambda inputs: inputs.crossing_angle == 0.0,
+    fidelity_rank=2,
+    cost_rank=1,
+    exact=True,
+    assumptions=(
+        "zero_electron_emittance",
+        "head_on_incidence",
+        "unchirped_first_harmonic",
+        "azimuthal_average_about_electron_direction",
+        "independent_of_nonlinear_shift",
+    ),
+    outer_dimension=1,
+    trajectory_quadrature=False,
+)
+
+
 class AnalyticalEngine:
     """The closed-form estimate engine, behind the uniform `Engine` protocol (`base.py`)."""
 
@@ -94,7 +135,7 @@ class AnalyticalEngine:
 
     #: Single planner instance per engine. `ModelSelector` is immutable after construction,
     #: so sharing one across calls keeps selection allocation-free on the real-time path.
-    _selector = ModelSelector((_OVERLAP_TIER,))
+    _selector = ModelSelector((_OVERLAP_TIER, _ANGULAR_TIER))
 
     def run(self, interaction: InteractionParameters, params: Parameters) -> Results:
         if not isinstance(interaction.laser, GaussianParaxialLaser):
@@ -243,5 +284,24 @@ class AnalyticalEngine:
             raw_integral = float(np.trapezoid(raw_dN_dE, values[Axis.ENERGY]))
             dN_dE = raw_dN_dE * (total_yield / raw_integral) if raw_integral > 0 else raw_dN_dE
             return PhasespaceSlice(axes=values, distr=dN_dE)
+
+        if kind is OutputKind.ANGULAR_DISTRIBUTION:
+            values = slice_axis_values(request, ranges)
+            # A 2D (theta_x, theta_y) slice: `slice_axis_values` gives the two 1D axis
+            # vectors, and the density is evaluated on their mesh. Normalizing to
+            # `total_yield` is exact in the continuum (the angular probability integrates to
+            # one); the discrete rescale is the same quadrature correction RES036 applies to
+            # SPECTRUM, and it keeps `integrate()` reproducing the yield on a truncated grid.
+            dN_dOmega = angular_density_per_solid_angle(
+                beam,
+                values[Axis.THETA_X][:, None],
+                values[Axis.THETA_Y][None, :],
+                total_yield,
+                n_quad,
+            )
+            integral = float(PhasespaceSlice(axes=values, distr=dN_dOmega).integrate())
+            if integral > 0.0:
+                dN_dOmega = dN_dOmega * (total_yield / integral)
+            return PhasespaceSlice(axes=values, distr=dN_dOmega)
 
         raise AssertionError(f"AnalyticalEngine._fill: {kind} is in SUPPORTED_OUTPUTS but has no branch")
