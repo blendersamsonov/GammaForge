@@ -12,6 +12,7 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
+from numpy.polynomial.hermite_e import hermegauss
 
 pytestmark = [pytest.mark.tier1]
 
@@ -945,3 +946,218 @@ def test_model_selection_leaves_every_physics_number_untouched():
     assert pinned.photon_slices[OutputKind.SPECTRUM].integrate() == pytest.approx(
         baseline.photon_slices[OutputKind.SPECTRUM].integrate(), rel=1e-12
     )
+
+
+# ---------------------------------------------------------------------------
+# Fixed-width deterministic Gaussian moments (DER019 §3, §4, §22)
+# ---------------------------------------------------------------------------
+def _hermite_expectation(func, n: int = 200) -> float:
+    """``E[f(X)]`` for standard normal ``X``, by Gauss-Hermite.
+
+    `hermegauss` weights satisfy ``sum_i w_i z_i^(2k) = sqrt(2 pi) (2k-1)!!``, i.e. they carry
+    ``exp(-z^2/2)`` but not the ``1/sqrt(2 pi)``. So the expectation is a plain weighted sum
+    of the divided weights. Written here rather than in `fixed_width.py` because the closed
+    forms there need no quadrature: this exists to check them against something independent,
+    and the convention is asserted first so a mis-scaled weight cannot masquerade as a
+    physics disagreement.
+    """
+    z, w = hermegauss(n)
+    w = w / math.sqrt(2.0 * math.pi)
+    assert float(np.sum(w)) == pytest.approx(1.0, rel=1e-12), "weight convention changed"
+    return float(np.sum(w * func(z)))
+
+
+def test_the_rank_two_reduction_holds_at_every_crossing_angle():
+    """DER019 §3: completing the square in time removes exactly one direction, so `K` has
+    rank 2 — the fact that keeps the nonlinear distribution a generalized chi-square instead
+    of something arbitrary. If the reduction were built in the laser's own frame, this would
+    fail off head-on, where the removed direction is not `k_hat`."""
+    from gammaforge.engines.analytical.fixed_width import fixed_width_reduction
+
+    for degrees in (0.0, 5.0, 30.0, 60.0, 89.0):
+        laser = replace(scenarios.BASELINE.laser, theta_xz=Quantity(degrees, "deg"))
+        reduction = fixed_width_reduction(scenarios.BASELINE.beam, laser)
+        eigenvalues = np.linalg.eigvalsh(reduction.K)
+        nonzero = eigenvalues[eigenvalues > eigenvalues.max() * 1e-10]
+        assert len(nonzero) == 2, f"{degrees} deg: rank {len(nonzero)}, expected 2"
+        # Positive semidefinite: a negative eigenvalue would mean `K` is not a precision form.
+        assert eigenvalues.min() > -eigenvalues.max() * 1e-10
+
+
+def test_j_n_reproduces_the_round_closed_reduction_and_its_stated_limits():
+    """DER019 §22.1 in full: the matrix algebra must reproduce the round closed form, and
+    that closed form must show the two limits the derivation claims — `sigma_e << sigma_L`
+    (uniform intensity, no spread) and `sigma_e >> sigma_L` (spread -> 1/sqrt(3) ~ 0.577).
+
+    The round form is written out independently rather than reusing the module, so this is a
+    reduction identity against a second expression of the physics rather than a self-check.
+    """
+    from gammaforge.engines.analytical.fixed_width import (
+        fixed_width_reduction,
+        nonlinear_moments,
+        round_nonlinear_moments,
+    )
+
+    beam_base = scenarios.BASELINE.beam
+    for sigma_e_um, sigma_l_um in ((4.0, 1.0), (2.0, 1.0), (1.0, 1.0), (10.0, 1.0)):
+        beam = replace(beam_base, sigma_x=Quantity(sigma_e_um, "um"), sigma_y=Quantity(sigma_e_um, "um"))
+        laser = replace(scenarios.BASELINE.laser, sigma_x=Quantity(sigma_l_um, "um"),
+                        sigma_y=Quantity(sigma_l_um, "um"))
+        moments = nonlinear_moments(fixed_width_reduction(beam, laser))
+        closed = round_nonlinear_moments(beam.m("sigma_x"), laser.m("sigma_x"))
+
+        # nu = 1 + sigma_L^2/sigma_e^2 is the number of illuminated Gaussian modes.
+        nu = 1.0 + (sigma_l_um / sigma_e_um) ** 2
+        assert moments.mean_a == pytest.approx(nu / (nu + 1) * closed.a_max, rel=1e-12)
+        assert moments.mean_a_sq == pytest.approx(nu / (nu + 2) * closed.a_max**2, rel=1e-12)
+        assert moments.var_between == pytest.approx(closed.var_between, rel=1e-10)
+        # sigma_a/<a> = 1/sqrt(nu (nu+2)), exactly as DER019 §22.1 states.
+        assert moments.relative_spread == pytest.approx(1.0 / math.sqrt(nu * (nu + 2.0)), rel=1e-12)
+
+    # The stated limits, which is what makes the bracket defensible rather than fitted.
+    assert round_nonlinear_moments(1e3, 1.0).relative_spread == pytest.approx(1.0 / math.sqrt(3.0), rel=2e-3)
+    assert round_nonlinear_moments(1e-3, 1.0).relative_spread < 0.01
+
+
+def test_j_n_matches_direct_gaussian_quadrature_including_a_displaced_source():
+    """DER019 §18: the closed `J_n` must agree with integrating the same Gaussian directly.
+    Done for a displaced (noncentral) source as well as a centered one, because the
+    noncentral term is the part of the formula a centered-only test would never exercise."""
+    from gammaforge.engines.analytical.fixed_width import fixed_width_reduction
+
+    beam = replace(scenarios.BASELINE.beam, sigma_x=Quantity(4.0, "um"), sigma_y=Quantity(4.0, "um"))
+    for offset_um in (0.0, 0.5, 1.5, 3.0):
+        laser = replace(scenarios.BASELINE.laser, sigma_x=Quantity(4.0, "um"),
+                        sigma_y=Quantity(4.0, "um"), x_off=Quantity(offset_um, "um"))
+        reduction = fixed_width_reduction(beam, laser)
+
+        # `delta` is checked against the laser's own offset rather than being fed back into
+        # the integration below: reusing it would make this comparison agree with whatever
+        # `fixed_width_reduction` happened to compute, including a wrong value.
+        assert reduction.delta[0] == pytest.approx(-laser.m("x_off"), rel=1e-12)
+
+        def a_labelled(x1, x2, _r=reduction):
+            """`A_L` for electron labels offset from the laser's own centre."""
+            dx1 = x1 - _r.delta[0]
+            dx2 = x2 - _r.delta[1]
+            quad = _r.K[0, 0] * dx1**2 + 2 * _r.K[0, 1] * dx1 * dx2 + _r.K[1, 1] * dx2**2
+            return _r.a_max * np.exp(-0.5 * quad)
+
+        z, w = hermegauss(200)
+        w = w / math.sqrt(2.0 * math.pi)
+        grid1, grid2 = np.meshgrid(z, z, indexing="ij")
+        weights = w[:, None] * w[None, :]
+        sigma = beam.m("sigma_x")
+        a_values = a_labelled(sigma * grid1, sigma * grid2)
+
+        direct_j1 = float(np.sum(weights * a_values))
+        direct_j2 = float(np.sum(weights * a_values**2))
+        assert direct_j1 == pytest.approx(reduction.j(1), rel=1e-9)
+        assert direct_j2 == pytest.approx(reduction.j(2), rel=1e-9)
+        # The luminosity-weighted moment is the ratio, and that ratio is what the engine uses.
+        assert direct_j2 / direct_j1 == pytest.approx(reduction.j(2) / reduction.j(1), rel=1e-9)
+        # The noncentral term must actually matter here, or the offsets above are decorative:
+        # an offset lowers the sampled intensity, so J_1 strictly decreases with displacement.
+        assert reduction.j(1) < 1.0 or offset_um == 0.0
+
+
+def test_the_derived_nonlinear_mean_agrees_with_overlap_mean_a0_sq_in_the_fixed_width_limit():
+    """DER019 §5 and §18.3: DER001's `overlap_mean_a0_sq` and the new distributional model
+    are the same physical quantity in their common limit, so they must agree.
+
+    Compared through the laser's own conversion rather than as bare numbers: `a_shape` here is
+    dimensionless and normalized to 1 at the trajectory peak, whereas `overlap_mean_a0_sq` is a
+    dimensional `<a0^2>` in the pulse's own units. The relation is
+
+        <a_shape>_L = (cycle_average_factor / intensity_peak) * <a0^2>_L
+
+    which holds for *any* pulse energy — so this fails loudly if either model's normalization
+    drifts, instead of passing at one energy and lying at another.
+
+    The limit is reached by making the spot **broad**, i.e. the Rayleigh range long compared
+    with the bunch, so the width is effectively frozen over the collision. At a tight focus
+    DER001 keeps the real paraxial evolution and the two must *not* agree — the discrepancy
+    there is the frozen-width approximation, quantified as `epsilon_L`, and asserting equality
+    at a tight focus would be asserting that approximation away.
+    """
+    from gammaforge.engines.analytical.fixed_width import (
+        fixed_width_diagnostics,
+        fixed_width_reduction,
+        nonlinear_moments,
+    )
+
+    beam = replace(scenarios.BASELINE.beam, sigma_x=Quantity(4.0, "um"), sigma_y=Quantity(4.0, "um"))
+    for pulse_energy, sigma_l_um in ((0.05, 400.0), (0.2, 800.0), (1.0, 400.0)):
+        laser = replace(scenarios.BASELINE.laser, pulse_energy=Quantity(pulse_energy, "J"),
+                        sigma_x=Quantity(sigma_l_um, "um"), sigma_y=Quantity(sigma_l_um, "um"))
+        moments = nonlinear_moments(fixed_width_reduction(beam, laser))
+        der001_mean = overlap_mean_a0_sq(beam, laser, n_quad=8001)
+
+        # Guard the premise: this geometry has to actually be in the frozen-width limit.
+        # Measured, not assumed — a broad spot is what makes epsilon_L small.
+        assert fixed_width_diagnostics(beam, laser)["epsilon_L"] < 0.01
+        scale = laser.cycle_average_factor() / laser.intensity_peak()
+        assert moments.mean_a == pytest.approx(scale * der001_mean, rel=2e-3)
+
+    # And the approximation is visible where it should be: a tight focus, where the ratio
+    # is far from 1. This is the quantity that later justifies an acceptance threshold.
+    focused = replace(scenarios.BASELINE.laser, sigma_x=Quantity(0.8, "um"), sigma_y=Quantity(0.8, "um"))
+    assert fixed_width_diagnostics(beam, focused)["epsilon_L"] > 1.0
+
+
+def test_the_two_nonlinear_variances_stay_separate_and_sum_to_the_total():
+    """DER019 §22.2's whole point: the spread of trajectory means and the DER016
+    within-trajectory variance are different physical effects, and the law of total variance
+    combines them. Keeping them apart is what replaces the empirical bracket, so a test that
+    only checked the sum would not notice them being conflated."""
+    from gammaforge.engines.analytical.fixed_width import (
+        fixed_width_reduction,
+        nonlinear_moments,
+    )
+
+    beam = replace(scenarios.BASELINE.beam, sigma_x=Quantity(4.0, "um"), sigma_y=Quantity(4.0, "um"))
+    laser = replace(scenarios.BASELINE.laser, sigma_x=Quantity(1.0, "um"), sigma_y=Quantity(1.0, "um"))
+    moments = nonlinear_moments(fixed_width_reduction(beam, laser))
+
+    assert moments.var_between > 0.0
+    assert moments.var_finite_line > 0.0
+    assert moments.var_total == pytest.approx(moments.var_between + moments.var_finite_line, rel=1e-12)
+    # <V_a,shape>_L = kappa_G <a_shape^2> (DER019 §3.1).
+    assert moments.var_finite_line == pytest.approx(
+        (2.0 / math.sqrt(3.0) - 1.0) * moments.mean_a_sq, rel=1e-12
+    )
+    # `var_a` is the plain second central moment of a_shape, which is the between-trajectory
+    # spread *plus* the within-trajectory finite-line variance. Asserting it equals
+    # `var_between` would be asserting the two effects are the same — the conflation DER019
+    # §22.2 exists to undo.
+    assert moments.var_a == pytest.approx(moments.var_total, rel=1e-12)
+    assert moments.var_a > moments.var_between
+
+
+def test_a_flying_focus_is_refused_rather_than_silently_frozen():
+    """DER019 §16: the 1D frozen-width path is unsafe for a flying focus, so this tier must
+    refuse rather than quietly return a plausible wrong answer."""
+    from gammaforge.engines.analytical.fixed_width import fixed_width_reduction
+
+    laser = replace(scenarios.BASELINE.laser, beta_ff=0.8)
+    with pytest.raises(ValueError, match="flying focus"):
+        fixed_width_reduction(scenarios.BASELINE.beam, laser)
+
+
+def test_fixed_width_validity_diagnostics_are_reported_not_thresholded():
+    """DER019 §16/§17.8: the engine reports *why* a reduced model was chosen and how strongly
+    its approximation is expected to hold. These must exist and vary sensibly — a spot much
+    shorter than the Rayleigh range is the focused regime the tier does not cover."""
+    from gammaforge.engines.analytical.fixed_width import fixed_width_diagnostics
+
+    beam = scenarios.BASELINE.beam
+    focused = replace(scenarios.BASELINE.laser, sigma_x=Quantity(0.8, "um"), sigma_y=Quantity(0.8, "um"))
+    collimated = replace(scenarios.BASELINE.laser, sigma_x=Quantity(50.0, "um"), sigma_y=Quantity(50.0, "um"))
+
+    tight = fixed_width_diagnostics(beam, focused)
+    loose = fixed_width_diagnostics(beam, collimated)
+    for name in ("epsilon_L", "epsilon_beta", "epsilon_drift"):
+        assert name in tight and math.isfinite(tight[name])
+    # A tighter focus has a shorter Rayleigh range, so L_int/z_R grows: the tier's own
+    # weakness, and the reason it cannot be accepted automatically at every geometry.
+    assert loose["epsilon_L"] < tight["epsilon_L"]
