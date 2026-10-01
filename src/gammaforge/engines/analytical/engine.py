@@ -18,6 +18,7 @@ from ...io.schema import Parameters
 from ...io.target import OutputKind, OutputRequest, auto_ranges, slice_axis_values
 from ..base import RecomputeCost
 from .angular import angular_density_per_solid_angle
+from .collimated import collimated_moments
 from .formulas import (
     angle_integrated_spectrum,
     estimate_spectrum_width,
@@ -39,6 +40,7 @@ SUPPORTED_OUTPUTS: tuple[OutputKind, ...] = (
     OutputKind.TOTAL_YIELD,
     OutputKind.SPECTRUM,
     OutputKind.ANGULAR_DISTRIBUTION,
+    OutputKind.COLLIMATED_SPECTRUM,
 )
 
 #: Bunch charge is exactly linear in `N_e` for every engine and is handled entirely at
@@ -125,6 +127,35 @@ _ANGULAR_TIER = AnalyticalModel(
 )
 
 
+#: The DER019 §8.1 collimated-spectrum tier: the delta-resonance model with `gamma` inverted
+#: analytically, so no gamma quadrature and no particle sampling. Round head-on, zero
+#: emittance, unchirped.
+#:
+#: Stated as `exact` because the delta-resonance inversion itself is exact under the tier's
+#: assumptions — the *finite-line* reconstruction on top of it is a DER017 modelling choice,
+#: not an approximation of this engine's, and the raw channels are reported so a user can
+#: inspect the delta-line limit directly.
+_COLLIMATED_TIER = AnalyticalModel(
+    name="collimated_fixed_width_zero_emittance",
+    outputs=(OutputKind.COLLIMATED_SPECTRUM,),
+    applies=lambda inputs: inputs.crossing_angle == 0.0,
+    acceptance=lambda inputs: inputs.crossing_angle == 0.0,
+    fidelity_rank=3,
+    cost_rank=2,
+    exact=True,
+    assumptions=(
+        "zero_electron_emittance",
+        "head_on_incidence",
+        "unchirped_first_harmonic",
+        "delta_resonance_approximation",
+        "single_direction_factor_D_and_Q",
+        "der017_second_order_finite_line_reconstruction",
+    ),
+    outer_dimension=1,
+    trajectory_quadrature=False,
+)
+
+
 class AnalyticalEngine:
     """The closed-form estimate engine, behind the uniform `Engine` protocol (`base.py`)."""
 
@@ -135,7 +166,7 @@ class AnalyticalEngine:
 
     #: Single planner instance per engine. `ModelSelector` is immutable after construction,
     #: so sharing one across calls keeps selection allocation-free on the real-time path.
-    _selector = ModelSelector((_OVERLAP_TIER, _ANGULAR_TIER))
+    _selector = ModelSelector((_OVERLAP_TIER, _ANGULAR_TIER, _COLLIMATED_TIER))
 
     def run(self, interaction: InteractionParameters, params: Parameters) -> Results:
         if not isinstance(interaction.laser, GaussianParaxialLaser):
@@ -303,5 +334,37 @@ class AnalyticalEngine:
             if integral > 0.0:
                 dN_dOmega = dN_dOmega * (total_yield / integral)
             return PhasespaceSlice(axes=values, distr=dN_dOmega)
+
+        if kind is OutputKind.COLLIMATED_SPECTRUM:
+            values = slice_axis_values(request, ranges)
+            # The delta-resonance tier: `gamma` is inverted analytically at each (E, n), so
+            # there is no gamma quadrature and no macroparticle (DER019 §7). The raw DER017
+            # channels are reported alongside the slice so the reconstruction can be checked
+            # against its inputs rather than trusted (DER019 §18.12).
+            energy = values[Axis.ENERGY]
+            theta_x = values[Axis.THETA_X]
+            theta_y = values[Axis.THETA_Y]
+            shape = (energy.size, theta_x.size, theta_y.size)
+            # Every requested (E, theta_x, theta_y) point is one resonance root. The grid is
+            # evaluated pointwise because `r^2` differs per angular cell, so there is no shared
+            # 1D `s` array to batch over — the cost is the grid size, which is why this tier
+            # is for targeted collimated queries rather than the full 3D scan.
+            # One channel set per angular column: the DER017 reconstruction differentiates
+            # along the energy axis, so `s` must be a 1D spectral grid, not a single point.
+            # `theta_y` shares each column's `r^2`, so the columns differ only by `theta_x`.
+            reconstructed = np.empty(shape)
+            s_axis = energy / (4.0 * photon_energy)
+            for j, theta_x_j in enumerate(theta_x):
+                for k, theta_y_k in enumerate(theta_y):
+                    moments = collimated_moments(
+                        beam,
+                        s_axis,
+                        theta_ex=float(theta_x_j),
+                        theta_ey=float(theta_y_k),
+                        ahat=ahat,
+                        total_yield=total_yield,
+                    )
+                    reconstructed[:, j, k] = moments.reconstructed
+            return PhasespaceSlice(axes=values, distr=reconstructed)
 
         raise AssertionError(f"AnalyticalEngine._fill: {kind} is in SUPPORTED_OUTPUTS but has no branch")

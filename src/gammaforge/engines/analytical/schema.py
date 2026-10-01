@@ -32,6 +32,7 @@ _PIN_CHOICES: tuple[str, ...] = (
     "auto",
     "overlap_der001_mean_ahat",
     "angular_zero_emittance_head_on",
+    "collimated_fixed_width_zero_emittance",
 )
 
 ANALYTICAL_SPECS: tuple[FieldSpec, ...] = (

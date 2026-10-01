@@ -917,8 +917,13 @@ def test_an_unknown_observable_is_refused_rather_than_silently_skipped():
     interaction = _interaction()
     metrics = fit_gaussian_paraxial(interaction.laser)
     inputs = ModelInputs(beam=interaction.beam, laser=metrics, photon_energy=metrics.photon_energy())
+    # `MACROPARTICLE_DUMP` is in `OutputKind` but is not a slice and no deterministic model
+    # produces it — an engine that cannot produce macroparticles by construction.
     with pytest.raises(ValueError, match="no analytical model produces"):
-        AnalyticalEngine._selector.select(inputs, OutputKind.COLLIMATED_SPECTRUM)
+        AnalyticalEngine._selector.select(inputs, OutputKind.MACROPARTICLE_DUMP)
+    # Likewise a kind this engine declares but has no tier for yet.
+    with pytest.raises(ValueError, match="no analytical model produces"):
+        AnalyticalEngine._selector.select(inputs, OutputKind.TEMPORAL_ENVELOPE)
 
 
 def test_model_selection_leaves_every_physics_number_untouched():
@@ -1715,3 +1720,229 @@ def test_the_angular_distribution_handles_a_monoenergetic_beam():
 
     assert np.all(np.isfinite(angular.distr))
     assert angular.integrate() == pytest.approx(total_yield, rel=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# Deterministic collimated spectrum and DER017 moment channels (DER019 §7, §8.1)
+# ---------------------------------------------------------------------------
+def test_the_collimated_rho0_has_the_exact_on_axis_scaling_law():
+    """DER019 §7's master formula with `D = Q = 1`, `r = 0`, `Cbar = 1` gives
+
+        rho0 = Y (3/(4 pi)) (K/s^2) Gamma^5 / A_R,   Gamma^2 = A_R s
+
+    whose `s`-dependence reduces to `K A_R^{3/2} s^{+1/2} / Y`-scaled `s^{1/2}`. The exponent
+    is a hard prediction, so this is checked as a fitted log-log slope over decades rather
+    than against a hand-copied formula that could repeat the same slip.
+
+    Note this rises with `s`, not falls: a delta-resonance on-axis observer concentrates at
+    the *upper* edge, unlike the angle-integrated shape `G` which piles up at low energy.
+    """
+    from gammaforge.engines.analytical.collimated import collimated_moments
+
+    s = np.logspace(-3.0, -0.01, 40)
+    for ahat in (0.0, 0.3, 1.0):
+        rho0 = collimated_moments(None, s, ahat=ahat).rho0
+        slopes = np.diff(np.log(rho0)) / np.diff(np.log(s))
+        assert slopes == pytest.approx(np.full_like(slopes, 0.5), abs=1e-10), f"ahat={ahat}"
+
+    # And the amplitude follows A_R^{3/2}: doubling ahat's 1+ must scale rho0 by 1^{3/2}.
+    a, b = 0.0, 0.3
+    base = collimated_moments(None, np.array([0.5]), ahat=a).rho0[0]
+    shifted = collimated_moments(None, np.array([0.5]), ahat=b).rho0[0]
+    assert shifted / base == pytest.approx((1.0 + b) ** 1.5 / (1.0 + a) ** 1.5, rel=1e-12)
+
+
+def test_the_moment_channels_satisfy_their_defining_identities():
+    """DER019 §7.1: `rho1` is the `rho0` integrand times `s Delta_c` and `rho2` times
+    `s^2 m2`. For an unchirped pulse `Var(C) = Cov(q, C) = 0`, so both reduce to the single
+    `Q^2 Var(q)/B^2` term and `Delta_c == m2`.
+
+    Asserting the identities rather than the reconstruction means a wrong `B` or a wrong
+    variance coefficient cannot hide behind a compensating derivative.
+    """
+    from gammaforge.engines.analytical.collimated import collimated_moments
+    from gammaforge.engines.analytical.fixed_width import KAPPA_G
+
+    s = np.linspace(0.05, 1.0, 120)
+    for ahat in (0.1, 0.3, 1.0):
+        moments = collimated_moments(None, s, ahat=ahat)
+        var_q = KAPPA_G * ahat**2
+        delta_c = var_q / (1.0 + ahat) ** 2  # Q = 1, r = 0 => B = 1 + ahat
+        assert moments.rho1 == pytest.approx(moments.rho0 * s * delta_c, rel=1e-12)
+        assert moments.rho2 == pytest.approx(moments.rho0 * s**2 * delta_c, rel=1e-12)
+
+
+def test_the_reconstruction_returns_rho0_exactly_in_the_delta_line_limit():
+    """With `Var(q) = 0` the finite-line correction vanishes and `S(s) = rho0`. That pins the
+    DER017 operator itself independently of the physics feeding it — if the derivative terms
+    were mis-scaled, this identity would break even though the channels stayed correct."""
+    from gammaforge.engines.analytical.collimated import collimated_moments
+
+    s = np.linspace(0.05, 1.0, 120)
+    moments = collimated_moments(None, s, ahat=0.3, var_q=0.0)
+    assert np.all(moments.rho1 == 0.0)
+    assert np.all(moments.rho2 == 0.0)
+    assert moments.reconstructed == pytest.approx(moments.rho0, abs=0.0)
+
+    # With a finite variance the reconstruction must actually differ — otherwise the identity
+    # above would pass for a reconstruction that ignores its inputs entirely.
+    finite = collimated_moments(None, s, ahat=0.3)
+    ratio = finite.reconstructed / finite.rho0
+    assert np.all(np.isfinite(ratio))
+    assert np.all(np.abs(ratio - 1.0) > 1e-6), "the finite-line correction did nothing"
+
+
+def test_the_reconstruction_operator_has_a_known_analytic_answer():
+    """The DER017 operator itself, checked against a case whose answer is known exactly.
+
+    With `rho0 = 0`, `rho1 = a` (constant) and `rho2 = b s`:
+
+        d[s rho1]/ds   = d[a s]/ds    = a
+        d^2[s rho2]/ds^2 = d^2[b s^2]/ds^2 = 2 b
+        S(s) = -a/s + 2 b / (2 s) = (b - a)/s
+
+    so the reconstruction must equal `(b - a)/s` to truncation error. This is what pins the
+    `1/2` on the second-order term and both `1/s` prefactors: an earlier version of this file
+    only checked that `S == rho0` when the correction vanished, which any reconstruction
+    ignoring its inputs entirely would also pass.
+    """
+    from gammaforge.engines.analytical.collimated import reconstruct_second_order
+
+    s = np.linspace(0.2, 1.0, 80)
+    a, b = 3.0, 5.0
+    reconstructed = reconstruct_second_order(
+        s, np.zeros_like(s), np.full_like(s, a), b * s
+    )
+    assert reconstructed == pytest.approx((b - a) / s, rel=1e-9)
+
+    # And the guards: a two-point grid cannot support a second derivative, and s must be
+    # positive for the 1/s prefactors to mean anything.
+    with pytest.raises(ValueError, match="at least three spectral points"):
+        reconstruct_second_order(np.array([0.5, 1.0]), np.zeros(2), np.zeros(2), np.zeros(2))
+    nonpositive = s.copy()
+    nonpositive[0] = 0.0
+    with pytest.raises(ValueError, match="positive spectral points"):
+        reconstruct_second_order(
+            nonpositive, np.zeros_like(s), np.zeros_like(s), np.ones_like(s)
+        )
+
+
+def test_the_derivative_operator_is_accurate_on_a_nonuniform_grid():
+    """The reconstruction differentiates along `s`, which is not uniformly spaced. A local
+    polynomial fit on monomial (Vandermonde) offsets was tried first and rejected: it returned
+    ~1e8 relative error on smooth power laws and dominated the reconstructed spectrum. This
+    pins the operator actually used.
+
+    Exact for degrees the stencil can represent, degrading gracefully beyond — asserted at
+    the orders that matter rather than to a single tolerance.
+    """
+    from gammaforge.engines.analytical.collimated import _finite_difference
+
+    for grid in (np.linspace(0.05, 1.0, 80), np.logspace(-3.0, -0.01, 80)):
+        for power in (1, 2):
+            y = grid**power
+            assert _finite_difference(grid, y, 1) == pytest.approx(
+                power * grid ** (power - 1), rel=1e-10
+            )
+        assert _finite_difference(grid, grid**2, 2) == pytest.approx(np.full_like(grid, 2.0), rel=1e-10)
+        # A smooth non-polynomial must also be right, or the checks above would pass for an
+        # operator that only handles monomials. Checked away from the ends: a finite-
+        # difference stencil loses accuracy as it approaches a boundary, and on a log grid the
+        # dense end has a far smaller `h` than the sparse one, so a single global tolerance
+        # would be testing the grid rather than the operator.
+        y = np.exp(-grid)
+        derivative = _finite_difference(grid, y, 1)
+        interior = slice(2, -2)
+        assert derivative[interior] == pytest.approx(-np.exp(-grid[interior]), rel=1e-2)
+
+
+def test_the_collimated_spectrum_masks_its_support_instead_of_returning_nan():
+    """`s <= 0` and `K/s <= r^2` are outside the model's own support. A divide-by-zero there
+    produces a nan that then spreads through the moment channels and the reconstructed
+    spectrum — a single bad grid point would poison the whole slice."""
+    from gammaforge.engines.analytical.collimated import collimated_moments
+
+    moments = collimated_moments(None, np.array([-0.1, 0.0, 0.1, 0.5, 1.0]), ahat=0.3)
+    assert np.all(np.isfinite(moments.rho0))
+    assert np.all(moments.rho0[moments.s <= 0.0] == 0.0)
+    # Off-axis, `K/s > r^2` is the support edge: beyond it rho0 must vanish.
+    off_axis = collimated_moments(
+        None, np.array([0.01, 0.5, 5.0]), theta_ex=10.0, ahat=0.3
+    )
+    assert np.all(np.isfinite(off_axis.rho0))
+    assert off_axis.rho0[0] == 0.0, "K/s <= r^2 must be excluded"
+
+    # Off axis, `B = 1 + Q ahat + Gamma^2 r^2` includes the `Gamma^2 r^2` term, so the moment
+    # prefactor is no longer the on-axis `Var(q)/(1+ahat)^2`. Checked at a radius where the
+    # resonance is supported, which is the only place the formula applies.
+    supported = collimated_moments(
+        None, np.array([0.9]), theta_ex=0.1, ahat=0.3
+    )
+    from gammaforge.engines.analytical.fixed_width import KAPPA_G
+
+    r_sq = 0.1**2
+    gamma_sq = float(supported.gamma[0]) ** 2
+    b_off = 1.0 + 0.3 + gamma_sq * r_sq
+    delta_c_off = KAPPA_G * 0.3**2 / b_off**2
+    assert float(supported.rho1[0]) == pytest.approx(
+        float(supported.rho0[0]) * 0.9 * delta_c_off, rel=1e-12
+    )
+
+    # And the impossible direction factor is refused rather than divided through.
+    with pytest.raises(ValueError, match="delta-line limit"):
+        collimated_moments(None, np.linspace(0.1, 1.0, 20), q_factor=0.0)
+    with pytest.raises(ValueError, match="c_bar > 0"):
+        collimated_moments(None, np.linspace(0.1, 1.0, 20), c_bar=0.0)
+    with pytest.raises(ValueError, match="ahat >= 0"):
+        collimated_moments(None, np.linspace(0.1, 1.0, 20), ahat=-0.5)
+
+
+def test_the_engine_fills_the_collimated_slice_and_records_its_provenance():
+    """The 3D (E, theta_x, theta_y) slice is the sole energy-angle output kind (RES052). The
+    engine must fill it, keep it finite and non-negative, and record which model produced it
+    — with a crossing angle still refused, since this tier declares head-on incidence."""
+    interaction = _interaction(
+        outputs=(
+            OutputRequest(OutputKind.TOTAL_YIELD),
+            OutputRequest(OutputKind.COLLIMATED_SPECTRUM, resolution=(21, 7, 7)),
+        )
+    )
+    results = AnalyticalEngine().run(interaction, AnalyticalEngine.schema)
+    collimated = results.photon_slices[OutputKind.COLLIMATED_SPECTRUM]
+
+    assert collimated.distr.shape == (21, 7, 7)
+    assert np.all(np.isfinite(collimated.distr))
+    assert np.all(collimated.distr >= 0.0)
+
+    record = results.model_specific["models"]["collimated_spectrum"]
+    assert record["model"] == "collimated_fixed_width_zero_emittance"
+    assert "delta_resonance_approximation" in record["assumptions"]
+    assert "head_on_incidence" in record["assumptions"]
+
+    crossed = replace(
+        interaction, laser=replace(interaction.laser, theta_xz=Quantity(5.0, "deg"))
+    )
+    with pytest.raises(ValueError, match="no accepted analytical model"):
+        AnalyticalEngine().run(crossed, AnalyticalEngine.schema)
+
+
+def test_the_collimated_tier_does_not_import_xigma():
+    """RES095 leaves analytical one of the remaining independent legs, and the handoff is
+    explicit that the analytical implementation must not become a thin call into the code it
+    is meant to check. Asserted mechanically rather than by convention, because an
+    incidental convenience import would otherwise be invisible."""
+    import ast
+    from pathlib import Path
+
+    package = Path(__file__).resolve().parents[1] / "src" / "gammaforge" / "engines" / "analytical"
+    offenders = []
+    for module in sorted(package.glob("*.py")):
+        tree = ast.parse(module.read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module and "xigma" in node.module:
+                offenders.append(f"{module.name}: from {node.module}")
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if "xigma" in alias.name:
+                        offenders.append(f"{module.name}: import {alias.name}")
+    assert offenders == [], f"the analytical validation oracle must stay independent: {offenders}"
