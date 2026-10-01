@@ -169,12 +169,24 @@ def scalar_errors(value: dict, reference: dict) -> dict[str, float]:
 
 
 def aggregate(errors: dict[str, float]) -> float:
-    """One representative error per observable group, then the worst of them.
+    """One representative error, as the worst of the observable *groups*.
 
-    Groups are the physically distinct questions: the total, the first and second moments of
-    the push-forward, the nonlinear probes, and the characteristic function. The reported
-    number is the maximum over groups, so a rule cannot look converged because it got the
-    easy moment right while the shape probes were still wrong.
+    Kept as a max deliberately: a rule must not look converged because it got the easy moment
+    right. The cost is that a single intrinsically hard observable can then dominate, and
+    ``E[L a0_shape^3]`` is exactly that -- a third moment of a heavy-tailed quantity that no
+    method in the bank converges at these budgets. So this number is reported *together with*
+    :func:`group_errors`, never alone, and the headline to read is how many groups are small,
+    not what the worst one is.
+    """
+    groups = group_errors(errors)
+    return float(max(groups.values())) if groups else float("nan")
+
+
+def group_errors(errors: dict[str, float]) -> dict[str, float]:
+    """Worst error within each observable group.
+
+    Separating the groups is what makes a headline number readable. Without it, an unconverged
+    ``a0_cubed`` masks the fact that ``M0`` is at 1e-2 and makes every arm look equally bad.
     """
     groups = {
         "total": ["M0"],
@@ -183,12 +195,28 @@ def aggregate(errors: dict[str, float]) -> float:
         "nonlinear": ["a0_cubed", "angular_window"],
         "shape_cf": ["charfun_real", "charfun_imag"],
     }
-    worst = 0.0
-    for names in groups.values():
+    out: dict[str, float] = {}
+    for name, names in groups.items():
         present = [errors[n] for n in names if n in errors]
         if present:
-            worst = max(worst, max(present))
-    return float(worst)
+            out[name] = float(max(present))
+    return out
+
+
+def effective_sample_fraction(weights) -> float:
+    """``N_eff / N`` for a weight vector -- recorded because it is the explanatory variable.
+
+    A deterministic rule can have a pathological weight distribution while being an excellent
+    integrator: tensor Gauss-Hermite in six dimensions has weights spanning ``1e21`` and
+    ``N_eff/N ~ 5e-3`` at order 8, yet integrates smooth observables spectrally. The same rule
+    is a terrible *particle* rule, because deposition needs particles to land in distinct
+    cells. Recording this number alongside the histogrammed errors is what distinguishes "the
+    rule is inaccurate" from "the rule is fine and deposition is the problem" (handoff §7).
+    """
+    w = np.asarray(weights, dtype=float)
+    if w.size == 0:
+        return float("nan")
+    return float((w.sum() ** 2 / np.sum(w ** 2)) / w.size)
 
 
 def fit_exponent(n_values, errors, *, n_min: float = 2.0) -> dict:

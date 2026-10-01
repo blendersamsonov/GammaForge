@@ -56,6 +56,7 @@ def table_metrics(samples, weights, edges, grid, scheme) -> dict:
         "H": shape.H.copy(),
         "spectrum": spectrum,
         "centroid": float(np.sum(grid * spectrum) / max(np.sum(spectrum), 1e-300)),
+        "n_particles": int(shape.H.shape[0]) and int(np.count_nonzero(shape.H)) or 0,
     }
 
 
@@ -82,7 +83,10 @@ def main():
     parser.add_argument("--orders", type=int, nargs="*", default=list(DEFAULT_ORDERS))
     parser.add_argument("--n", type=int, nargs="*", default=list(DEFAULT_N))
     parser.add_argument("--bins", default="reduced", choices=["reduced", "production"])
-    parser.add_argument("--ref-n", type=int, default=4_000_000)
+    parser.add_argument("--ref-n", type=int, default=4_000_000,
+                        help="reference IID trajectories. The floor this implies must be well "
+                             "below the effect being measured; at 400k the spectrum floor is "
+                             "~3e-3, which is not far below a converged arm")
     parser.add_argument("--chunk-mb", type=float, default=2000.0)
     parser.add_argument("--quick", action="store_true")
     args = parser.parse_args()
@@ -127,12 +131,15 @@ def main():
                 samples, weights = E6.run_stage0(beam, laser, target, method, budget,
                                                  seed=0, chunk=H.CHUNK)
                 trajectories = C.node_count(method, budget)
+                neff = S.effective_sample_fraction(weights)
                 for scheme in SCHEMES:
                     metrics = table_metrics(samples, weights, edges, grid, scheme)
-                    curves.setdefault((method, scheme), []).append(
-                        (trajectories, histogram_errors(metrics, reference[scheme])))
+                    errors = histogram_errors(metrics, reference[scheme])
+                    errors["n_eff_fraction"] = neff
+                    errors["occupied_cells"] = float(metrics["n_particles"])
+                    curves.setdefault((method, scheme), []).append((trajectories, errors))
                 print(f"  {method:>11} budget={budget:<8} -> {trajectories:>8} trajectories"
-                      f"  ({time.perf_counter() - t1:.0f}s)", flush=True)
+                      f"  N_eff/N={neff:.2e}  ({time.perf_counter() - t1:.0f}s)", flush=True)
                 del samples, weights
 
         summary = {}
@@ -143,9 +150,12 @@ def main():
             spectrum_err = [p[1]["spectrum"] for p in points]
             fit = S.fit_exponent(n_values, spectrum_err)
             summary[f"{method}|{scheme}"] = {
+                "n_eff_fraction": [p[1]["n_eff_fraction"] for p in points],
+                "occupied_cells": [p[1]["occupied_cells"] for p in points],
                 "trajectories": n_values,
                 "errors": {k: [p[1][k] for p in points]
-                           for k in ("spectrum", "marg_worst", "marg_mean", "centroid")},
+                           for k in ("spectrum", "marg_worst", "marg_mean", "centroid",
+                                     "n_eff_fraction", "occupied_cells")},
                 "fit": fit,
                 "trajectories_for": {f"{t:.0e}": S.trajectories_for_error(n_values,
                                                                          spectrum_err, t)

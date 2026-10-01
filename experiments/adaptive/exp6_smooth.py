@@ -154,20 +154,28 @@ def main():
                 samples, weights = run_stage0(beam, laser, target, method, budget,
                                                seed=0, chunk=H.CHUNK)
                 value = S.evaluate(samples, weights, standardization)
-                points.append((C.node_count(method, budget), value))
+                points.append((C.node_count(method, budget), value, weights))
+                neff = S.effective_sample_fraction(weights)
                 print(f"  {method:>11} budget={budget:<8} -> {points[-1][0]:>8} trajectories"
-                      f"  M0={value['M0']:.6e}  ({time.perf_counter() - t0:.0f}s)", flush=True)
+                      f"  M0={value['M0']:.6e}  N_eff/N={neff:.2e}"
+                      f"  ({time.perf_counter() - t0:.0f}s)", flush=True)
             curves[method] = points
 
         # Reference: best converged deterministic value, with the independent-construction gap
         # as its uncertainty.
+        #
+        # The arm that *supplies* the reference cannot also be scored against it: doing so
+        # reports its largest budget as error 0.0 and quietly anchors every other arm's error
+        # to whatever that arm happens to be. So the reference point is recorded as a row with
+        # ``is_reference`` and its error left undefined, and the tensor rule's own convergence
+        # is reported separately as its successive-order differences (handoff §5).
         gh, qmc = curves.get("tensor-gh") or [], curves.get("global-qmc") or []
         if gh:
-            best = gh[-1][1]
+            best, ref_key = gh[-1][1], ("tensor-gh", gh[-1][0])
         elif qmc:
-            best = qmc[-1][1]
+            best, ref_key = qmc[-1][1], ("global-qmc", qmc[-1][0])
         else:
-            best = S.evaluate(ref_samples, ref_weights, standardization)
+            best, ref_key = S.evaluate(ref_samples, ref_weights, standardization), None
         gap = max(S.scalar_errors(qmc[-1][1], gh[-1][1]).values()) if (gh and qmc) else None
         if gap is None:
             print("  reference: only one deterministic construction available, "
@@ -176,12 +184,26 @@ def main():
             print(f"  reference: tensor-gh order {args.orders[-1]}, "
                   f"independent-construction gap {gap:.3e}", flush=True)
 
+        # Successive-budget differences: a rule's own convergence, with no reference involved,
+        # so it stays meaningful even for the arm that supplies the reference.
+        self_convergence = {}
+        for method, points in curves.items():
+            if len(points) > 1:
+                self_convergence[method] = [
+                    S.aggregate(S.scalar_errors(points[i + 1][1], points[i][1]))
+                    for i in range(len(points) - 1)
+                ]
+
         summary = {}
         for method, points in curves.items():
             n_values = [p[0] for p in points]
-            errors = [S.aggregate(S.scalar_errors(v, best)) for _, v in points]
-            fit = S.fit_exponent(n_values, errors)
-            needed = {f"{t:.0e}": S.trajectories_for_error(n_values, errors, t)
+            errors = [float('nan') if ref_key == (method, n)
+                      else S.aggregate(S.scalar_errors(v, best))
+                      for n, v, _ in points]
+            scored = [(n, e) for n, e in zip(n_values, errors) if np.isfinite(e)]
+            fit = S.fit_exponent([n for n, _ in scored], [e for _, e in scored])
+            needed = {f"{t:.0e}": S.trajectories_for_error([n for n, _ in scored],
+                                                           [e for _, e in scored], t)
                       for t in TARGETS}
             print(f"\n  {method}: alpha={fit['alpha']:.3f} from {fit['n_points']} points "
                   f"(resolved={fit['resolved']})")
@@ -193,12 +215,18 @@ def main():
                 "error": errors,
                 "fit": fit,
                 "trajectories_for": needed,
-                "per_observable": {k: [S.scalar_errors(v, best)[k] for _, v in points]
-                                   for k in S.scalar_errors(points[0][1], best)},
+                "n_eff_fraction": [S.effective_sample_fraction(w) for _, _, w in points],
+                "self_convergence": self_convergence.get(method),
+                "groups": [{} if ref_key == (method, n)
+                           else S.group_errors(S.scalar_errors(v, best))
+                           for n, v, _ in points],
             }
         out["scenarios"][scenario.name] = {
-            "reference": {"method": "tensor-gh" if gh else "global-qmc",
-                          "construction_gap": gap},
+            "reference": {"method": ref_key[0] if ref_key else "iid",
+                          "trajectories": ref_key[1] if ref_key else None,
+                          "construction_gap": gap,
+                          "note": "this arm's largest budget is the reference; its own error "
+                                  "is undefined and its convergence is in self_convergence"},
             "methods": summary,
         }
 
