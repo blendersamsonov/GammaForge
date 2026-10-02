@@ -36,6 +36,7 @@ the remaining work.
 | [Initial production comparison](delta-production-2026-09-14.md) | Records the six low-intensity refinement failures that motivated the bounded retry in the current report. |
 | [Direction-dependent Doppler](direction-doppler-2026-09-12.md) | Checks a specific crossing-angle implementation change; it is narrower than scientific acceptance. |
 | [Gamma proposal](gamma-proposal-2026-09-13.md) | Measures the accuracy and runtime of a CUDA sampling change; it is a numerical efficiency check. |
+| [Gauss-Hermite and the Stage-1 table](adaptive-sampling-cubature-2026-10-02.md) | Preliminary. Records a negative result: tensor Gauss-Hermite integrates smooth totals well but cannot fill the Stage-1 table, because its product weights leave ~10³ effective points regardless of how many nodes are spent. Small budgets and a coarse reference, so the convergence rates in it are not usable. |
 
 Only two historical JSON packets remain committed because RES076 and RES077 cite
 their exact measurements: `delta-doppler-2026-09-09.json` and
