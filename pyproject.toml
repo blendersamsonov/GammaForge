@@ -18,7 +18,14 @@ dependencies = [
 
 [project.optional-dependencies]
 gui = ["nicegui>=3.16,<4", "plotly>=6,<7"]
-gpu = ["cupy-cuda12x"]
+# CuPy ships one wheel per CUDA major version and they all install as the `cupy` module, so
+# exactly one may be present. This is the CUDA 13 build, matching a 13.x toolkit: a cuda12x
+# wheel on a 13.x system imports and runs elementwise kernels fine but fails the first
+# `matmul` with `ImportError: libcublas.so.12`, because the wheel looks for the CUDA 12
+# library names while only the 13 ones are installed. Code that dispatches on CuPy must probe
+# the operations it actually uses rather than the import -- see
+# `engines.analytical.collimated.is_gpu_available`.
+gpu = ["cupy-cuda13x"]
 jit = ["numba>=0.59"]
 dev = ["pytest>=8.0"]
 browser = ["playwright>=1.48"]
