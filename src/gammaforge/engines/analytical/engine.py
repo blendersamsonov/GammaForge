@@ -382,6 +382,23 @@ class AnalyticalEngine:
                 backend=str(params["backend"]),
             )
             self._collimated_backend = grid.backend
-            return PhasespaceSlice(axes=values, distr=_as_numpy(grid.reconstructed))
+            distr = _as_numpy(grid.reconstructed)
+            # `rho0` is a density *per solid angle*, so scaling it by `total_yield` does not
+            # make the slice a photon count: integrating over the (E, θx, θy) box leaves the
+            # angular measure unaccounted for, and the integral came out ~7e-11 of the yield
+            # with a peak ~1e10x too small.
+            #
+            # RES036 defines the convention this engine already uses for SPECTRUM and
+            # ANGULAR_DISTRIBUTION: scale by the *discrete* integral over the actual emitted
+            # grid so `integrate()` reproduces `total_yield` to float precision. The slice is
+            # therefore "the photons the target's window carries", which is what makes the
+            # on-target total comparable between engines at all — but note it is a different
+            # quantity from Xigma's on-target fraction, which also loses energy outside
+            # [E_min, E_max]. Compare shapes, not raw accepted fractions.
+            slice_ = PhasespaceSlice(axes=values, distr=distr)
+            integral = slice_.integrate()
+            if integral > 0.0:
+                distr = distr * (total_yield / integral)
+            return PhasespaceSlice(axes=values, distr=distr)
 
         raise AssertionError(f"AnalyticalEngine._fill: {kind} is in SUPPORTED_OUTPUTS but has no branch")

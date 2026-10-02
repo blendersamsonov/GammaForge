@@ -419,9 +419,8 @@ class Pane:
                         # An estimate is never a calculation. The icon carries the same
                         # meaning as the word, and the tooltip names the approximation, so a
                         # saved estimate cannot later be mistaken for a converged result.
-                        ui.icon("functions", size="sm").classes("gf-estimate-badge").props(
-                            "title", _estimate_tooltip(run)
-                        )
+                        badge = ui.icon("functions", size="sm").classes("gf-estimate-badge")
+                        badge.tooltip(_estimate_tooltip(run))
                     with ui.row().classes("items-center gap-1"):
                         icon = {"completed": "check_circle", "running": "pending",
                                 "failed": "error", "pending": "schedule"}.get(run.status, "help")
@@ -594,10 +593,14 @@ class Pane:
         if not page.estimate_full:
             return
         for kind, slice_ in page.estimate_full.items():
-            record = page.estimate_full_meta.get(kind.value, {})
-            tiers = ", ".join(sorted({r.get("model", "?") for r in record.values()})) or "unknown tier"
+            # `model_specific["models"]` maps OutputKind -> one provenance record, so the
+            # lookup is by kind alone. Indexing it as a nested structure here is what made
+            # `.values()` yield strings and crash the panel.
+            record = page.estimate_full_meta.get(kind.value) or {}
+            tier = record.get("model", "unknown tier")
+            exact = "exact" if record.get("exact") else "approximate"
             with ui.expansion(f"{kind.value.replace('_', ' ').title()} (analytical)", value=True):
-                ui.label(f"Model: {tiers}").classes("text-caption text-grey-7")
+                ui.label(f"Model: {tier} ({exact})").classes("text-caption text-grey-7")
                 ui.label(
                     "Estimate, not a calculation. Calculate to store this as a run and "
                     "compare it against a calculated engine."

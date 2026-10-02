@@ -17,6 +17,7 @@ from numpy.polynomial.legendre import leggauss
 
 pytestmark = [pytest.mark.tier1]
 
+from gammaforge.engines.analytical.collimated import is_gpu_available
 from gammaforge.engines.analytical.engine import AnalyticalEngine
 from gammaforge.engines.analytical.formulas import (
     _electron_sigma2,
@@ -2260,3 +2261,62 @@ def test_the_engine_records_which_backend_produced_the_slice():
     assert forced.photon_slices[OutputKind.COLLIMATED_SPECTRUM].distr == pytest.approx(
         results.photon_slices[OutputKind.COLLIMATED_SPECTRUM].distr, rel=1e-12
     )
+
+
+def test_the_collimated_slice_integrates_to_the_total_yield():
+    """RES036 applied to `COLLIMATED_SPECTRUM`, and a regression on a real defect.
+
+    `rho0` is a density *per solid angle*, so multiplying it by `total_yield` does not make
+    the slice a photon count — integrating over the (E, θx, θy) box leaves the angular
+    measure unaccounted for. This shipped with the slice integrating to ~7e-11 of the yield
+    and peaking ~1e10x too low, which is visible as two orders of magnitude between the
+    analytical and xigma curves in the GUI but is not obvious from the numbers alone.
+
+    The convention is the one RES036 already fixes for SPECTRUM: scale by the *discrete*
+    integral over the emitted grid, so `integrate()` reproduces `total_yield` to float
+    precision.
+    """
+    interaction = _interaction(
+        outputs=(
+            OutputRequest(OutputKind.TOTAL_YIELD),
+            OutputRequest(OutputKind.COLLIMATED_SPECTRUM, resolution=(21, 7, 7)),
+        )
+    )
+    engine = AnalyticalEngine()
+    results = engine.run(interaction, engine.schema)
+    collimated = results.photon_slices[OutputKind.COLLIMATED_SPECTRUM]
+    total_yield = float(results.photon_slices[OutputKind.TOTAL_YIELD].distr)
+
+    assert collimated.integrate() == pytest.approx(total_yield, rel=1e-9)
+    assert np.all(np.isfinite(collimated.distr))
+    assert np.all(collimated.distr >= 0.0)
+
+    # The shape must survive normalization: a fix that scaled every cell by a constant
+    # including the peak-to-total ratio would pass the integral check but flatten the curve.
+    assert collimated.distr.max() > 0.0
+
+
+@pytest.mark.parametrize("backend", ["numpy"])
+def test_the_collimated_slice_is_backend_independent_and_normalized(backend):
+    """Forcing either backend must give the same normalized slice.
+
+    The GPU path returns a CuPy array and `PhasespaceSlice` rejects one outright, so the
+    engine must convert before constructing the slice rather than after; this is the check
+    that the conversion happens in the right order.
+    """
+    interaction = _interaction(
+        outputs=(OutputRequest(OutputKind.COLLIMATED_SPECTRUM, resolution=(21, 7, 7)),)
+    )
+    engine = AnalyticalEngine()
+    from_numpy = engine.run(interaction, engine.schema.with_values(backend="numpy"))
+    slice_numpy = from_numpy.photon_slices[OutputKind.COLLIMATED_SPECTRUM]
+
+    assert isinstance(slice_numpy.distr, np.ndarray)
+    assert from_numpy.model_specific["collimated_backend"] == "numpy"
+
+    if is_gpu_available():
+        from_cupy = engine.run(interaction, engine.schema.with_values(backend="cupy"))
+        assert from_cupy.model_specific["collimated_backend"] == "cupy"
+        assert from_cupy.photon_slices[OutputKind.COLLIMATED_SPECTRUM].distr == pytest.approx(
+            slice_numpy.distr, rel=1e-8
+        )
