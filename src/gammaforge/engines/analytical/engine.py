@@ -379,6 +379,11 @@ class AnalyticalEngine:
                 values[Axis.THETA_X],
                 values[Axis.THETA_Y],
                 total_yield=total_yield,
+                # The beam's energy PDF at the resonance root (DER019 §7). Without it the
+                # shape is a bare s^{+1/2} ramp rising across the whole grid rather than a
+                # line at the Compton resonance.
+                gamma0=beam.gamma0(),
+                sigma_gamma=beam.sigma_gamma(),
                 backend=str(params["backend"]),
             )
             self._collimated_backend = grid.backend

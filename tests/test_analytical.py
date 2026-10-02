@@ -30,6 +30,7 @@ from gammaforge.engines.analytical.formulas import (
 )
 from gammaforge.io.bunch import GaussianElectronBeam, _drift_fit, momenta, sample_gaussian_bunch
 from gammaforge.io.laser import GaussianParaxialLaser, fit_gaussian_paraxial, lab_frame_axes
+from gammaforge.io.results import Axis
 from gammaforge.io.target import OutputKind, OutputRequest
 from gammaforge.io.units import C_CGS, SIGMA_T_CGS, Quantity
 from gammaforge.validation import scenarios
@@ -2320,3 +2321,84 @@ def test_the_collimated_slice_is_backend_independent_and_normalized(backend):
         assert from_cupy.photon_slices[OutputKind.COLLIMATED_SPECTRUM].distr == pytest.approx(
             slice_numpy.distr, rel=1e-8
         )
+
+
+def test_the_collimated_shape_is_a_line_at_the_resonance_not_a_power_law_ramp():
+    """Regression on a real defect, found by looking at the GUI plot.
+
+    DER019 §7's master formula carries `f_gamma(Gamma|eta)`, the beam's energy PDF evaluated
+    at the resonance root. Omitting it left `rho0 ~ s^{+1/2}` rising across the entire energy
+    grid — a square root, which is what the analytical collimated spectrum looked like next to
+    xigma's.
+
+    The absence is not subtle in hindsight but was invisible numerically: the shape still had
+    the right support, no nan, and a finite integral, all of which the other tests checked.
+    What makes it detectable is a *prediction with a location*: with `f_gamma` the peak must
+    sit at the Compton resonance `gamma0^2 / (1 + ahat)`, and the width must be set by the
+    energy spread rather than by the grid.
+    """
+    from gammaforge.engines.analytical.collimated import collimated_grid
+
+    beam = scenarios.BASELINE.beam
+    ahat = 0.005
+    resonance = beam.gamma0() ** 2 / (1.0 + ahat)
+    s = np.linspace(resonance * 0.6, resonance * 1.4, 800)
+    theta = np.array([0.0])
+
+    with_pdf = collimated_grid(
+        ahat, s, theta, theta, total_yield=1.0,
+        gamma0=beam.gamma0(), sigma_gamma=beam.sigma_gamma(), backend="numpy",
+    ).rho0[:, 0, 0]
+    without = collimated_grid(
+        ahat, s, theta, theta, total_yield=1.0, backend="numpy"
+    ).rho0[:, 0, 0]
+
+    # With the PDF the peak sits on the resonance.
+    assert s[with_pdf.argmax()] == pytest.approx(resonance, rel=2e-3)
+    # Without it the peak is simply the top of the range: a monotonic ramp.
+    assert without.argmax() == len(without) - 1
+    assert s[without.argmax()] > resonance * 1.3
+
+    # The line's width follows the energy spread, so tightening it must tighten the peak.
+    loose = collimated_grid(
+        ahat, s, theta, theta, total_yield=1.0,
+        gamma0=beam.gamma0(), sigma_gamma=beam.sigma_gamma(), backend="numpy",
+    ).rho0[:, 0, 0]
+    tight = collimated_grid(
+        ahat, s, theta, theta, total_yield=1.0,
+        gamma0=beam.gamma0(), sigma_gamma=beam.sigma_gamma() * 0.1, backend="numpy",
+    ).rho0[:, 0, 0]
+    width = lambda d: math.sqrt((s * d).sum() / d.sum())
+    assert width(tight) < width(loose)
+
+    # A tighter line is taller as well as narrower, since it is the same integral in a
+    # narrower band. A mere rescale would fail this.
+    assert tight.max() > loose.max()
+
+
+def test_the_collimated_spectrum_peaks_at_the_compton_resonance_end_to_end():
+    """The engine wires `f_gamma` from the real beam, so the slice a user sees has its peak
+    where the physics says it must be — checked through `AnalyticalEngine.run` rather than
+    only through the primitive, so a future refactor that drops the beam arguments is caught
+    here instead of in a plot."""
+    from gammaforge.io.laser import fit_gaussian_paraxial
+
+    interaction = _interaction(
+        outputs=(
+            OutputRequest(OutputKind.TOTAL_YIELD),
+            OutputRequest(OutputKind.COLLIMATED_SPECTRUM, resolution=(201, 5, 5)),
+        )
+    )
+    engine = AnalyticalEngine()
+    results = engine.run(interaction, engine.schema)
+    collimated = results.photon_slices[OutputKind.COLLIMATED_SPECTRUM]
+    energy = collimated.axes[Axis.ENERGY]
+    on_axis = collimated.distr[:, 2, 2]
+
+    ahat = results.model_specific["ahat"]
+    expected = 4.0 * fit_gaussian_paraxial(interaction.laser).photon_energy() * (
+        interaction.beam.gamma0() ** 2 / (1.0 + ahat)
+    )
+    assert energy[on_axis.argmax()] == pytest.approx(expected, rel=5e-3)
+    # Not the top of the range, which is what the un-fixed version gave.
+    assert on_axis.argmax() < len(on_axis) - 1

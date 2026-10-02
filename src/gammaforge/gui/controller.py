@@ -242,7 +242,10 @@ class Workspace:
             # forked, exported to HDF5, and kept across a later re-run. Previously it was
             # computed as an overlay and then discarded, which meant its spectra were
             # computed every time and never shown.
-            if estimate_results is not None:
+            # Skip when the estimate was itself the selected engine: it already produced its
+            # own run above, and a second identical one would double-count it in the history
+            # and show two entries that look like different results.
+            if estimate_results is not None and engine_name != self.runner.estimate_name:
                 self.runs.append(
                     Run(
                         id=self.next_run_id,

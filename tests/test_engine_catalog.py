@@ -20,6 +20,7 @@ from gammaforge.engines.catalog import (
     engine_names,
     engine_schemas,
     get_engine,
+    SELECTABLE_ROLES,
     selectable_engines,
 )
 from gammaforge.engines.runner import LocalRunner
@@ -85,15 +86,22 @@ def test_roles_match_the_intended_classification():
 
 
 def test_role_is_declarative_data_and_keeps_reference_engines_out_of_the_gui():
-    """A frontend filters by role; it never needs to know which name a role refers to."""
+    """A frontend filters by role; it never needs to know which name a role refers to.
+
+    The estimate role *is* selectable now: the semi-analytical engine can be picked in its own
+    right so its result can be compared against a calculated one in the same plot, which is the
+    point of keeping two independent legs (RES095). Only the reference role stays out of the
+    engine choice, since it exists to validate rather than to produce a result.
+    """
     selectable = selectable_engines()
     assert set(selectable) == {
-        name for name, role in INTENDED_ROLES.items() if role is EngineRole.CALCULATION
+        name for name, role in INTENDED_ROLES.items() if role in SELECTABLE_ROLES
     }
     assert "xigma" in selectable, "the intended user-facing calculation engine must be offered"
+    assert "analytical" in selectable, "the estimate engine must be selectable for comparison"
 
     for name, role in INTENDED_ROLES.items():
-        if role is EngineRole.CALCULATION:
+        if role in SELECTABLE_ROLES:
             continue
         assert name not in selectable, f"{name} ({role.name}) must not be an engine choice"
         # ...but it is still resolvable by name, so validation and scripts can use it.

@@ -1,5 +1,6 @@
 """The analytical preview depends only on physical inputs used by its formulas."""
 
+import numpy as np
 import pytest
 
 from dataclasses import replace
@@ -172,3 +173,70 @@ def test_the_estimate_run_does_not_displace_the_calculated_run():
     ids = [r.id for r in workspace.runs]
     assert len(set(ids)) == len(ids)
     assert estimate_engine().name in {r.engine_name for r in workspace.runs}
+
+
+def test_the_estimate_engine_is_selectable_without_duplicating_its_run():
+    """Making the semi-analytical engine selectable must not double-count it.
+
+    Selecting it produces its own run through the normal path, and the always-on overlay
+    would otherwise append a second, identical run — two history entries that look like
+    different results and double the plotted yield.
+    """
+    import asyncio
+
+    from gammaforge.engines.catalog import estimate_engine
+    from gammaforge.gui.controller import Workspace
+
+    async def select_and_run(engine):
+        workspace = Workspace()
+        workspace.inputs.set_selected_engine(engine)
+        workspace.inputs.set_requested(OutputKind.TOTAL_YIELD, True)
+        workspace.inputs.set_requested(OutputKind.COLLIMATED_SPECTRUM, True, (21, 7, 7))
+        await workspace.calculate()
+        return workspace
+
+    estimate_name = estimate_engine().name
+    chosen = asyncio.run(select_and_run(estimate_name))
+    assert [r.engine_name for r in chosen.runs] == [estimate_name], "the estimate ran twice"
+
+    # Selecting a calculation engine still yields both, as before.
+    both = asyncio.run(select_and_run("xigma"))
+    assert {r.engine_name for r in both.runs} == {"xigma", estimate_name}
+    assert len(both.runs) == 2
+
+
+def test_selecting_the_estimate_still_produces_all_its_outputs():
+    """Being selectable must not reduce it to a yield: the whole reason to select it is the
+    collimated spectrum and angular distribution."""
+    import asyncio
+
+    from gammaforge.gui.controller import Workspace
+
+    async def run():
+        workspace = Workspace()
+        workspace.inputs.set_selected_engine("analytical")
+        workspace.inputs.set_requested(OutputKind.TOTAL_YIELD, True)
+        workspace.inputs.set_requested(OutputKind.COLLIMATED_SPECTRUM, True, (21, 7, 7))
+        await workspace.calculate()
+        return workspace
+
+    workspace = asyncio.run(run())
+    slices = set(workspace.runs[0].results.photon_slices)
+    assert OutputKind.TOTAL_YIELD in slices
+    assert OutputKind.COLLIMATED_SPECTRUM in slices
+    collimated = workspace.runs[0].results.photon_slices[OutputKind.COLLIMATED_SPECTRUM]
+    assert collimated.distr.shape == (21, 7, 7)
+    assert np.all(np.isfinite(collimated.distr))
+
+
+def test_the_estimate_overlay_survives_the_estimate_being_selectable():
+    """RES058's always-on behaviour is independent of selectability: the estimates panel must
+    still work with no engine selected at all, which is the state a user is in while typing."""
+    from gammaforge.engines.catalog import selectable_engines
+    from gammaforge.gui.state import InputState
+
+    assert "analytical" in selectable_engines()
+    state = InputState(selectable_engines())
+    state.set_selected_engine(None)
+    result = LocalRunner().estimate(state.estimate_request())
+    assert set(result.photon_slices) == {OutputKind.TOTAL_YIELD}

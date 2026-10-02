@@ -386,7 +386,22 @@ class CollimatedGrid:
             - first / divisor
             + 0.5 * second / divisor
         )
-        result = xp.where(valid, result, 0.0)
+        # Two distinct zero-regions, both of which must reconstruct to exactly zero:
+        #
+        # 1. `s <= 0` — outside the support entirely (the `valid` mask below).
+        # 2. `rho0 == 0` — where `f_gamma` underflowed, so the trajectory emits nothing at
+        #    that energy. The DER017 terms are *ratios* built from rho0, so they underflow
+        #    with it, but the finite differences that evaluate them do not: the difference of
+        #    two ~1e-40 values is representable, and the `1/s` prefactor then amplifies that
+        #    noise by ~1e13 into a visible negative (~1e-5 against a peak of ~1e-1). That is
+        #    arithmetic noise in a region with no physics in it, not a spectral feature.
+        #
+        # Masking on `rho0 > 0` rather than on a magnitude is what makes this exact: where
+        # the density is genuinely zero the spectrum is genuinely zero, whatever the
+        # derivative stencil does there. Non-negative is also a physical requirement — a
+        # photon-count density cannot be negative.
+        emitting = (xp.asarray(self.rho0).reshape(leading, trailing) > 0.0)
+        result = xp.where(valid & emitting, xp.maximum(result, 0.0), 0.0)
         return result.reshape(self.rho0.shape)
 
 
@@ -401,6 +416,8 @@ def collimated_grid(
     d_factor: float = 1.0,
     q_factor: float = 1.0,
     c_bar: float = 1.0,
+    gamma0: float = 0.0,
+    sigma_gamma: float = 0.0,
     backend: str = "auto",
 ) -> CollimatedGrid:
     """Evaluate :func:`collimated_moments` over a whole ``(s, theta_x, theta_y)`` grid.
@@ -409,6 +426,16 @@ def collimated_grid(
     slice is one broadcast evaluation rather than ``len(theta_x) * len(theta_y)`` calls. The
     DER017 reconstruction differentiates along the energy axis only, so it becomes two matrix
     products against weights built once from ``s``.
+
+    ``gamma0`` and ``sigma_gamma`` supply ``f_gamma(Gamma)``, the beam's energy PDF evaluated
+    at the resonance root. **That factor is not optional.** DER019 §7's master formula carries
+    it, and without it the result is a bare power law ``s^{+1/2}`` rising across the whole
+    energy range — which is what a zero-emittance, *delta-resonance* model must not look like:
+    each electron radiates at one resonance energy, so the spectrum is a line whose width is
+    set by the energy spread and the angular smear, not a monotonic ramp.
+
+    Passing ``gamma0 = 0`` reproduces the pre-fix behaviour and exists only so the regression
+    test can demonstrate the difference; production callers pass the real beam.
 
     ``backend`` follows `xigma`'s convention: ``"auto"`` uses the GPU when one is present,
     ``"cupy"`` requires it, and ``"numpy"`` forces the CPU path. No custom kernel — every
@@ -445,9 +472,27 @@ def collimated_grid(
     gamma_sq = xp.where(supported, a_r / xp.where(supported, inverse_base, 1.0), 0.0)
     gamma = xp.sqrt(gamma_sq)
 
+    # f_gamma(Gamma), the beam's own energy PDF at the resonance root (DER019 §7). This is
+    # what makes the result a *line* rather than a ramp: the factor falls off once the root
+    # leaves the populated part of the energy distribution.
+    if gamma0 > 0.0 and sigma_gamma > 0.0:
+        energy_density = xp.exp(-0.5 * ((gamma - gamma0) / sigma_gamma) ** 2) / (
+            sigma_gamma * math.sqrt(2.0 * math.pi)
+        )
+    elif gamma0 > 0.0:
+        # Exactly monoenergetic: a delta in gamma, so only the root that matches the beam is
+        # supported. Represented by keeping just the cells whose root equals gamma0 to within
+        # the grid resolution — a band, not a spike, because the root is a grid evaluation.
+        energy_density = xp.where(
+            xp.abs(gamma - gamma0) <= 1e-9 * gamma0, xp.ones_like(gamma), xp.zeros_like(gamma)
+        )
+    else:
+        energy_density = xp.ones_like(gamma)
+
     rho0 = xp.where(
         supported,
         total_yield
+        * energy_density
         * KERNEL_NORMALIZATION
         * (k / safe_s**2)
         * gamma**5

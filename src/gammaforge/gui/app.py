@@ -67,7 +67,7 @@ body { background: #f3f6fa; color: #26364a; }
 .gf-run-item.selected { background: #d0e1ed; border-color: #256782; }
 .gf-run-item-header { display: flex; justify-content: space-between; align-items: center; }
 .gf-run-item-name { font-weight: 500; font-size: 13px; }
-.gf-run-item-engine { font-size: 11px; color: #6b7280; margin-top: 2px; }
+.gf-run-item-engine { font-size: 11px; color: #6b7280; }
 .gf-run-item-status { font-size: 11px; }
 /* An estimate run is not a calculation: marked in colour as well as by icon and word, so
    the distinction survives a glance at the history list. */
@@ -411,23 +411,30 @@ class Pane:
                 f"gf-run-item {'selected' if is_selected else ''}"
             ):
                 is_estimate = run.engine_name == estimate_name
+                # Name and engine on ONE line: the whole point of making the
+                # semi-analytical engine selectable is comparing runs, and comparing needs
+                # both visible without expanding anything. The engine keeps its own row for
+                # the timestamp only.
                 with ui.element("div").classes("gf-run-item-header").on(
                     "click", lambda rid=run.id: self._select_run(rid)
                 ):
-                    ui.label(run.name).classes("gf-run-item-name")
-                    if is_estimate:
-                        # An estimate is never a calculation. The icon carries the same
-                        # meaning as the word, and the tooltip names the approximation, so a
-                        # saved estimate cannot later be mistaken for a converged result.
-                        badge = ui.icon("functions", size="sm").classes("gf-estimate-badge")
-                        badge.tooltip(_estimate_tooltip(run))
-                    with ui.row().classes("items-center gap-1"):
+                    with ui.row().classes("items-center gap-2 min-w-0"):
+                        if is_estimate:
+                            # An estimate is never a calculation. The icon carries the same
+                            # meaning as the word, and the tooltip names the approximation.
+                            badge = ui.icon("functions", size="sm").classes("gf-estimate-badge")
+                            badge.tooltip(_estimate_tooltip(run))
+                        ui.label(run.name).classes("gf-run-item-name")
+                        ui.label(
+                            "Analytical estimate" if is_estimate else run.engine_name
+                        ).classes(
+                            "gf-run-item-engine gf-estimate-badge-text"
+                            if is_estimate else "gf-run-item-engine"
+                        )
+                    with ui.row().classes("items-center gap-1 shrink-0"):
                         icon = {"completed": "check_circle", "running": "pending",
                                 "failed": "error", "pending": "schedule"}.get(run.status, "help")
                         ui.icon(icon, size="sm").classes(status_class)
-                ui.label("Analytical estimate" if is_estimate else run.engine_name).classes(
-                    "gf-run-item-engine" + (" gf-estimate-badge-text" if is_estimate else "")
-                ).on("click", lambda rid=run.id: self._select_run(rid))
                 ts = time.strftime("%H:%M:%S", time.localtime(run.timestamp))
                 ui.label(ts).classes("text-caption text-grey").on(
                     "click", lambda rid=run.id: self._select_run(rid)
