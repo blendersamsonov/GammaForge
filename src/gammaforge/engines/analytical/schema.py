@@ -93,6 +93,18 @@ ANALYTICAL_SPECS: tuple[FieldSpec, ...] = (
         default="auto",
         choices=_PIN_CHOICES,
     ),
+    # Array backend for the collimated slice's dense grid work. `"auto"` uses CuPy when the
+    # device genuinely supports it and NumPy otherwise; `"cupy"` insists, so a recorded run
+    # either used the GPU or failed loudly rather than quietly reporting CPU numbers. That
+    # check has to be real, not an import test — see `collimated.is_gpu_available`.
+    FieldSpec(
+        key="backend",
+        label="Collimated backend",
+        kind=FieldKind.CHOICE,
+        unit=DIMENSIONLESS,
+        default="auto",
+        choices=("auto", "cupy", "numpy"),
+    ),
 )
 
 

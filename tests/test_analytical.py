@@ -2102,3 +2102,161 @@ def test_the_source_map_rejects_a_degenerate_node_count():
         build_source_map(beam, laser, beam.n_electrons(), n_transverse=1, n_longitudinal=8)
     with pytest.raises(ValueError, match="at least 2 nodes"):
         build_source_map(beam, laser, beam.n_electrons(), n_transverse=8, n_longitudinal=1)
+
+
+# ---------------------------------------------------------------------------
+# Collimated grid: vectorization and backend dispatch
+# ---------------------------------------------------------------------------
+def _host(values):
+    """A CuPy array as NumPy; a NumPy array unchanged.
+
+    The grid can run on either backend, so assertions about its contents have to work on
+    whichever one produced it rather than assuming the CPU path.
+    """
+    return values.get() if hasattr(values, "get") else values
+
+def test_the_vectorized_grid_matches_the_per_column_path():
+    """The grid evaluation replaced a per-angular-column loop. This asserts the two agree
+    rather than assuming the refactor preserved the physics — a vectorized transcription of a
+    support mask or a Jacobian factor can be silently wrong while looking entirely reasonable.
+
+    Checked at sampled cells including the corners and the on-axis centre, and on the
+    reconstructed spectrum (which is what the engine returns) as well as the raw channels.
+    """
+    from gammaforge.engines.analytical.collimated import collimated_grid, collimated_moments
+
+    s = np.linspace(0.05, 1.0, 51)
+    theta = np.linspace(-2.0e-4, 2.0e-4, 21)
+    ahat = 0.01
+    grid = collimated_grid(ahat, s, theta, theta, total_yield=1.0, backend="numpy")
+    reconstructed = grid.reconstructed
+
+    assert reconstructed.shape == (51, 21, 21)
+    for j in (0, 7, 13, 20):
+        for k in (0, 7, 13, 20):
+            column = collimated_moments(
+                None, s, theta_ex=float(theta[j]), theta_ey=float(theta[k]),
+                ahat=ahat, total_yield=1.0,
+            )
+            assert _host(reconstructed)[:, j, k] == pytest.approx(column.reconstructed, rel=1e-12)
+            assert _host(grid.rho0)[:, j, k] == pytest.approx(column.rho0, rel=1e-12)
+            assert _host(grid.rho1)[:, j, k] == pytest.approx(column.rho1, rel=1e-12)
+            assert _host(grid.rho2)[:, j, k] == pytest.approx(column.rho2, rel=1e-12)
+
+
+def test_the_precomputed_gradient_matrix_reproduces_numpy_gradient():
+    """The DER017 reconstruction uses weight matrices built by probing `np.gradient` with
+    unit vectors, on the grounds that differentiation is linear so those columns *are* its
+    matrix. That reasoning is only worth something if it is checked against `np.gradient`
+    itself — an earlier hand-rolled stencil returned ~1e8 relative error on smooth power laws,
+    and this is the assertion that would have caught it.
+
+    Verified for both derivative orders, which the reconstruction applies to different
+    channels, on a nonuniform grid as the real spectral axis is.
+    """
+    from gammaforge.engines.analytical.collimated import _gradient_matrix
+
+    for grid in (np.linspace(0.05, 1.0, 51), np.logspace(-3.0, -0.01, 80)):
+        values = np.sin(grid) + 0.3 * grid**2
+        first = np.gradient(values, grid, edge_order=2)
+        second = np.gradient(np.gradient(values, grid, edge_order=2), grid, edge_order=2)
+        assert _gradient_matrix(grid, 1) @ values == pytest.approx(first, rel=1e-10, abs=1e-12)
+        assert _gradient_matrix(grid, 2) @ values == pytest.approx(second, rel=1e-8, abs=1e-11)
+
+
+def test_the_grid_preserves_the_support_mask():
+    """Vectorizing must not lose the `s <= 0` and `K/s <= r^2` exclusions. A divide-by-zero
+    surviving the rewrite produces a nan that spreads through the whole slice, and the shape
+    checks above would not notice it — a nan is still the right shape."""
+    from gammaforge.engines.analytical.collimated import collimated_grid
+
+    s = np.array([-0.1, 0.0, 0.1, 0.5, 1.0])
+    theta = np.array([-1.0, 0.0, 1.0])
+    grid = collimated_grid(0.01, s, theta, theta, total_yield=1.0, backend="numpy")
+
+    for channel in (grid.rho0, grid.rho1, grid.rho2, grid.reconstructed):
+        values = _host(channel)
+        assert np.all(np.isfinite(values))
+        assert np.all(values[0] == 0.0), "s <= 0 must be excluded"
+        assert np.all(values[1] == 0.0), "s <= 0 must be excluded"
+    assert _host(grid.rho0)[2].max() > 0.0, "supported cells must be non-zero"
+
+
+def test_the_backend_choice_is_honoured_and_refuses_an_impossible_one():
+    """`auto` must actually report which backend it used, and `cupy` must fail loudly rather
+    than silently returning CPU numbers — a recorded run that claims a GPU it never touched is
+    worse than one that says nothing."""
+    from gammaforge.engines.analytical.collimated import collimated_grid, is_gpu_available
+
+    s = np.linspace(0.05, 1.0, 21)
+    theta = np.linspace(-1.0e-4, 1.0e-4, 7)
+
+    numpy_grid = collimated_grid(0.01, s, theta, theta, backend="numpy")
+    assert numpy_grid.backend == "numpy"
+    assert isinstance(numpy_grid.rho0, np.ndarray)
+
+    auto_grid = collimated_grid(0.01, s, theta, theta, backend="auto")
+    assert auto_grid.backend == ("cupy" if is_gpu_available() else "numpy")
+
+    with pytest.raises(ValueError, match="must be 'auto', 'cupy' or 'numpy'"):
+        collimated_grid(0.01, s, theta, theta, backend="opencl")
+    if not is_gpu_available():
+        # Asking for the GPU on a machine without a working one must be an error, not a
+        # silent CPU run wearing a GPU label.
+        with pytest.raises(ValueError, match="no CUDA device is available"):
+            collimated_grid(0.01, s, theta, theta, backend="cupy")
+
+
+@pytest.mark.gpu
+def test_the_gpu_and_cpu_grids_agree():
+    """Same physics on either backend. `auto` may land on CuPy or NumPy depending on the
+    machine, so this pins that the choice is not a change in the answer."""
+    from gammaforge.engines.analytical.collimated import collimated_grid, is_gpu_available
+
+    if not is_gpu_available():
+        pytest.skip("no usable CUDA device")
+
+    s = np.linspace(0.05, 1.0, 51)
+    theta = np.linspace(-2.0e-4, 2.0e-4, 15)
+    host = collimated_grid(0.01, s, theta, theta, total_yield=1.0, backend="numpy")
+    device = collimated_grid(0.01, s, theta, theta, total_yield=1.0, backend="cupy")
+
+    assert device.backend == "cupy"
+    assert _host(device.rho0) == pytest.approx(host.rho0, rel=1e-10)
+    assert _host(device.reconstructed) == pytest.approx(host.reconstructed, rel=1e-8)
+
+
+def test_gpu_availability_requires_working_device_operations():
+    """CuPy imports and reports a device on this machine while `matmul` still raises
+    `ImportError: libcublas.so.12` — the CUDA BLAS library is absent. An availability check
+    that only tested an import, or only elementwise ops, would claim the GPU works and then
+    fail deep inside the DER017 reconstruction. So the probe is asserted to exercise the
+    dense-matmul path the module actually depends on."""
+    from gammaforge.engines.analytical.collimated import is_gpu_available
+
+    available = is_gpu_available()
+    assert isinstance(available, bool)
+    if available:
+        # If it claims the device is usable, the operations must genuinely work.
+        import cupy as cp
+
+        _ = cp.eye(3) @ cp.ones((3, 2))
+    # Cached, so a second call must agree with the first.
+    assert is_gpu_available() is available
+
+
+def test_the_engine_records_which_backend_produced_the_slice():
+    """The backend is part of how a recorded result was produced, so it belongs in
+    `model_specific` rather than only in a log."""
+    interaction = _interaction(
+        outputs=(OutputRequest(OutputKind.COLLIMATED_SPECTRUM, resolution=(21, 7, 7)),)
+    )
+    engine = AnalyticalEngine()
+    results = engine.run(interaction, engine.schema)
+    assert results.model_specific["collimated_backend"] in {"numpy", "cupy"}
+
+    forced = engine.run(interaction, engine.schema.with_values(backend="numpy"))
+    assert forced.model_specific["collimated_backend"] == "numpy"
+    assert forced.photon_slices[OutputKind.COLLIMATED_SPECTRUM].distr == pytest.approx(
+        results.photon_slices[OutputKind.COLLIMATED_SPECTRUM].distr, rel=1e-12
+    )

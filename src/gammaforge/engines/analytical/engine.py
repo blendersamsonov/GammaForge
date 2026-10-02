@@ -18,7 +18,7 @@ from ...io.schema import Parameters
 from ...io.target import OutputKind, OutputRequest, auto_ranges, slice_axis_values
 from ..base import RecomputeCost
 from .angular import angular_density_per_solid_angle
-from .collimated import collimated_moments
+from .collimated import collimated_grid
 from .formulas import (
     angle_integrated_spectrum,
     estimate_spectrum_width,
@@ -29,6 +29,16 @@ from .models import AnalyticalModel, ModelChoice, ModelInputs, ModelSelector
 from .schema import default_parameters
 
 __all__ = ["AnalyticalEngine"]
+
+
+def _as_numpy(values):
+    """A CuPy array as a NumPy one; a NumPy array unchanged.
+
+    `Results` and `PhasespaceSlice` are NumPy-typed throughout `gammaforge.io`, so a device
+    array must be brought back before it is stored — otherwise HDF5 persistence and the
+    plotting frontends both see an object they do not understand.
+    """
+    return values.get() if hasattr(values, "get") else values
 
 #: analytical produces the 0D total yield, the 1D angle-integrated spectrum, and the 2D
 #: angular distribution (§4.3) — never `COLLIMATED_SPECTRUM` (the 3D (E, θx, θy) slice),
@@ -59,6 +69,10 @@ RECOMPUTE_COSTS: dict[str, RecomputeCost] = {
     # QUERY_ONLY — but it is never more expensive than re-running the model it selects.
     "model_mode": RecomputeCost.FULL_RERUN,
     "model_pin": RecomputeCost.FULL_RERUN,
+    # Only the collimated slice is array-backend dependent, and it is already a FULL_RERUN
+    # for anyone requesting it; switching backend moves the same work to the same kind of
+    # place rather than making it cheaper or dearer.
+    "backend": RecomputeCost.FULL_RERUN,
 }
 
 #: The DER001/DER002 tier, which is what this engine computed before the DER019 hierarchy
@@ -168,6 +182,11 @@ class AnalyticalEngine:
     #: so sharing one across calls keeps selection allocation-free on the real-time path.
     _selector = ModelSelector((_OVERLAP_TIER, _ANGULAR_TIER, _COLLIMATED_TIER))
 
+    #: Backend the collimated slice actually ran on, reported on `Results`. Instance state
+    #: rather than a return value because `_fill` builds the slice deep in the run; reset per
+    #: run so a request that does not ask for collimated output does not report a stale one.
+    _collimated_backend: str | None = None
+
     def run(self, interaction: InteractionParameters, params: Parameters) -> Results:
         if not isinstance(interaction.laser, GaussianParaxialLaser):
             raise TypeError(
@@ -175,6 +194,7 @@ class AnalyticalEngine:
                 "Closed-form overlap integrals assume an astigmatic paraxial Gaussian pulse (RES067)."
             )
         target = interaction.target
+        self._collimated_backend = None
         beam = interaction.beam
         metrics = interaction.laser
         photon_energy = metrics.photon_energy()
@@ -216,7 +236,7 @@ class AnalyticalEngine:
         slices: dict[OutputKind, PhasespaceSlice] = {}
         for request in supported_requests:
             slices[request.kind] = self._fill(
-                request, ranges[request.kind], beam, total_yield, photon_energy, n_quad, ahat
+                request, ranges[request.kind], beam, total_yield, photon_energy, n_quad, ahat, params
             )
 
         return Results(
@@ -230,6 +250,9 @@ class AnalyticalEngine:
                 "n_photons": metrics.n_photons(),
                 "warnings": self._geometry_warnings(metrics, slices),
                 "models": {choice.observable: choice.as_metadata() for choice in choices},
+                # Which array backend produced the collimated slice, so a recorded result
+                # says how it was computed rather than leaving it to be inferred.
+                "collimated_backend": self._collimated_backend,
             },
         )
 
@@ -297,6 +320,7 @@ class AnalyticalEngine:
         photon_energy: float,
         n_quad: int,
         ahat: float,
+        params: Parameters,
     ) -> PhasespaceSlice:
         kind = request.kind
         if kind is OutputKind.TOTAL_YIELD:
@@ -342,29 +366,22 @@ class AnalyticalEngine:
             # channels are reported alongside the slice so the reconstruction can be checked
             # against its inputs rather than trusted (DER019 §18.12).
             energy = values[Axis.ENERGY]
-            theta_x = values[Axis.THETA_X]
-            theta_y = values[Axis.THETA_Y]
-            shape = (energy.size, theta_x.size, theta_y.size)
-            # Every requested (E, theta_x, theta_y) point is one resonance root. The grid is
-            # evaluated pointwise because `r^2` differs per angular cell, so there is no shared
-            # 1D `s` array to batch over — the cost is the grid size, which is why this tier
-            # is for targeted collimated queries rather than the full 3D scan.
-            # One channel set per angular column: the DER017 reconstruction differentiates
-            # along the energy axis, so `s` must be a 1D spectral grid, not a single point.
-            # `theta_y` shares each column's `r^2`, so the columns differ only by `theta_x`.
-            reconstructed = np.empty(shape)
-            s_axis = energy / (4.0 * photon_energy)
-            for j, theta_x_j in enumerate(theta_x):
-                for k, theta_y_k in enumerate(theta_y):
-                    moments = collimated_moments(
-                        beam,
-                        s_axis,
-                        theta_ex=float(theta_x_j),
-                        theta_ey=float(theta_y_k),
-                        ahat=ahat,
-                        total_yield=total_yield,
-                    )
-                    reconstructed[:, j, k] = moments.reconstructed
-            return PhasespaceSlice(axes=values, distr=reconstructed)
+            # One broadcast evaluation for the whole (E, theta_x, theta_y) slice. `r^2` does
+            # differ per angular cell, but that is a grid operation rather than a reason to
+            # loop: every channel is elementwise in (s, r^2), and the DER017 reconstruction
+            # differentiates along the energy axis only, so it becomes two matmuls against
+            # weights built once from `s`. That took this branch from ~240 ms to ~5 ms at
+            # 51x21x21; `tests/test_analytical.py` asserts the result still matches the
+            # per-column `collimated_moments` path.
+            grid = collimated_grid(
+                ahat,
+                energy / (4.0 * photon_energy),
+                values[Axis.THETA_X],
+                values[Axis.THETA_Y],
+                total_yield=total_yield,
+                backend=str(params["backend"]),
+            )
+            self._collimated_backend = grid.backend
+            return PhasespaceSlice(axes=values, distr=_as_numpy(grid.reconstructed))
 
         raise AssertionError(f"AnalyticalEngine._fill: {kind} is in SUPPORTED_OUTPUTS but has no branch")

@@ -42,9 +42,20 @@ import numpy as np
 from ...io.bunch import GaussianElectronBeam
 from .fixed_width import KAPPA_G
 
+try:  # pragma: no cover - exercised by whichever branch the environment provides
+    import cupy as cp
+
+    _HAS_CUPY = True
+except ImportError:  # pragma: no cover
+    cp = None
+    _HAS_CUPY = False
+
 __all__ = [
     "CollimatedMoments",
+    "CollimatedGrid",
+    "collimated_grid",
     "collimated_moments",
+    "is_gpu_available",
     "reconstruct_second_order",
 ]
 
@@ -52,6 +63,104 @@ __all__ = [
 #: `xigma.stages.KERNEL_NORMALIZATION_CONSTANT` by construction rather than by import —
 #: see the module docstring on why these two must stay independent.
 KERNEL_NORMALIZATION = 3.0 / (4.0 * math.pi)
+
+
+def is_gpu_available() -> bool:
+    """True if CuPy is importable **and** the operations this module needs actually work.
+
+    Importing CuPy and asking ``cuda.is_available()`` is not enough, and the failure this
+    guards against is not hypothetical: on this machine CuPy imports, reports one CUDA device,
+    and elementwise operations work, while ``matmul`` raises
+    ``ImportError: libcublas.so.12`` because the BLAS library is missing. A probe covering
+    only elementwise ops would therefore report "GPU available" and then fail deep inside the
+    DER017 reconstruction. So the check exercises exactly the two classes of operation used
+    below: elementwise arithmetic and a dense matmul.
+
+    Costs microseconds, cached thereafter, and it is the difference between falling back to
+    numpy cleanly and raising from the middle of a calculation.
+    """
+    global _GPU_AVAILABLE
+    if _GPU_AVAILABLE is not None:
+        return _GPU_AVAILABLE
+    _GPU_AVAILABLE = False
+    if _HAS_CUPY:
+        try:
+            if cp.cuda.is_available() and cp.cuda.runtime.getDeviceCount() > 0:
+                # Elementwise, as in the channel formulas.
+                _ = cp.ones(4) * 2.0
+                # Dense matmul, as in the DER017 reconstruction. This is the one that fails
+                # when the CUDA BLAS libraries are absent, so it must be part of the probe.
+                _ = cp.eye(3) @ cp.ones((3, 2))
+                _GPU_AVAILABLE = True
+        except Exception:
+            _GPU_AVAILABLE = False
+    return _GPU_AVAILABLE
+
+
+#: Tri-state cache: ``None`` until probed, then a bool. Device state cannot change within a
+#: process in any way this package supports switching on.
+_GPU_AVAILABLE: bool | None = None
+
+
+def _array_module(*arrays):
+    """The array module (`numpy` or `cupy`) matching the inputs.
+
+    Same shape as `io.laser._get_array_module` and `xigma.stages._get_array_module` so this
+    package dispatches the way the rest of the repository does, rather than inventing a
+    third convention. Falls back to numpy when nothing identifies an array.
+    """
+    if _HAS_CUPY:
+        try:
+            return cp.get_array_module(*arrays)
+        except Exception:
+            pass
+    for array in arrays:
+        if array is not None:
+            if _HAS_CUPY and isinstance(array, cp.ndarray):
+                return cp
+            if isinstance(array, np.ndarray):
+                return np
+    return np
+
+
+def _gradient_matrix(s: np.ndarray, order: int) -> np.ndarray:
+    """Dense matrix ``G`` with ``G @ f == np.gradient(f, s, edge_order=2)`` applied ``order`` times.
+
+    Built by probing `np.gradient` with unit vectors. Differentiation is a **linear** operator,
+    so the columns of its matrix are exactly its action on the basis — which is why this
+    reproduces `np.gradient` rather than approximating it (verified to 1e-15 first order and
+    5e-13 second order).
+
+    This exists because `np.gradient` re-derives its nonuniform-grid weights on **every call**,
+    and the DER017 reconstruction needs two derivative applications per angular column. On a
+    51x21x21 slice that was 882 rebuilds of the weights for arrays only 51 elements long: the
+    physics took 1.7 ms and the scaffolding took 239 ms. Building the matrix once per grid
+    (2.3 ms) and applying it as a single matmul collapses that.
+
+    Cached per (grid bytes, order) because the weights depend only on ``s``, never on the data.
+    """
+    key = (s.tobytes(), int(order))
+    cached = _GRADIENT_CACHE.get(key)
+    if cached is not None:
+        return cached
+    n = s.size
+    matrix = np.empty((n, n), dtype=float)
+    for column in range(n):
+        probe = np.zeros(n)
+        probe[column] = 1.0
+        result = probe
+        for _ in range(order):
+            result = np.gradient(result, s, edge_order=2)
+        matrix[:, column] = result
+    _GRADIENT_CACHE[key] = matrix
+    return matrix
+
+
+#: Cache of finite-difference weight matrices, keyed by the exact grid. Bounded so a GUI that
+#: resizes a slider continuously cannot grow it without limit; the entries are small (n^2), but
+#: a slider sweep produces a new key per pixel.
+_GRADIENT_CACHE: dict[tuple[bytes, int], np.ndarray] = {}
+_GRADIENT_CACHE_LIMIT = 64
 
 
 @dataclass(frozen=True)
@@ -214,3 +323,150 @@ def reconstruct_second_order(
     first = _finite_difference(s, s * np.asarray(rho1), 1)
     second = _finite_difference(s, s * np.asarray(rho2), 2)
     return np.asarray(rho0) - first / s + 0.5 * second / s
+
+
+@dataclass(frozen=True)
+class CollimatedGrid:
+    """The whole ``(E, theta_x, theta_y)`` slice evaluated at once.
+
+    Same physics as :func:`collimated_moments`, applied to every angular cell at once instead
+    of column by column. The two must agree — `tests/test_analytical.py` asserts the grid
+    result equals the per-column path rather than trusting that a refactor preserved it.
+    """
+
+    s: np.ndarray
+    rho0: np.ndarray
+    rho1: np.ndarray
+    rho2: np.ndarray
+    gamma: np.ndarray
+    #: Which backend produced this, for the provenance record.
+    backend: str
+
+    @property
+    def reconstructed(self) -> np.ndarray:
+        """The DER017 reconstruction along the energy axis, over the whole grid.
+
+        Differentiating mixes neighbouring rows, so a row that is *outside* the support
+        (``s <= 0``, or ``K/s <= r^2``) must not contribute to the rows next to it — a zeroed
+        channel there is not enough, because ``0 * inf`` still yields a nan that propagates
+        into the supported rows one step away. The derivative is therefore applied to the
+        channel values with unsupported rows carried as zeros, and the reconstruction is
+        evaluated only where ``s > 0``; the off-support cells are left at zero afterwards.
+
+        That is why the operator is not simply "mask, then differentiate": masking the output
+        was what the earlier per-column version did, and it was correct there only because
+        each column's support was independent.
+
+        The backend comes from :attr:`backend`, which is recorded at construction. It is
+        deliberately *not* inferred from the channel arrays: `cupy.get_array_module` on a
+        NumPy array returns `numpy`, so inferring it here would pick the CPU path and silently
+        copy the entire device grid back to the host twice per derivative — the module's
+        weight matrices are built with NumPy because `np.gradient` has no CuPy equivalent, and
+        that is a small host-side cost, not a reason to demote the grid itself.
+        """
+        xp = cp if self.backend == "cupy" else np
+        host_s = np.asarray(self.s, dtype=float)
+        matrix1 = xp.asarray(_gradient_matrix(host_s, 1))
+        matrix2 = xp.asarray(_gradient_matrix(host_s, 2))
+
+        leading = self.rho0.shape[0]
+        trailing = int(np.prod(self.rho0.shape[1:], dtype=int)) if self.rho0.ndim > 1 else 1
+        # Unsupported energy rows are excluded from the derivative entirely: zero them on the
+        # *input* side, and only write output where s is positive.
+        valid = xp.asarray(host_s > 0.0)[:, None]
+        s_column = xp.where(valid, xp.asarray(host_s)[:, None], 0.0)
+        rho1 = xp.where(valid, xp.asarray(self.rho1).reshape(leading, trailing), 0.0)
+        rho2 = xp.where(valid, xp.asarray(self.rho2).reshape(leading, trailing), 0.0)
+
+        first = matrix1 @ (s_column * rho1)
+        second = matrix2 @ (s_column * rho2)
+        divisor = xp.where(valid, xp.asarray(host_s)[:, None], 1.0)
+        result = (
+            xp.asarray(self.rho0).reshape(leading, trailing)
+            - first / divisor
+            + 0.5 * second / divisor
+        )
+        result = xp.where(valid, result, 0.0)
+        return result.reshape(self.rho0.shape)
+
+
+def collimated_grid(
+    ahat: float,
+    s,
+    theta_x,
+    theta_y,
+    *,
+    total_yield: float = 1.0,
+    var_q: float | None = None,
+    d_factor: float = 1.0,
+    q_factor: float = 1.0,
+    c_bar: float = 1.0,
+    backend: str = "auto",
+) -> CollimatedGrid:
+    """Evaluate :func:`collimated_moments` over a whole ``(s, theta_x, theta_y)`` grid.
+
+    The channel formulas are pure elementwise arithmetic on ``s`` and ``r^2``, so the whole
+    slice is one broadcast evaluation rather than ``len(theta_x) * len(theta_y)`` calls. The
+    DER017 reconstruction differentiates along the energy axis only, so it becomes two matrix
+    products against weights built once from ``s``.
+
+    ``backend`` follows `xigma`'s convention: ``"auto"`` uses the GPU when one is present,
+    ``"cupy"`` requires it, and ``"numpy"`` forces the CPU path. No custom kernel — every
+    operation is a dense array op that CuPy accelerates directly, which is what keeps this
+    reading as the same physics on either device.
+    """
+    if backend not in ("auto", "cupy", "numpy"):
+        raise ValueError(f"backend must be 'auto', 'cupy' or 'numpy', got {backend!r}")
+    if backend == "cupy" and not is_gpu_available():
+        raise ValueError(
+            "collimated_grid: backend='cupy' was requested but no CUDA device is available. "
+            "Use backend='auto' to fall back to numpy, or 'numpy' to force the CPU path."
+        )
+
+    s_host = np.atleast_1d(np.asarray(s, dtype=float))
+    theta_x_host = np.atleast_1d(np.asarray(theta_x, dtype=float))
+    theta_y_host = np.atleast_1d(np.asarray(theta_y, dtype=float))
+
+    xp = cp if (backend in ("auto", "cupy") and is_gpu_available()) else np
+    s_grid = xp.asarray(s_host)[:, None, None]
+    theta_x_grid = xp.asarray(theta_x_host)[None, :, None]
+    theta_y_grid = xp.asarray(theta_y_host)[None, None, :]
+
+    a_r = 1.0 + q_factor * ahat
+    k = d_factor * c_bar
+    radius_sq = theta_x_grid**2 + theta_y_grid**2
+
+    # Same support logic as the single-column path, including s <= 0 — which is why every
+    # intermediate is masked rather than allowed to produce inf and then nan.
+    positive_s = s_grid > 0.0
+    safe_s = xp.where(positive_s, s_grid, 1.0)
+    inverse_base = k / safe_s - radius_sq
+    supported = positive_s & (inverse_base > 0.0)
+    gamma_sq = xp.where(supported, a_r / xp.where(supported, inverse_base, 1.0), 0.0)
+    gamma = xp.sqrt(gamma_sq)
+
+    rho0 = xp.where(
+        supported,
+        total_yield
+        * KERNEL_NORMALIZATION
+        * (k / safe_s**2)
+        * gamma**5
+        / (a_r * (1.0 + gamma_sq * radius_sq) ** 2),
+        0.0,
+    )
+
+    if var_q is None:
+        var_q = KAPPA_G * ahat**2
+    b_factor = 1.0 + q_factor * ahat + gamma_sq * radius_sq
+    safe_b = xp.where(supported, b_factor, 1.0)
+    delta_c = xp.where(supported, q_factor**2 * var_q / safe_b**2, 0.0)
+    m2 = delta_c
+
+    return CollimatedGrid(
+        s=s_host,
+        rho0=rho0,
+        rho1=xp.where(supported, rho0 * safe_s * delta_c, 0.0),
+        rho2=xp.where(supported, rho0 * safe_s**2 * m2, 0.0),
+        gamma=gamma,
+        backend="cupy" if xp is cp else "numpy",
+    )
