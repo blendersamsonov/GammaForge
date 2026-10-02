@@ -43,7 +43,7 @@ from gammaforge.validation import scenarios as scen
 RESULTS = pathlib.Path(__file__).resolve().parent / "results"
 
 #: 1D orders for the tensor rule. Order 9 and 10 are 5e5 and 1e6 trajectories; opt-in.
-DEFAULT_ORDERS = (3, 4, 5, 6, 7, 8)
+DEFAULT_ORDERS = (3, 4, 5, 6, 7, 8, 9)   # order 9 is 531,441 trajectories
 #: Trajectory counts for IID, global QMC and the regional stratifier.
 DEFAULT_N = (1_000, 4_000, 16_000, 64_000, 262_144, 1_000_000)
 #: Error targets for the "trajectories needed" column (handoff §6).
@@ -110,6 +110,10 @@ def main():
                         default=["iid", "global-qmc", "tensor-gh", "strat-s1"])
     parser.add_argument("--orders", type=int, nargs="*", default=list(DEFAULT_ORDERS))
     parser.add_argument("--n", type=int, nargs="*", default=list(DEFAULT_N))
+    parser.add_argument("--reference-shifts", type=int, default=4,
+                        help="independent global-QMC shifts at the largest N, and independent "
+                             "IID seeds, used to cross-validate the reference rather than "
+                             "trusting one construction")
     parser.add_argument("--chunk-mb", type=float, default=2000.0)
     parser.add_argument("--quick", action="store_true")
     args = parser.parse_args()
@@ -161,28 +165,60 @@ def main():
                       f"  ({time.perf_counter() - t0:.0f}s)", flush=True)
             curves[method] = points
 
-        # Reference: best converged deterministic value, with the independent-construction gap
-        # as its uncertainty.
-        #
-        # The arm that *supplies* the reference cannot also be scored against it: doing so
-        # reports its largest budget as error 0.0 and quietly anchors every other arm's error
-        # to whatever that arm happens to be. So the reference point is recorded as a row with
-        # ``is_reference`` and its error left undefined, and the tensor rule's own convergence
-        # is reported separately as its successive-order differences (handoff §5).
+        # Cross-validated reference (handoff §5). Three *independent* constructions at their
+        # top budgets: the tensor rule at its highest order, large global QMC averaged over
+        # several shifts, and large IID averaged over several seeds. The reference is the one
+        # whose own convergence has stabilized, and the floor is the largest disagreement
+        # between them -- a single-construction floor cannot see a reference that is wrong in
+        # the same way every time.
         gh, qmc = curves.get("tensor-gh") or [], curves.get("global-qmc") or []
+        iid = curves.get("iid") or []
+
+        def _crosscheck(method, shifts):
+            values = []
+            for shift in range(shifts):
+                samples, weights = run_stage0(beam, laser, target, method, big,
+                                              seed=900 + shift, chunk=H.CHUNK)
+                values.append(S.evaluate(samples, weights, standardization))
+                del samples, weights
+            return S.reference_from_runs(values)
+
+        top = {}
         if gh:
-            best, ref_key = gh[-1][1], ("tensor-gh", gh[-1][0])
+            top["tensor-gh"] = gh[-1][1]
+        if qmc:
+            top["global-qmc"], _ = _crosscheck("global-qmc", args.reference_shifts)
+        if iid:
+            top["iid"], _ = _crosscheck("iid", args.reference_shifts)
+
+        # A construction is usable as the reference only if its own successive budgets agree.
+        gh_stable = None
+        if len(gh) >= 2:
+            last_step = S.aggregate(S.scalar_errors(gh[-1][1], gh[-2][1]))
+            gh_stable = bool(last_step < 1e-2)
+
+        ref_key = None
+        if gh and gh_stable:
+            ref_key = ("tensor-gh", gh[-1][0])
         elif qmc:
-            best, ref_key = qmc[-1][1], ("global-qmc", qmc[-1][0])
-        else:
-            best, ref_key = S.evaluate(ref_samples, ref_weights, standardization), None
-        gap = max(S.scalar_errors(qmc[-1][1], gh[-1][1]).values()) if (gh and qmc) else None
-        if gap is None:
-            print("  reference: only one deterministic construction available, "
-                  "so no independent-construction gap", flush=True)
-        else:
-            print(f"  reference: tensor-gh order {args.orders[-1]}, "
-                  f"independent-construction gap {gap:.3e}", flush=True)
+            ref_key = ("global-qmc", qmc[-1][0])
+        elif iid:
+            ref_key = ("iid", iid[-1][0])
+        best = top[ref_key[0]] if ref_key else S.evaluate(ref_samples, ref_weights,
+                                                          standardization)
+
+        gaps = {}
+        names = list(top)
+        for i, a in enumerate(names):
+            for b in names[i + 1:]:
+                gaps[f"{a}|{b}"] = max(
+                    S.scalar_errors(top[a], top[b]).values())
+        floor = max(gaps.values()) if gaps else 0.0
+        print(f"  cross-validated reference: {ref_key[0] if ref_key else 'iid'} "
+              f"(tensor successive-step stable: {gh_stable})", flush=True)
+        for name, gap in sorted(gaps.items(), key=lambda kv: -kv[1]):
+            print(f"    {name:>28}: {gap:.3e}")
+        print(f"    floor used for fitting: {floor:.3e}", flush=True)
 
         # Successive-budget differences: a rule's own convergence, with no reference involved,
         # so it stays meaningful even for the arm that supplies the reference.
@@ -201,9 +237,10 @@ def main():
                       else S.aggregate(S.scalar_errors(v, best))
                       for n, v, _ in points]
             scored = [(n, e) for n, e in zip(n_values, errors) if np.isfinite(e)]
-            fit = S.fit_exponent([n for n, _ in scored], [e for _, e in scored])
-            needed = {f"{t:.0e}": S.trajectories_for_error([n for n, _ in scored],
-                                                           [e for _, e in scored], t)
+            fit = S.fit_exponent([n for n, _ in scored], [e for _, e in scored],
+                                 floor=floor)
+            needed = {f"{t:.0e}": S.trajectories_for_error(
+                          [n for n, _ in scored], [e for _, e in scored], t, floor=floor)
                       for t in TARGETS}
             print(f"\n  {method}: alpha={fit['alpha']:.3f} from {fit['n_points']} points "
                   f"(resolved={fit['resolved']})")
@@ -224,7 +261,9 @@ def main():
         out["scenarios"][scenario.name] = {
             "reference": {"method": ref_key[0] if ref_key else "iid",
                           "trajectories": ref_key[1] if ref_key else None,
-                          "construction_gap": gap,
+                          "construction_gap": floor,
+                          "cross_validation": gaps,
+                          "tensor_stable": gh_stable,
                           "note": "this arm's largest budget is the reference; its own error "
                                   "is undefined and its convergence is in self_convergence"},
             "methods": summary,

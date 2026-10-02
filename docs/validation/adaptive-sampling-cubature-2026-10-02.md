@@ -93,17 +93,43 @@ broadly here without asking what it was scoped to.
 the first smoke test. It was not checked. A cheap guard now exists in
 `tests/test_cubature_utilities.py`.
 
-## 5. What is not established
+## 5. What is not established, and how the follow-up addresses it
 
 1. **The reference is too coarse for the convergence rates.** These runs used a 400k-particle
    reference whose own spectral floor is ~3e-3. IID at 262k reaches 0.0036, i.e. it is *hitting
    that floor*, which inflates its apparent rate and flattens the others. **The fitted slopes
-   are unreliable; the fixed-`N` comparisons are more trustworthy than the rates.** The next
-   run uses a 4M reference.
+   above are unreliable; only the fixed-`N` comparisons should be read.**
 2. **QMC's advantage is not yet a result.** QMC is better than IID at every fixed `N`, but by
    less than expected, and its apparent slope is *slower* — which is the reference floor again.
 3. **Two scenarios only**, at small budgets. `wide_bunch` — the diffuse case that defeated the
    earlier luminosity allocation — is untested here.
+4. **The reference itself was single-construction.** A floor derived from one reference's own
+   replicates cannot detect a reference that is wrong the same way every time.
+
+### What changed in the follow-up
+
+Four defects, all found by running it:
+
+- **Fitted slopes are now gated on a measured floor.** The reference is the mean of several
+  independent 4M IID runs *per deposition scheme*, and the floor is their disagreement. A point
+  within 3x the floor is excluded from the fit, and a fit with fewer than three surviving points
+  reports `unresolved` rather than a slope. This is the fix for defect 1.
+- **The reference is cross-validated** against two independent constructions — large global QMC
+  under several shifts, and large IID under several seeds — and the reference is only taken from
+  the tensor rule when *its own successive orders have stabilized*. In the quick run the tensor
+  successive step was unstable, the tensor rule disagreed with QMC by 42%, and the reference
+  correctly fell back to QMC (which agreed with IID to 0.6%). This is the fix for defect 4.
+- **A shared-reference bug was found and fixed.** The reference was deposited with `nearest`
+  only, so CIC arms were scored against a nearest-built reference — which inverted the CIC
+  result, showing CIC as 2x *worse* when an earlier run had it consistently better. References
+  are now built per deposition scheme.
+- **Method replicates.** Each arm runs at several seeds (IID) or shifts (QMC), so a
+  deterministic method's own spread is separable from reference noise. A single-seed arm cannot
+  distinguish "this rule is better" from "this seed was lucky".
+
+The follow-up also adds the observation-direction sweep, 1D and 2D marginals, integrated yield,
+and a production-resolution spot check. It does **not** revisit the tensor table result: §4 is
+settled, and spending compute to extend it would be spending it on a closed question.
 
 ## 6. Recommendation
 

@@ -219,33 +219,74 @@ def effective_sample_fraction(weights) -> float:
     return float((w.sum() ** 2 / np.sum(w ** 2)) / w.size)
 
 
-def fit_exponent(n_values, errors, *, n_min: float = 2.0) -> dict:
-    """Fit ``error ~ N**(-alpha)`` over the resolved part of a convergence curve.
+def resolved_mask(errors, floor, *, margin: float = 3.0):
+    """Indices where the measurement is comfortably above the reference's own error.
 
-    Only points at or above ``n_min`` trajectories enter the fit: at tiny ``N`` the error is
-    dominated by the discrete support not yet covering the source, not by the quadrature's
-    asymptotic rate, and including those points biases ``alpha`` downwards. The fit is
-    reported with the number of contributing points, because a slope from three points is a
-    claim with much less behind it than a slope from eight.
+    This is the guard the earlier runs lacked, and its absence is why their fitted slopes were
+    meaningless: at a 400k reference the spectral floor is ~3e-3, IID reached 3.6e-3 at 262k,
+    and the curve was flattening on the *reference*, not converging. A point whose error is
+    within ``margin`` times the floor measures the reference, whatever its trend does.
+    """
+    floor = float(floor)
+    if not np.isfinite(floor) or floor <= 0.0:
+        return np.ones(len(errors), dtype=bool)
+    return np.asarray(errors, dtype=float) > margin * floor
+
+
+def fit_exponent(n_values, errors, *, floor: float = 0.0, margin: float = 3.0,
+                 n_min: float = 2.0) -> dict:
+    """Fit ``error ~ N**(-alpha)`` over the part of the curve that is actually measurable.
+
+    Points enter the fit only when they are at or above ``n_min`` trajectories *and* their
+    error stands clear of the reference floor. ``n_points`` is reported because a slope from
+    three points is a very different claim from a slope from eight, and ``resolved`` is False
+    rather than a number when fewer than three survive.
     """
     n_arr = np.asarray(list(n_values), dtype=float)
     e_arr = np.asarray(list(errors), dtype=float)
-    keep = (n_arr >= n_min) & np.isfinite(e_arr) & (e_arr > 0)
+    finite = np.isfinite(e_arr) & (e_arr > 0)
+    keep = finite & (n_arr >= n_min) & resolved_mask(e_arr, floor, margin=margin)
     if keep.sum() < 3:
-        return {"alpha": float("nan"), "n_points": int(keep.sum()), "resolved": False}
+        return {"alpha": float("nan"), "n_points": int(keep.sum()), "resolved": False,
+                "floor": float(floor)}
     slope, intercept = np.polyfit(np.log(n_arr[keep]), np.log(e_arr[keep]), 1)
     return {"alpha": float(-slope), "n_points": int(keep.sum()), "resolved": True,
-            "prefactor": float(np.exp(intercept))}
+            "prefactor": float(np.exp(intercept)), "floor": float(floor),
+            "n_used": [float(v) for v in n_arr[keep]]}
 
 
-def trajectories_for_error(n_values, errors, target: float) -> float:
+def trajectories_for_error(n_values, errors, target: float, *, floor: float = 0.0,
+                           margin: float = 3.0) -> float:
     """Stage-0 trajectories needed to reach ``target`` relative error, from the fitted slope.
 
-    Returns ``nan`` when the fit did not resolve, rather than extrapolating: quoting a
-    trajectory count from an unresolved slope is how a 100x claim gets made from three points.
+    Returns ``nan`` when the fit did not resolve or the extrapolated count is absurd, rather
+    than quoting a number. A trajectory count extrapolated from two points is how a 100x claim
+    gets made, and an "unresolved" is more useful than a number that cannot be defended.
     """
-    fit = fit_exponent(n_values, errors)
+    fit = fit_exponent(n_values, errors, floor=floor, margin=margin)
     if not fit["resolved"] or not math.isfinite(fit["alpha"]) or fit["alpha"] <= 0:
         return float("nan")
-    # error = prefactor * N**-alpha  ->  N = (prefactor / target) ** (1/alpha)
-    return float((fit["prefactor"] / target) ** (1.0 / fit["alpha"]))
+    count = (fit["prefactor"] / target) ** (1.0 / fit["alpha"])
+    if not np.isfinite(count) or count > 1e12:
+        return float("nan")
+    return float(count)
+
+
+def reference_from_runs(values: list) -> tuple[dict, float]:
+    """Mean of independent reference constructions, and a floor from their disagreement.
+
+    The floor is the largest per-observable disagreement between the runs. That is a *measured*
+    limit on the reference, not an assumed one, and it is what :func:`fit_exponent` gates on --
+    without it the fits silently reported the reference's own convergence.
+    """
+    mean = {k: np.mean([np.atleast_1d(np.asarray(v[k], dtype=float)) for v in values], axis=0)
+            for k in values[0]}
+    if len(values) < 2:
+        return mean, 0.0
+    per_obs = {}
+    for k in values[0]:
+        stack = np.stack([np.atleast_1d(np.asarray(v[k], dtype=float)) for v in values])
+        denom = float(np.max(np.abs(np.mean(stack, axis=0))))
+        spread = float(np.max(np.abs(stack - np.mean(stack, axis=0))))
+        per_obs[k] = spread / denom if denom > 0 else spread
+    return mean, float(max(per_obs.values()))

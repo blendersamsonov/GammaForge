@@ -1,0 +1,680 @@
+{
+  "config": {
+    "only": [
+      "baseline"
+    ],
+    "methods": [
+      "iid",
+      "global-qmc",
+      "strat-s1"
+    ],
+    "include_gh": false,
+    "n": [
+      2000,
+      8000
+    ],
+    "bins": "production",
+    "ref_n": 20000,
+    "ref_seeds": 2,
+    "cross_n": 4000,
+    "cross_shifts": 2,
+    "replicates": 2,
+    "directions": [
+      "nominal"
+    ],
+    "chunk_mb": 800.0,
+    "quick": true
+  },
+  "scenarios": {
+    "baseline": {
+      "nominal": {
+        "reference_floor": {
+          "nearest": 0.04690838579755635,
+          "cic": 0.022933452925083003
+        },
+        "cross_check_gap": {
+          "nearest": 0.059893757627964964,
+          "cic": 0.03613834250808136
+        },
+        "results": {
+          "iid|nearest": {
+            "trajectories": [
+              2000,
+              8000
+            ],
+            "n_eff_fraction": [
+              1.0000000000000007,
+              1.0000000000000007
+            ],
+            "errors": {
+              "spectrum": [
+                0.09097399693479144,
+                0.04880709574597365
+              ],
+              "marg_1d_worst": [
+                0.1599441194324947,
+                0.09804005041386148
+              ],
+              "marg_2d_worst": [
+                0.8458451271350529,
+                0.4655755901726671
+              ],
+              "marg_worst": [
+                0.8458451271350529,
+                0.4655755901726671
+              ],
+              "centroid": [
+                0.00019145382827219046,
+                9.70863090165747e-05
+              ],
+              "yield": [
+                0.0039759071154568575,
+                0.004961105325921011
+              ]
+            },
+            "fits": {
+              "spectrum": {
+                "alpha": NaN,
+                "n_points": 0,
+                "resolved": false,
+                "floor": 0.04690838579755635
+              },
+              "marg_1d_worst": {
+                "alpha": NaN,
+                "n_points": 1,
+                "resolved": false,
+                "floor": 0.04690838579755635
+              },
+              "marg_2d_worst": {
+                "alpha": NaN,
+                "n_points": 2,
+                "resolved": false,
+                "floor": 0.04690838579755635
+              },
+              "marg_worst": {
+                "alpha": NaN,
+                "n_points": 2,
+                "resolved": false,
+                "floor": 0.04690838579755635
+              },
+              "centroid": {
+                "alpha": NaN,
+                "n_points": 0,
+                "resolved": false,
+                "floor": 0.04690838579755635
+              },
+              "yield": {
+                "alpha": NaN,
+                "n_points": 0,
+                "resolved": false,
+                "floor": 0.04690838579755635
+              }
+            },
+            "trajectories_for": {
+              "spectrum": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "marg_1d_worst": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "marg_2d_worst": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "marg_worst": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "centroid": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "yield": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              }
+            }
+          },
+          "iid|cic": {
+            "trajectories": [
+              2000,
+              8000
+            ],
+            "n_eff_fraction": [
+              1.0000000000000007,
+              1.0000000000000007
+            ],
+            "errors": {
+              "spectrum": [
+                0.0785856352443712,
+                0.04082749105051986
+              ],
+              "marg_1d_worst": [
+                0.12643141289797033,
+                0.0748272270186493
+              ],
+              "marg_2d_worst": [
+                0.5763288602894863,
+                0.3115574992418145
+              ],
+              "marg_worst": [
+                0.5763288602894863,
+                0.3115574992418145
+              ],
+              "centroid": [
+                0.0002846865140022038,
+                0.00011182172917290108
+              ],
+              "yield": [
+                0.0039759071154568575,
+                0.004961105325921011
+              ]
+            },
+            "fits": {
+              "spectrum": {
+                "alpha": NaN,
+                "n_points": 1,
+                "resolved": false,
+                "floor": 0.022933452925083003
+              },
+              "marg_1d_worst": {
+                "alpha": NaN,
+                "n_points": 2,
+                "resolved": false,
+                "floor": 0.022933452925083003
+              },
+              "marg_2d_worst": {
+                "alpha": NaN,
+                "n_points": 2,
+                "resolved": false,
+                "floor": 0.022933452925083003
+              },
+              "marg_worst": {
+                "alpha": NaN,
+                "n_points": 2,
+                "resolved": false,
+                "floor": 0.022933452925083003
+              },
+              "centroid": {
+                "alpha": NaN,
+                "n_points": 0,
+                "resolved": false,
+                "floor": 0.022933452925083003
+              },
+              "yield": {
+                "alpha": NaN,
+                "n_points": 0,
+                "resolved": false,
+                "floor": 0.022933452925083003
+              }
+            },
+            "trajectories_for": {
+              "spectrum": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "marg_1d_worst": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "marg_2d_worst": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "marg_worst": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "centroid": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "yield": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              }
+            }
+          },
+          "global-qmc|nearest": {
+            "trajectories": [
+              2000,
+              8000
+            ],
+            "n_eff_fraction": [
+              1.0000000000000007,
+              1.0000000000000007
+            ],
+            "errors": {
+              "spectrum": [
+                0.08173537612451459,
+                0.0422727900803147
+              ],
+              "marg_1d_worst": [
+                0.15270762807125887,
+                0.09168858243035395
+              ],
+              "marg_2d_worst": [
+                0.8188920843753028,
+                0.45312865843065014
+              ],
+              "marg_worst": [
+                0.8188920843753028,
+                0.45312865843065014
+              ],
+              "centroid": [
+                0.00010488199721823163,
+                8.26848658323946e-05
+              ],
+              "yield": [
+                0.0034253024240583786,
+                0.0035664858647708277
+              ]
+            },
+            "fits": {
+              "spectrum": {
+                "alpha": NaN,
+                "n_points": 0,
+                "resolved": false,
+                "floor": 0.04690838579755635
+              },
+              "marg_1d_worst": {
+                "alpha": NaN,
+                "n_points": 1,
+                "resolved": false,
+                "floor": 0.04690838579755635
+              },
+              "marg_2d_worst": {
+                "alpha": NaN,
+                "n_points": 2,
+                "resolved": false,
+                "floor": 0.04690838579755635
+              },
+              "marg_worst": {
+                "alpha": NaN,
+                "n_points": 2,
+                "resolved": false,
+                "floor": 0.04690838579755635
+              },
+              "centroid": {
+                "alpha": NaN,
+                "n_points": 0,
+                "resolved": false,
+                "floor": 0.04690838579755635
+              },
+              "yield": {
+                "alpha": NaN,
+                "n_points": 0,
+                "resolved": false,
+                "floor": 0.04690838579755635
+              }
+            },
+            "trajectories_for": {
+              "spectrum": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "marg_1d_worst": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "marg_2d_worst": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "marg_worst": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "centroid": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "yield": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              }
+            }
+          },
+          "global-qmc|cic": {
+            "trajectories": [
+              2000,
+              8000
+            ],
+            "n_eff_fraction": [
+              1.0000000000000007,
+              1.0000000000000007
+            ],
+            "errors": {
+              "spectrum": [
+                0.05214423303015858,
+                0.028185331197973437
+              ],
+              "marg_1d_worst": [
+                0.11685230392832752,
+                0.0639414178397433
+              ],
+              "marg_2d_worst": [
+                0.5497237119734277,
+                0.2956610906763435
+              ],
+              "marg_worst": [
+                0.5497237119734277,
+                0.2956610906763435
+              ],
+              "centroid": [
+                0.00010362036872691338,
+                8.692054609109409e-05
+              ],
+              "yield": [
+                0.0034253024240583786,
+                0.0035664858647708277
+              ]
+            },
+            "fits": {
+              "spectrum": {
+                "alpha": NaN,
+                "n_points": 0,
+                "resolved": false,
+                "floor": 0.022933452925083003
+              },
+              "marg_1d_worst": {
+                "alpha": NaN,
+                "n_points": 1,
+                "resolved": false,
+                "floor": 0.022933452925083003
+              },
+              "marg_2d_worst": {
+                "alpha": NaN,
+                "n_points": 2,
+                "resolved": false,
+                "floor": 0.022933452925083003
+              },
+              "marg_worst": {
+                "alpha": NaN,
+                "n_points": 2,
+                "resolved": false,
+                "floor": 0.022933452925083003
+              },
+              "centroid": {
+                "alpha": NaN,
+                "n_points": 0,
+                "resolved": false,
+                "floor": 0.022933452925083003
+              },
+              "yield": {
+                "alpha": NaN,
+                "n_points": 0,
+                "resolved": false,
+                "floor": 0.022933452925083003
+              }
+            },
+            "trajectories_for": {
+              "spectrum": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "marg_1d_worst": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "marg_2d_worst": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "marg_worst": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "centroid": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "yield": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              }
+            }
+          },
+          "strat-s1|nearest": {
+            "trajectories": [
+              2000,
+              8000
+            ],
+            "n_eff_fraction": [
+              0.997286956521739,
+              0.9998110236220463
+            ],
+            "errors": {
+              "spectrum": [
+                0.10306288926280173,
+                0.05437557358941898
+              ],
+              "marg_1d_worst": [
+                0.18067191914746653,
+                0.08612837603359086
+              ],
+              "marg_2d_worst": [
+                0.8430466224945462,
+                0.4578776666255462
+              ],
+              "marg_worst": [
+                0.8430466224945462,
+                0.4578776666255462
+              ],
+              "centroid": [
+                0.0001541867154373598,
+                4.2260553997722776e-05
+              ],
+              "yield": [
+                0.0008993422183826762,
+                0.0024230858482906623
+              ]
+            },
+            "fits": {
+              "spectrum": {
+                "alpha": NaN,
+                "n_points": 0,
+                "resolved": false,
+                "floor": 0.04690838579755635
+              },
+              "marg_1d_worst": {
+                "alpha": NaN,
+                "n_points": 1,
+                "resolved": false,
+                "floor": 0.04690838579755635
+              },
+              "marg_2d_worst": {
+                "alpha": NaN,
+                "n_points": 2,
+                "resolved": false,
+                "floor": 0.04690838579755635
+              },
+              "marg_worst": {
+                "alpha": NaN,
+                "n_points": 2,
+                "resolved": false,
+                "floor": 0.04690838579755635
+              },
+              "centroid": {
+                "alpha": NaN,
+                "n_points": 0,
+                "resolved": false,
+                "floor": 0.04690838579755635
+              },
+              "yield": {
+                "alpha": NaN,
+                "n_points": 0,
+                "resolved": false,
+                "floor": 0.04690838579755635
+              }
+            },
+            "trajectories_for": {
+              "spectrum": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "marg_1d_worst": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "marg_2d_worst": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "marg_worst": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "centroid": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "yield": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              }
+            }
+          },
+          "strat-s1|cic": {
+            "trajectories": [
+              2000,
+              8000
+            ],
+            "n_eff_fraction": [
+              0.997286956521739,
+              0.9998110236220463
+            ],
+            "errors": {
+              "spectrum": [
+                0.07016275213770003,
+                0.03229996642594348
+              ],
+              "marg_1d_worst": [
+                0.13785527816374404,
+                0.0665120490157278
+              ],
+              "marg_2d_worst": [
+                0.5792383762800535,
+                0.3089163801316094
+              ],
+              "marg_worst": [
+                0.5792383762800535,
+                0.3089163801316094
+              ],
+              "centroid": [
+                0.0001269137854116743,
+                3.918083435891986e-05
+              ],
+              "yield": [
+                0.0008993422183826762,
+                0.0024230858482906623
+              ]
+            },
+            "fits": {
+              "spectrum": {
+                "alpha": NaN,
+                "n_points": 1,
+                "resolved": false,
+                "floor": 0.022933452925083003
+              },
+              "marg_1d_worst": {
+                "alpha": NaN,
+                "n_points": 1,
+                "resolved": false,
+                "floor": 0.022933452925083003
+              },
+              "marg_2d_worst": {
+                "alpha": NaN,
+                "n_points": 2,
+                "resolved": false,
+                "floor": 0.022933452925083003
+              },
+              "marg_worst": {
+                "alpha": NaN,
+                "n_points": 2,
+                "resolved": false,
+                "floor": 0.022933452925083003
+              },
+              "centroid": {
+                "alpha": NaN,
+                "n_points": 0,
+                "resolved": false,
+                "floor": 0.022933452925083003
+              },
+              "yield": {
+                "alpha": NaN,
+                "n_points": 0,
+                "resolved": false,
+                "floor": 0.022933452925083003
+              }
+            },
+            "trajectories_for": {
+              "spectrum": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "marg_1d_worst": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "marg_2d_worst": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "marg_worst": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "centroid": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              },
+              "yield": {
+                "1e-02": NaN,
+                "1e-03": NaN,
+                "1e-04": NaN
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
