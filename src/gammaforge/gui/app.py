@@ -15,11 +15,12 @@ try:
 except ModuleNotFoundError:  # Physics/documentation-only installations omit the GUI extra.
     ui = None
 
-from ..engines.catalog import EngineRole, engine_names
+from ..engines.catalog import EngineRole, engine_names, estimate_engine
 from ..io.bunch import validate as validate_beam
 from ..io.fields import beam_from_parameters, laser_from_parameters, to_parameters
 from ..io.formats.yaml_spec import SPEC_VERSION, parameters_to_yaml_dict
 from ..io.laser import validate as validate_laser
+from ..io.plotting import plot_slice
 from ..io.target import OutputKind
 from .controller import Workspace
 from .defaults import GEOMETRY_KEYS, GuiDefaultsStore
@@ -68,6 +69,10 @@ body { background: #f3f6fa; color: #26364a; }
 .gf-run-item-name { font-weight: 500; font-size: 13px; }
 .gf-run-item-engine { font-size: 11px; color: #6b7280; margin-top: 2px; }
 .gf-run-item-status { font-size: 11px; }
+/* An estimate run is not a calculation: marked in colour as well as by icon and word, so
+   the distinction survives a glance at the history list. */
+.gf-estimate-badge { color: #a67635; }
+.gf-estimate-badge-text { color: #a67635; font-style: italic; }
 .gf-run-status-completed { color: #16a34a; }
 .gf-run-status-running { color: #d97706; }
 .gf-run-status-failed { color: #dc2626; }
@@ -76,6 +81,32 @@ body { background: #f3f6fa; color: #26364a; }
 .gf-input-layout { display: flex; width: 100%; height: 100%; }
 .gf-input-main { flex: 1; overflow-y: auto; min-width: 0; }
 """
+
+
+def _estimate_name() -> str:
+    """The catalog name of the estimate engine, resolved once for run labelling."""
+    try:
+        return estimate_engine().name
+    except LookupError:  # pragma: no cover - only if the catalog is emptied
+        return "analytical"
+
+
+#: Module-level so the run panel does not re-resolve the catalog on every refresh.
+estimate_name = _estimate_name()
+
+
+def _estimate_tooltip(run) -> str:
+    """The model tier that produced an estimate run, for the badge's tooltip.
+
+    Read from the result's own provenance (`model_specific["models"]`) rather than
+    hardcoded, so the label follows the planner: if a later tier is selected, the badge says
+    so instead of claiming a tier this run did not use.
+    """
+    models = (getattr(run.results, "model_specific", None) or {}).get("models") or {}
+    if not models:
+        return "Analytical estimate"
+    tiers = sorted({record.get("model", "?") for record in models.values()})
+    return "Analytical estimate\n" + "\n".join(tiers)
 
 
 def _visible_engine_names() -> tuple[str, ...]:
@@ -109,6 +140,13 @@ class BrowserWorkspace:
         self.preview_result_revision = -1
         self.preview_running = False
         self.preview_error = ""
+        #: On-demand full estimate (spectra, angular distribution), produced only when asked
+        #: for. Kept apart from `preview`, which is the cheap always-current scalar panel, so
+        #: requesting a figure cannot slow the panel that follows the inputs.
+        self.estimate_full: dict = {}
+        self.estimate_full_meta: dict = {}
+        self.estimate_full_running = False
+        self.estimate_full_error = ""
         self.last_result_state = None
         self.last_status_state = None
         # Settings
@@ -372,17 +410,25 @@ class Pane:
             with ui.element("div").classes(
                 f"gf-run-item {'selected' if is_selected else ''}"
             ):
+                is_estimate = run.engine_name == estimate_name
                 with ui.element("div").classes("gf-run-item-header").on(
                     "click", lambda rid=run.id: self._select_run(rid)
                 ):
                     ui.label(run.name).classes("gf-run-item-name")
+                    if is_estimate:
+                        # An estimate is never a calculation. The icon carries the same
+                        # meaning as the word, and the tooltip names the approximation, so a
+                        # saved estimate cannot later be mistaken for a converged result.
+                        ui.icon("functions", size="sm").classes("gf-estimate-badge").props(
+                            "title", _estimate_tooltip(run)
+                        )
                     with ui.row().classes("items-center gap-1"):
                         icon = {"completed": "check_circle", "running": "pending",
                                 "failed": "error", "pending": "schedule"}.get(run.status, "help")
                         ui.icon(icon, size="sm").classes(status_class)
-                ui.label(run.engine_name).classes("gf-run-item-engine").on(
-                    "click", lambda rid=run.id: self._select_run(rid)
-                )
+                ui.label("Analytical estimate" if is_estimate else run.engine_name).classes(
+                    "gf-run-item-engine" + (" gf-estimate-badge-text" if is_estimate else "")
+                ).on("click", lambda rid=run.id: self._select_run(rid))
                 ts = time.strftime("%H:%M:%S", time.localtime(run.timestamp))
                 ui.label(ts).classes("text-caption text-grey").on(
                     "click", lambda rid=run.id: self._select_run(rid)
@@ -522,6 +568,69 @@ class Pane:
                      f"{width.nonlinearity_hi:.3%}.").classes(
                          "text-caption text-grey-7" + (" gf-estimate-stale" if stale else "")
                      )
+        self._estimate_spectra()
+
+    def _estimate_spectra(self) -> None:
+        """On-demand analytical spectra and angular distribution.
+
+        Deliberately a button rather than part of the always-current panel: this costs a 3D
+        grid evaluation, and re-running it on every keystroke would make the panel meant to
+        feel instant feel like the calculation it previews.
+
+        Uses the output resolutions already configured for the request, so there is nothing
+        extra to configure here — the figure shows what a saved run would contain.
+        """
+        page = self.page
+        with ui.row().classes("w-full items-center gap-3"):
+            button = ui.button(
+                "Plot analytical spectra", icon="functions", on_click=self._run_estimate_full
+            ).props("outline dense")
+            if page.estimate_full_running:
+                button.disable()
+                ui.spinner(size="sm")
+            ui.label("On demand \u2014 not updated while typing").classes("text-caption text-grey-7")
+        if page.estimate_full_error:
+            ui.label(page.estimate_full_error).classes("gf-error")
+        if not page.estimate_full:
+            return
+        for kind, slice_ in page.estimate_full.items():
+            record = page.estimate_full_meta.get(kind.value, {})
+            tiers = ", ".join(sorted({r.get("model", "?") for r in record.values()})) or "unknown tier"
+            with ui.expansion(f"{kind.value.replace('_', ' ').title()} (analytical)", value=True):
+                ui.label(f"Model: {tiers}").classes("text-caption text-grey-7")
+                ui.label(
+                    "Estimate, not a calculation. Calculate to store this as a run and "
+                    "compare it against a calculated engine."
+                ).classes("text-caption text-grey-7")
+                ui.plotly(plot_slice(slice_)).classes("w-full")
+
+    async def _run_estimate_full(self) -> None:
+        """Compute the analytical answer to every requested output, once, on demand."""
+        page = self.page
+        if page.estimate_full_running:
+            return
+        try:
+            request = page.model.inputs.estimate_request(full_outputs=True)
+        except ValueError as exc:
+            page.estimate_full_error = str(exc)
+            return
+        page.estimate_full_running = True
+        page.estimate_full_error = ""
+        try:
+            result = await asyncio.to_thread(page.model.runner.estimate_requested, request)
+            page.estimate_full = {
+                kind: slice_ for kind, slice_ in result.photon_slices.items() if slice_.axis_order
+            }
+            page.estimate_full_meta = result.model_specific.get("models", {})
+        except Exception as exc:
+            # The planner refuses a geometry it has no accepted tier for. That is a real
+            # answer about this setup, so it is shown rather than swallowed.
+            page.estimate_full_error = str(exc)
+        finally:
+            page.estimate_full_running = False
+        if not page.client.is_deleted:
+            for pane in page.panes:
+                pane.estimates.refresh()
 
     @staticmethod
     def _metric(label: str, value: str) -> None:
