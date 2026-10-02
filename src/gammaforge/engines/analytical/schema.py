@@ -1,16 +1,39 @@
-"""analytical's own numeric knob, as a typed `Parameters` schema.
+"""analytical's own numeric knobs and model selection, as a typed `Parameters` schema.
 
-Only `n_quad` lives here. Everything else the formulas need — the collimation half-angle,
-beam, laser, `N_e` — comes through `InteractionParameters`/`Target`, which already own
-that state (`gammaforge.io.target.Target.theta_x_col`/`theta_y_col`); duplicating it on
-this schema is exactly what `xigma/schema.py`'s own docstring argues against (P9).
+Only quadrature counts and model selection live here. Everything else the formulas need —
+the collimation half-angle, beam, laser, `N_e` — comes through
+`InteractionParameters`/`Target`, which already own that state
+(`gammaforge.io.target.Target.theta_x_col`/`theta_y_col`); duplicating it on this schema is
+exactly what `xigma/schema.py`'s own docstring argues against (P9).
+
+`model_mode` and `model_pin` are `Parameters` fields rather than an
+`AnalyticalEngine(mode=...)` constructor argument on purpose: the `Engine` protocol is
+`schema` + `run`, so run-time controls on the schema are what keeps the GUI's schema-driven
+inputs, request persistence, and request replay working (RES018). Both are `CHOICE` fields
+for the same reason `xigma/schema.py` uses them — the set of valid strings is closed and
+should be validated, not free text.
+
+`model_pin` deliberately lists `"auto"` alongside the model names. "Not pinned" is a real,
+frequently wanted state, and modelling it as the absence of a value would make the replayed
+request differ from the submitted one.
 """
 
 from __future__ import annotations
 
 from ...io.schema import DIMENSIONLESS, FieldKind, FieldSpec, Parameters
+from .models import MODEL_MODES
 
 __all__ = ["ANALYTICAL_SPECS", "default_parameters"]
+
+#: Expert pinning is offered for every registered model plus `"auto"`. Kept as a plain tuple
+#: rather than imported from `models` so the schema (what users see) and the registry (what
+#: exists) cannot silently disagree: `test_analytical.py` asserts they match.
+_PIN_CHOICES: tuple[str, ...] = (
+    "auto",
+    "overlap_der001_mean_ahat",
+    "angular_zero_emittance_head_on",
+    "collimated_fixed_width_zero_emittance",
+)
 
 ANALYTICAL_SPECS: tuple[FieldSpec, ...] = (
     FieldSpec(
@@ -47,6 +70,40 @@ ANALYTICAL_SPECS: tuple[FieldSpec, ...] = (
         default=2001,
         integer=True,
         value_range=(11, 1_000_001),
+    ),
+    # Which model the planner picks *per observable* (DER019 §14, §17). `auto` is the
+    # cheapest model judged reliable for each requested output; `reference` is the highest
+    # fidelity deterministic model the geometry supports. This is a fidelity request, not a
+    # performance request — the GUI needs no engine-specific branch to offer it.
+    FieldSpec(
+        key="model_mode",
+        label="Model fidelity",
+        kind=FieldKind.CHOICE,
+        unit=DIMENSIONLESS,
+        default="auto",
+        choices=MODEL_MODES,
+    ),
+    # Expert pin, for controlled comparisons and validation runs. `"auto"` is a real choice
+    # rather than an empty value so a submitted request replays identically.
+    FieldSpec(
+        key="model_pin",
+        label="Model (expert)",
+        kind=FieldKind.CHOICE,
+        unit=DIMENSIONLESS,
+        default="auto",
+        choices=_PIN_CHOICES,
+    ),
+    # Array backend for the collimated slice's dense grid work. `"auto"` uses CuPy when the
+    # device genuinely supports it and NumPy otherwise; `"cupy"` insists, so a recorded run
+    # either used the GPU or failed loudly rather than quietly reporting CPU numbers. That
+    # check has to be real, not an import test — see `collimated.is_gpu_available`.
+    FieldSpec(
+        key="backend",
+        label="Collimated backend",
+        kind=FieldKind.CHOICE,
+        unit=DIMENSIONLESS,
+        default="auto",
+        choices=("auto", "cupy", "numpy"),
     ),
 )
 

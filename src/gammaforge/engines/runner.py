@@ -39,10 +39,33 @@ class LocalRunner:
         self._cached_sampling_key: tuple[object, ...] | None = None
         self._cached_interaction: InteractionParameters | None = None
 
+    @property
+    def estimate_name(self) -> str:
+        """The catalog name of the estimate engine, without hardcoding it at a call site.
+
+        A frontend labels its estimate run from this rather than writing `"analytical"`,
+        which is the same reason RES095 moved engine enumeration into the catalog.
+        """
+        return estimate_engine().name
+
     def estimate(self, request: CalculationRequest) -> Results:
         """Return the analytical total-yield preview without sampling macroparticles."""
         target = replace(request.target, outputs=(OutputRequest(OutputKind.TOTAL_YIELD),))
         return self._run_estimate(request, target)
+
+    def estimate_requested(self, request: CalculationRequest) -> Results:
+        """Return the analytical engine's full answer to the *requested* outputs.
+
+        The counterpart to :meth:`estimate`, which deliberately narrows to `TOTAL_YIELD`
+        because it runs on every keystroke. This one keeps whatever the caller asked for, so
+        the same engine can also produce a spectra or angular-distribution estimate on
+        demand rather than only a scalar.
+
+        Which outputs actually come back is the analytical engine's decision, not this
+        method's: its model planner refuses a geometry it has no accepted tier for, so
+        asking for something it cannot model raises instead of quietly returning less.
+        """
+        return self._run_estimate(request, request.target)
 
     def _estimate_interaction(self, request: CalculationRequest, target) -> InteractionParameters:
         """Build the bunch-independent interaction the estimate engine evaluates."""
@@ -116,6 +139,27 @@ class LocalRunner:
 
         Returns the engine's Results on success, None on failure.
         """
+        return self.calculate_one_all(engine_name, request, on_status)[0]
+
+    def calculate_one_all(
+        self, engine_name: str, request: CalculationRequest, on_status: StatusCallback | None = None
+    ) -> tuple[Results | None, Results | None]:
+        """Run one engine and return ``(engine_results, estimate_results)``.
+
+        The estimate engine's result used to be computed by `calculate_one` and then thrown
+        away — it was a display overlay, and the caller received only the selected engine's
+        `Results`. Now that the analytical engine produces full output kinds of its own
+        (DER019 `ANGULAR_DISTRIBUTION` and `COLLIMATED_SPECTRUM`), that result is worth
+        keeping: a caller can present it as a run in its own right, badge it as an estimate,
+        and export it alongside the calculated one.
+
+        Returned as a pair rather than folded into a single `Results` so the estimate stays
+        distinguishable — it is a different engine with a different role (RES095), and
+        merging them would erase exactly the provenance the GUI needs to label it.
+
+        The estimate is still produced by the always-present overlay (RES058); this changes
+        only whether the caller may keep it.
+        """
         if engine_name not in self.engines:
             raise ValueError(f"unknown calculation engine: {engine_name}")
 
@@ -124,20 +168,21 @@ class LocalRunner:
 
         # Always run the estimate engine as an overlay (RES058).
         self._overlay(request, results, on_status)
+        estimate_results = results.get(estimate_engine().name)
 
         try:
             interaction = self._interaction(request)
         except Exception as error:
             self.errors[engine_name] = str(error)
             _status(on_status, engine_name, "failed")
-            return None
+            return None, estimate_results
 
         engine = self.engines[engine_name]
         self._run_one(engine_name, lambda engine=engine, params=request.engine_params[engine_name]: engine.run(interaction, params), results, on_status)
 
         if engine_name in self.errors:
-            return None
-        return results.get(engine_name)
+            return None, estimate_results
+        return results.get(engine_name), estimate_results
 
     def _interaction(self, request: CalculationRequest) -> InteractionParameters:
         key = _sampling_key(request)

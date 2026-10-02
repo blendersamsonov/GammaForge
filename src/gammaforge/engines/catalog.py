@@ -31,6 +31,7 @@ from .xigma.engine import XigmaEngine
 
 __all__ = [
     "ENGINES",
+    "SELECTABLE_ROLES",
     "EngineRole",
     "EngineSpec",
     "engine_names",
@@ -46,7 +47,15 @@ class EngineRole(Enum):
 
     #: An ordinary user-selectable calculation engine.
     CALCULATION = "calculation"
-    #: The always-visible analytical preview and result overlay. Never a selectable engine.
+    #: The semi-analytical engine: always-on preview and overlay, **and** selectable in its
+    #: own right. It is both, deliberately. Selectable because comparing an analytical result
+    #: against a calculated one in the same plot is the point of having two independent legs
+    #: (RES095), and hiding it behind an overlay makes that comparison awkward. Still an
+    #: overlay because the estimates panel and the result overlay must keep working whether or
+    #: not it is also selected (RES058).
+    #:
+    #: It is not a `CALCULATION`: it samples nothing, and it must not be interchangeable with
+    #: an engine that does. That distinction is what the GUI's run badge reports.
     ESTIMATE = "estimate"
     #: An internal or validation-only reference: resolvable by name, not offered as a choice.
     REFERENCE = "reference"
@@ -87,16 +96,26 @@ def get_engine(name: str) -> Engine:
     return spec.factory()
 
 
-def selectable_engines() -> dict[str, Engine]:
-    """Return fresh instances of the user-selectable calculation engines, keyed by name.
+#: Roles a frontend may offer as an engine choice. `ESTIMATE` is included so the
+#: semi-analytical engine can be selected and compared directly against a calculated one;
+#: `REFERENCE` is excluded because it exists to validate, not to be chosen for a result.
+SELECTABLE_ROLES: tuple[EngineRole, ...] = (EngineRole.CALCULATION, EngineRole.ESTIMATE)
 
-    This is what a frontend offers as an engine choice; estimate and reference roles are
-    excluded, so no caller has to know which engine a name refers to in order to skip it.
+
+def selectable_engines() -> dict[str, Engine]:
+    """Return fresh instances of the user-selectable engines, keyed by name.
+
+    This is what a frontend offers as an engine choice: the calculation engines plus the
+    semi-analytical estimate. The reference role is excluded, so no caller has to know which
+    engine a name refers to in order to skip it.
+
+    Including the estimate here is what lets it be selected as an engine *and* remain the
+    always-on overlay; the two are independent, and `runner._overlay` is unaffected either way.
     """
     return {
         name: spec.factory()
         for name, spec in ENGINES.items()
-        if spec.role is EngineRole.CALCULATION
+        if spec.role in SELECTABLE_ROLES
     }
 
 

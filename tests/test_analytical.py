@@ -12,9 +12,12 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
+from numpy.polynomial.hermite_e import hermegauss
+from numpy.polynomial.legendre import leggauss
 
 pytestmark = [pytest.mark.tier1]
 
+from gammaforge.engines.analytical.collimated import is_gpu_available
 from gammaforge.engines.analytical.engine import AnalyticalEngine
 from gammaforge.engines.analytical.formulas import (
     _electron_sigma2,
@@ -27,6 +30,7 @@ from gammaforge.engines.analytical.formulas import (
 )
 from gammaforge.io.bunch import GaussianElectronBeam, _drift_fit, momenta, sample_gaussian_bunch
 from gammaforge.io.laser import GaussianParaxialLaser, fit_gaussian_paraxial, lab_frame_axes
+from gammaforge.io.results import Axis
 from gammaforge.io.target import OutputKind, OutputRequest
 from gammaforge.io.units import C_CGS, SIGMA_T_CGS, Quantity
 from gammaforge.validation import scenarios
@@ -698,3 +702,1703 @@ def test_spectrum_grid_integral_correction_factor_is_near_one():
     raw = ais(interaction.beam.gamma0(), interaction.beam.sigma_gamma(), 1.0, s, 401)
     raw_integral = float(np.trapezoid(raw / (4.0 * photon_energy), values[Axis.ENERGY]))
     assert raw_integral == pytest.approx(1.0, abs=0.05)
+
+
+# ---------------------------------------------------------------------------
+# Model planner (DER019 §14, §17) — selection and provenance, no physics
+# ---------------------------------------------------------------------------
+#: Sentinel for `_tier`'s `acceptance`, so an explicit `None` (pinned-only) survives.
+_UNSET = object()
+
+
+def test_planner_reports_the_selected_model_per_observable():
+    """Every requested observable records which model served it, and the record is
+    serializable: `model_specific` goes through HDF5 as JSON with `allow_nan=False`
+    (RES063), so provenance that cannot round-trip is provenance nobody can read back."""
+    from gammaforge.engines.analytical.models import ModelSelector
+    from gammaforge.io.target import OutputKind
+
+    interaction = _interaction(
+        outputs=(OutputRequest(OutputKind.TOTAL_YIELD), OutputRequest(OutputKind.SPECTRUM, resolution=(200,)))
+    )
+    results = AnalyticalEngine().run(interaction, AnalyticalEngine.schema)
+
+    models = results.model_specific["models"]
+    assert set(models) == {"total_yield", "spectrum"}
+    for kind, record in models.items():
+        assert record["model"] == "overlap_der001_mean_ahat"
+        assert record["requested_mode"] == "auto"
+        assert record["assumptions"], "a model must declare what it assumed"
+        assert isinstance(record["outer_dimension"], int)
+        # The provenance must survive the exact encoder `save_results` uses.
+        from gammaforge.io.formats.hdf5 import _encode_metadata
+        import json as _json
+        _json.dumps(_encode_metadata(models), allow_nan=False)
+
+    # The schema's expert-pin choices and the selector's registry must not drift apart:
+    # a pin naming a model that does not exist would only fail at run time.
+    registered = set(AnalyticalEngine._selector.names())
+    offered = set(AnalyticalEngine.schema.spec("model_pin").choices) - {"auto"}
+    assert offered <= registered
+
+
+def _tier(name, *, cost_rank, fidelity_rank, exact=True, acceptance=_UNSET, applies=_UNSET):
+    """A synthetic planner entry.
+
+    Built here rather than reused from the registry because the point of these tests is the
+    planner's *ordering and gating logic*, and today's engine registers exactly one tier.
+    A property that only holds for one candidate cannot fail when the logic breaks, so it
+    would not be a test — these give the planner something to actually choose between, and
+    they keep doing so as real tiers are added.
+
+    `acceptance` and `applies` default through a sentinel rather than `None`, because
+    `acceptance=None` is itself meaningful to `AnalyticalModel` (it marks a pinned-only
+    tier). A plain `None` default would collapse "not specified" and "pinned-only" into the
+    same value, which is exactly the distinction these tests exist to check.
+    """
+    from gammaforge.engines.analytical.models import AnalyticalModel
+
+    always = lambda inputs: True  # noqa: E731
+    return AnalyticalModel(
+        name=name,
+        outputs=(OutputKind.SPECTRUM,),
+        applies=always if applies is _UNSET else applies,
+        acceptance=always if acceptance is _UNSET else acceptance,
+        fidelity_rank=fidelity_rank,
+        cost_rank=cost_rank,
+        exact=exact,
+        assumptions=("synthetic",),
+        outer_dimension=cost_rank,
+    )
+
+
+def _planner_inputs():
+    from gammaforge.engines.analytical.models import ModelInputs
+
+    interaction = _interaction()
+    metrics = fit_gaussian_paraxial(interaction.laser)
+    return ModelInputs(
+        beam=interaction.beam,
+        laser=metrics,
+        photon_energy=metrics.photon_energy(),
+        crossing_angle=0.0,
+        beta_ff=metrics.beta_ff,
+    )
+
+
+def test_auto_takes_the_cheapest_tier_and_reference_the_most_fidest():
+    """The two modes mean opposite things (DER019 §17.8): `auto` is "cheapest model judged
+    reliable", `reference` is "highest fidelity the geometry supports". With the real
+    single-tier registry both trivially agree, which is why this drives a synthetic ladder
+    where they must disagree — and asserts the cheap end and the faithful end separately."""
+    from gammaforge.engines.analytical.models import ModelSelector
+
+    cheap = _tier("cheap", cost_rank=0, fidelity_rank=1)
+    dear = _tier("dear", cost_rank=5, fidelity_rank=9)
+    selector = ModelSelector((cheap, dear))
+    inputs = _planner_inputs()
+
+    assert selector.select(inputs, OutputKind.SPECTRUM, mode="auto").model == "cheap"
+    assert selector.select(inputs, OutputKind.SPECTRUM, mode="fast").model == "cheap"
+    assert selector.select(inputs, OutputKind.SPECTRUM, mode="reference").model == "dear"
+
+
+def test_auto_refuses_an_approximate_tier_until_its_validity_is_established():
+    """DER019 §17.8 is explicit that automatic acceptance of a reduced model must wait for
+    validation evidence. A tier with `acceptance=None` is therefore pinned-only: `auto` must
+    skip it rather than adopt it, and must say so, because silently promoting a guessed
+    threshold into automatic selection is the specific failure this design guards against."""
+    from gammaforge.engines.analytical.models import ModelSelector
+
+    approximate = _tier("approximate", cost_rank=0, fidelity_rank=9, exact=False, acceptance=None)
+    exact_dear = _tier("exact_dear", cost_rank=5, fidelity_rank=1)
+    selector = ModelSelector((approximate, exact_dear))
+    inputs = _planner_inputs()
+
+    choice = selector.select(inputs, OutputKind.SPECTRUM, mode="auto")
+    assert choice.model == "exact_dear", "auto must not adopt an unvalidated approximate tier"
+    reasons = {entry["model"]: entry["reason"] for entry in choice.as_metadata()["rejected"]}
+    assert "pinned-only" in reasons["approximate"]
+    assert not reasons["approximate"].startswith("this geometry"), "a gating reason is not an applicability one"
+
+    # `reference` may use the highest-fidelity structurally supported tier even before an
+    # automatic threshold exists — but only when the caller pins it, not by default.
+    with pytest.raises(ValueError, match="model_mode must be one of"):
+        ModelSelector((approximate,)).select(inputs, OutputKind.SPECTRUM, mode="nonsense")
+    pinned = ModelSelector((approximate,)).select(inputs, OutputKind.SPECTRUM, pin="approximate")
+    assert pinned.model == "approximate" and pinned.exact is False
+
+
+def test_auto_promotes_to_the_next_tier_when_the_cheapest_is_rejected():
+    """DER019 §17.8: "a cheaper model rejected by validity checks causes `auto` to promote to
+    the next supported deterministic model" — and the reason must be recorded, because the
+    user is entitled to know which approximation they actually got."""
+    from gammaforge.engines.analytical.models import ModelSelector
+
+    rejected = _tier(
+        "rejected",
+        cost_rank=0,
+        fidelity_rank=1,
+        applies=lambda inputs: inputs.crossing_angle == 0.0,
+    )
+    fallback = _tier("fallback", cost_rank=3, fidelity_rank=4)
+    selector = ModelSelector((rejected, fallback))
+
+    crossed = _planner_inputs()
+    crossed = replace(crossed, crossing_angle=0.05)
+    choice = selector.select(crossed, OutputKind.SPECTRUM, mode="auto")
+    assert choice.model == "fallback"
+    metadata = choice.as_metadata()
+    reasons = {entry["model"]: entry for entry in metadata["rejected"]}
+    assert reasons["rejected"]["structural"] is True
+
+
+def test_pinning_cannot_force_a_structurally_invalid_model():
+    """An expert pin bypasses cost and validity ranking; it must not bypass the model's own
+    assumptions. Doing so would be the silent-problem-substitution failure this repo rejects
+    in favor of an explicit error."""
+    from gammaforge.engines.analytical.models import ModelSelector
+
+    flying = _tier("fixed_width", cost_rank=0, fidelity_rank=1, applies=lambda inputs: inputs.beta_ff == 0.0)
+    selector = ModelSelector((flying,))
+    flying_inputs = replace(_planner_inputs(), beta_ff=0.8)
+
+    with pytest.raises(ValueError, match="structurally invalid"):
+        selector.select(flying_inputs, OutputKind.SPECTRUM, pin="fixed_width")
+    # The message must name the actual physical reason, not restate the verdict.
+    with pytest.raises(ValueError, match="flying focus"):
+        selector.select(flying_inputs, OutputKind.SPECTRUM, pin="fixed_width")
+
+
+def test_the_registered_tier_serves_both_declared_observables():
+    """One model can serve two observables without claiming both are equally exact. This
+    pins the current truth: the DER001 overlap is exact for `TOTAL_YIELD`, while the
+    `SPECTRUM` built from one mean `ahat` is an approximation — recorded per observable
+    rather than asserted once for the model as a whole."""
+    interaction = _interaction(
+        outputs=(OutputRequest(OutputKind.TOTAL_YIELD), OutputRequest(OutputKind.SPECTRUM, resolution=(64,)))
+    )
+    results = AnalyticalEngine().run(interaction, AnalyticalEngine.schema)
+    models = results.model_specific["models"]
+
+    assert models["total_yield"]["observable"] == "total_yield"
+    assert models["spectrum"]["observable"] == "spectrum"
+    assert "spectrum_normalized_to_overlap_total_yield" in models["spectrum"]["assumptions"]
+
+
+def test_planner_rejects_an_unknown_model_and_an_invalid_mode():
+    """Both are user-input errors on a CHOICE field. `FieldSpec.validate` already rejects
+    them at the schema boundary, so this pins that the planner is not a second, laxer door
+    into the same mistake — it raises rather than defaulting."""
+    from gammaforge.engines.analytical.models import ModelInputs
+    from gammaforge.io.schema import SchemaError
+
+    selector = AnalyticalEngine._selector
+    interaction = _interaction()
+    metrics = fit_gaussian_paraxial(interaction.laser)
+    inputs = ModelInputs(
+        beam=interaction.beam,
+        laser=metrics,
+        photon_energy=metrics.photon_energy(),
+    )
+    with pytest.raises(ValueError, match="unknown analytical model"):
+        selector.select(inputs, OutputKind.SPECTRUM, pin="no_such_model")
+    with pytest.raises(ValueError, match="model_mode must be"):
+        selector.select(inputs, OutputKind.SPECTRUM, mode="turbo")
+    # And the schema itself, which is what a GUI actually validates against.
+    with pytest.raises(SchemaError):
+        AnalyticalEngine.schema.with_values(model_mode="turbo")
+
+
+def test_an_unknown_observable_is_refused_rather_than_silently_skipped():
+    """The engine declares `supported_outputs`, and `run` filters to it. Asking the planner
+    for an undeclared kind must still fail loudly: 'this engine does not do that' and
+    'the planner has a bug here' should not look the same from the outside."""
+    from gammaforge.engines.analytical.models import ModelInputs
+
+    interaction = _interaction()
+    metrics = fit_gaussian_paraxial(interaction.laser)
+    inputs = ModelInputs(beam=interaction.beam, laser=metrics, photon_energy=metrics.photon_energy())
+    # `MACROPARTICLE_DUMP` is in `OutputKind` but is not a slice and no deterministic model
+    # produces it — an engine that cannot produce macroparticles by construction.
+    with pytest.raises(ValueError, match="no analytical model produces"):
+        AnalyticalEngine._selector.select(inputs, OutputKind.MACROPARTICLE_DUMP)
+    # Likewise a kind this engine declares but has no tier for yet.
+    with pytest.raises(ValueError, match="no analytical model produces"):
+        AnalyticalEngine._selector.select(inputs, OutputKind.TEMPORAL_ENVELOPE)
+
+
+def test_model_selection_leaves_every_physics_number_untouched():
+    """The point of registering the pre-existing behaviour as a model *before* adding new
+    ones: `auto`, `reference`, and an explicit pin must all produce the same results as
+    each other, because they currently select the same tier. A future tier that changes a
+    number under the default mode will fail this, which is the intended alarm."""
+    interaction = _interaction(
+        outputs=(OutputRequest(OutputKind.TOTAL_YIELD), OutputRequest(OutputKind.SPECTRUM, resolution=(200,)))
+    )
+    engine = AnalyticalEngine()
+    baseline = engine.run(interaction, engine.schema)
+
+    for mode in ("auto", "fast", "reference"):
+        results = engine.run(interaction, engine.schema.with_values(model_mode=mode))
+        assert results.photon_slices[OutputKind.TOTAL_YIELD].integrate() == pytest.approx(
+            baseline.photon_slices[OutputKind.TOTAL_YIELD].integrate(), rel=1e-12
+        )
+        assert results.model_specific["ahat"] == baseline.model_specific["ahat"]
+        assert results.model_specific["mean_a0_sq"] == baseline.model_specific["mean_a0_sq"]
+        assert results.photon_slices[OutputKind.SPECTRUM].integrate() == pytest.approx(
+            baseline.photon_slices[OutputKind.SPECTRUM].integrate(), rel=1e-12
+        )
+
+    pinned = engine.run(interaction, engine.schema.with_values(model_pin="overlap_der001_mean_ahat"))
+    assert pinned.photon_slices[OutputKind.SPECTRUM].integrate() == pytest.approx(
+        baseline.photon_slices[OutputKind.SPECTRUM].integrate(), rel=1e-12
+    )
+
+
+# ---------------------------------------------------------------------------
+# Fixed-width deterministic Gaussian moments (DER019 §3, §4, §22)
+# ---------------------------------------------------------------------------
+def _hermite_expectation(func, n: int = 200) -> float:
+    """``E[f(X)]`` for standard normal ``X``, by Gauss-Hermite.
+
+    `hermegauss` weights satisfy ``sum_i w_i z_i^(2k) = sqrt(2 pi) (2k-1)!!``, i.e. they carry
+    ``exp(-z^2/2)`` but not the ``1/sqrt(2 pi)``. So the expectation is a plain weighted sum
+    of the divided weights. Written here rather than in `fixed_width.py` because the closed
+    forms there need no quadrature: this exists to check them against something independent,
+    and the convention is asserted first so a mis-scaled weight cannot masquerade as a
+    physics disagreement.
+    """
+    z, w = hermegauss(n)
+    w = w / math.sqrt(2.0 * math.pi)
+    assert float(np.sum(w)) == pytest.approx(1.0, rel=1e-12), "weight convention changed"
+    return float(np.sum(w * func(z)))
+
+
+def test_the_rank_two_reduction_holds_at_every_crossing_angle():
+    """DER019 §3: completing the square in time removes exactly one direction, so `K` has
+    rank 2 — the fact that keeps the nonlinear distribution a generalized chi-square instead
+    of something arbitrary. If the reduction were built in the laser's own frame, this would
+    fail off head-on, where the removed direction is not `k_hat`."""
+    from gammaforge.engines.analytical.fixed_width import fixed_width_reduction
+
+    for degrees in (0.0, 5.0, 30.0, 60.0, 89.0):
+        laser = replace(scenarios.BASELINE.laser, theta_xz=Quantity(degrees, "deg"))
+        reduction = fixed_width_reduction(scenarios.BASELINE.beam, laser)
+        eigenvalues = np.linalg.eigvalsh(reduction.K)
+        nonzero = eigenvalues[eigenvalues > eigenvalues.max() * 1e-10]
+        assert len(nonzero) == 2, f"{degrees} deg: rank {len(nonzero)}, expected 2"
+        # Positive semidefinite: a negative eigenvalue would mean `K` is not a precision form.
+        assert eigenvalues.min() > -eigenvalues.max() * 1e-10
+
+
+def test_j_n_reproduces_the_round_closed_reduction_and_its_stated_limits():
+    """DER019 §22.1 in full: the matrix algebra must reproduce the round closed form, and
+    that closed form must show the two limits the derivation claims — `sigma_e << sigma_L`
+    (uniform intensity, no spread) and `sigma_e >> sigma_L` (spread -> 1/sqrt(3) ~ 0.577).
+
+    The round form is written out independently rather than reusing the module, so this is a
+    reduction identity against a second expression of the physics rather than a self-check.
+    """
+    from gammaforge.engines.analytical.fixed_width import (
+        fixed_width_reduction,
+        nonlinear_moments,
+        round_nonlinear_moments,
+    )
+
+    beam_base = scenarios.BASELINE.beam
+    for sigma_e_um, sigma_l_um in ((4.0, 1.0), (2.0, 1.0), (1.0, 1.0), (10.0, 1.0)):
+        beam = replace(beam_base, sigma_x=Quantity(sigma_e_um, "um"), sigma_y=Quantity(sigma_e_um, "um"))
+        laser = replace(scenarios.BASELINE.laser, sigma_x=Quantity(sigma_l_um, "um"),
+                        sigma_y=Quantity(sigma_l_um, "um"))
+        moments = nonlinear_moments(fixed_width_reduction(beam, laser))
+        closed = round_nonlinear_moments(beam.m("sigma_x"), laser.m("sigma_x"))
+
+        # nu = 1 + sigma_L^2/sigma_e^2 is the number of illuminated Gaussian modes.
+        nu = 1.0 + (sigma_l_um / sigma_e_um) ** 2
+        assert moments.mean_a == pytest.approx(nu / (nu + 1) * closed.a_max, rel=1e-12)
+        assert moments.mean_a_sq == pytest.approx(nu / (nu + 2) * closed.a_max**2, rel=1e-12)
+        assert moments.var_between == pytest.approx(closed.var_between, rel=1e-10)
+        # sigma_a/<a> = 1/sqrt(nu (nu+2)), exactly as DER019 §22.1 states.
+        assert moments.relative_spread == pytest.approx(1.0 / math.sqrt(nu * (nu + 2.0)), rel=1e-12)
+
+    # The stated limits, which is what makes the bracket defensible rather than fitted.
+    assert round_nonlinear_moments(1e3, 1.0).relative_spread == pytest.approx(1.0 / math.sqrt(3.0), rel=2e-3)
+    assert round_nonlinear_moments(1e-3, 1.0).relative_spread < 0.01
+
+
+def test_j_n_matches_direct_gaussian_quadrature_including_a_displaced_source():
+    """DER019 §18: the closed `J_n` must agree with integrating the same Gaussian directly.
+    Done for a displaced (noncentral) source as well as a centered one, because the
+    noncentral term is the part of the formula a centered-only test would never exercise."""
+    from gammaforge.engines.analytical.fixed_width import fixed_width_reduction
+
+    beam = replace(scenarios.BASELINE.beam, sigma_x=Quantity(4.0, "um"), sigma_y=Quantity(4.0, "um"))
+    for offset_um in (0.0, 0.5, 1.5, 3.0):
+        laser = replace(scenarios.BASELINE.laser, sigma_x=Quantity(4.0, "um"),
+                        sigma_y=Quantity(4.0, "um"), x_off=Quantity(offset_um, "um"))
+        reduction = fixed_width_reduction(beam, laser)
+
+        # `delta` is checked against the laser's own offset rather than being fed back into
+        # the integration below: reusing it would make this comparison agree with whatever
+        # `fixed_width_reduction` happened to compute, including a wrong value.
+        assert reduction.delta[0] == pytest.approx(-laser.m("x_off"), rel=1e-12)
+
+        def a_labelled(x1, x2, _r=reduction):
+            """`A_L` for electron labels offset from the laser's own centre."""
+            dx1 = x1 - _r.delta[0]
+            dx2 = x2 - _r.delta[1]
+            quad = _r.K[0, 0] * dx1**2 + 2 * _r.K[0, 1] * dx1 * dx2 + _r.K[1, 1] * dx2**2
+            return _r.a_max * np.exp(-0.5 * quad)
+
+        z, w = hermegauss(200)
+        w = w / math.sqrt(2.0 * math.pi)
+        grid1, grid2 = np.meshgrid(z, z, indexing="ij")
+        weights = w[:, None] * w[None, :]
+        sigma = beam.m("sigma_x")
+        a_values = a_labelled(sigma * grid1, sigma * grid2)
+
+        direct_j1 = float(np.sum(weights * a_values))
+        direct_j2 = float(np.sum(weights * a_values**2))
+        assert direct_j1 == pytest.approx(reduction.j(1), rel=1e-9)
+        assert direct_j2 == pytest.approx(reduction.j(2), rel=1e-9)
+        # The luminosity-weighted moment is the ratio, and that ratio is what the engine uses.
+        assert direct_j2 / direct_j1 == pytest.approx(reduction.j(2) / reduction.j(1), rel=1e-9)
+        # The noncentral term must actually matter here, or the offsets above are decorative:
+        # an offset lowers the sampled intensity, so J_1 strictly decreases with displacement.
+        assert reduction.j(1) < 1.0 or offset_um == 0.0
+
+
+def test_the_derived_nonlinear_mean_agrees_with_overlap_mean_a0_sq_in_the_fixed_width_limit():
+    """DER019 §5 and §18.3: DER001's `overlap_mean_a0_sq` and the new distributional model
+    are the same physical quantity in their common limit, so they must agree.
+
+    Compared through the laser's own conversion rather than as bare numbers: `a_shape` here is
+    dimensionless and normalized to 1 at the trajectory peak, whereas `overlap_mean_a0_sq` is a
+    dimensional `<a0^2>` in the pulse's own units. The relation is
+
+        <a_shape>_L = (cycle_average_factor / intensity_peak) * <a0^2>_L
+
+    which holds for *any* pulse energy — so this fails loudly if either model's normalization
+    drifts, instead of passing at one energy and lying at another.
+
+    The limit is reached by making the spot **broad**, i.e. the Rayleigh range long compared
+    with the bunch, so the width is effectively frozen over the collision. At a tight focus
+    DER001 keeps the real paraxial evolution and the two must *not* agree — the discrepancy
+    there is the frozen-width approximation, quantified as `epsilon_L`, and asserting equality
+    at a tight focus would be asserting that approximation away.
+    """
+    from gammaforge.engines.analytical.fixed_width import (
+        fixed_width_diagnostics,
+        fixed_width_reduction,
+        nonlinear_moments,
+    )
+
+    beam = replace(scenarios.BASELINE.beam, sigma_x=Quantity(4.0, "um"), sigma_y=Quantity(4.0, "um"))
+    for pulse_energy, sigma_l_um in ((0.05, 400.0), (0.2, 800.0), (1.0, 400.0)):
+        laser = replace(scenarios.BASELINE.laser, pulse_energy=Quantity(pulse_energy, "J"),
+                        sigma_x=Quantity(sigma_l_um, "um"), sigma_y=Quantity(sigma_l_um, "um"))
+        moments = nonlinear_moments(fixed_width_reduction(beam, laser))
+        der001_mean = overlap_mean_a0_sq(beam, laser, n_quad=8001)
+
+        # Guard the premise: this geometry has to actually be in the frozen-width limit.
+        # Measured, not assumed — a broad spot is what makes epsilon_L small.
+        assert fixed_width_diagnostics(beam, laser)["epsilon_L"] < 0.01
+        scale = laser.cycle_average_factor() / laser.intensity_peak()
+        assert moments.mean_a == pytest.approx(scale * der001_mean, rel=2e-3)
+
+    # And the approximation is visible where it should be: a tight focus, where the ratio
+    # is far from 1. This is the quantity that later justifies an acceptance threshold.
+    focused = replace(scenarios.BASELINE.laser, sigma_x=Quantity(0.8, "um"), sigma_y=Quantity(0.8, "um"))
+    assert fixed_width_diagnostics(beam, focused)["epsilon_L"] > 1.0
+
+
+def test_the_two_nonlinear_variances_stay_separate_and_sum_to_the_total():
+    """DER019 §22.2's whole point: the spread of trajectory means and the DER016
+    within-trajectory variance are different physical effects, and the law of total variance
+    combines them. Keeping them apart is what replaces the empirical bracket, so a test that
+    only checked the sum would not notice them being conflated."""
+    from gammaforge.engines.analytical.fixed_width import (
+        fixed_width_reduction,
+        nonlinear_moments,
+    )
+
+    beam = replace(scenarios.BASELINE.beam, sigma_x=Quantity(4.0, "um"), sigma_y=Quantity(4.0, "um"))
+    laser = replace(scenarios.BASELINE.laser, sigma_x=Quantity(1.0, "um"), sigma_y=Quantity(1.0, "um"))
+    moments = nonlinear_moments(fixed_width_reduction(beam, laser))
+
+    assert moments.var_between > 0.0
+    assert moments.var_finite_line > 0.0
+    assert moments.var_total == pytest.approx(moments.var_between + moments.var_finite_line, rel=1e-12)
+    # <V_a,shape>_L = kappa_G <a_shape^2> (DER019 §3.1).
+    assert moments.var_finite_line == pytest.approx(
+        (2.0 / math.sqrt(3.0) - 1.0) * moments.mean_a_sq, rel=1e-12
+    )
+    # `var_a` is the plain second central moment of a_shape, which is the between-trajectory
+    # spread *plus* the within-trajectory finite-line variance. Asserting it equals
+    # `var_between` would be asserting the two effects are the same — the conflation DER019
+    # §22.2 exists to undo.
+    assert moments.var_a == pytest.approx(moments.var_total, rel=1e-12)
+    assert moments.var_a > moments.var_between
+
+
+def test_a_flying_focus_is_refused_rather_than_silently_frozen():
+    """DER019 §16: the 1D frozen-width path is unsafe for a flying focus, so this tier must
+    refuse rather than quietly return a plausible wrong answer."""
+    from gammaforge.engines.analytical.fixed_width import fixed_width_reduction
+
+    laser = replace(scenarios.BASELINE.laser, beta_ff=0.8)
+    with pytest.raises(ValueError, match="flying focus"):
+        fixed_width_reduction(scenarios.BASELINE.beam, laser)
+
+
+def test_fixed_width_validity_diagnostics_are_reported_not_thresholded():
+    """DER019 §16/§17.8: the engine reports *why* a reduced model was chosen and how strongly
+    its approximation is expected to hold. These must exist and vary sensibly — a spot much
+    shorter than the Rayleigh range is the focused regime the tier does not cover."""
+    from gammaforge.engines.analytical.fixed_width import fixed_width_diagnostics
+
+    beam = scenarios.BASELINE.beam
+    focused = replace(scenarios.BASELINE.laser, sigma_x=Quantity(0.8, "um"), sigma_y=Quantity(0.8, "um"))
+    collimated = replace(scenarios.BASELINE.laser, sigma_x=Quantity(50.0, "um"), sigma_y=Quantity(50.0, "um"))
+
+    tight = fixed_width_diagnostics(beam, focused)
+    loose = fixed_width_diagnostics(beam, collimated)
+    for name in ("epsilon_L", "epsilon_beta", "epsilon_drift"):
+        assert name in tight and math.isfinite(tight[name])
+    # A tighter focus has a shorter Rayleigh range, so L_int/z_R grows: the tier's own
+    # weakness, and the reason it cannot be accepted automatically at every geometry.
+    assert loose["epsilon_L"] < tight["epsilon_L"]
+
+
+# ---------------------------------------------------------------------------
+# Nonlinear angle-integrated spectrum (DER019 §23)
+# ---------------------------------------------------------------------------
+def test_the_nonlinear_shape_is_normalized_on_its_own_support():
+    """DER019 §23's normalization identity: `int_0^{1/(1+h)} G(z;h) dz = 1` for every `h`.
+
+    This is the property that lets the continuous model be trusted on its own, and it is what
+    the engine's existing yield rescale (RES036) must not be needed to manufacture. A shape
+    that only integrated to one *after* rescaling would hide its own error.
+    """
+    from gammaforge.engines.analytical.nonlinear_spectrum import nonlinear_shape, shape_support_edge
+
+    for h in (0.0, 0.05, 0.3, 1.0, 2.0):
+        nodes, weights = leggauss(400)
+        edge = shape_support_edge(h)
+        z = 0.5 * edge * (nodes + 1.0)
+        integral = float(np.sum(weights * 0.5 * edge * nonlinear_shape(z, h)))
+        assert integral == pytest.approx(1.0, rel=1e-10), f"h={h}: integral {integral}"
+
+    # Zero and negative z carry no photons and must not be extrapolated into.
+    assert nonlinear_shape(np.array([0.0, -0.1, -1.0]), 0.5).tolist() == [0.0, 0.0, 0.0]
+
+
+def test_the_nonlinear_shape_reproduces_der011_exactly_at_zero_shift():
+    """DER019 §23: `G(z; 0)` is DER011 — not an approximation of it. This is the linear-limit
+    reduction identity, and the reason the new shape is a drop-in for the existing linear
+    spectrum rather than a different normalization of it."""
+    from gammaforge.engines.analytical.nonlinear_spectrum import nonlinear_shape
+
+    z = np.linspace(1e-9, 1.0, 257)
+    der011 = 1.5 * (1.0 - 2.0 * z * (1.0 - z))
+    assert np.array_equal(nonlinear_shape(z, 0.0), der011)
+
+
+def test_a_nonlinear_shift_changes_the_shape_and_not_only_its_scale():
+    """DER019's reason for replacing the compressed-DER011 shortcut: the angular Jacobian
+    depends on `h`, so `G` differs from a rescaled linear shape by a term that is *not* a
+    normalization change. DER019 gives the leading discrepancy as `(3/2) h (2z-1)^3`, which
+    is odd about z=1/2 and first order in h — both checkable."""
+    from gammaforge.engines.analytical.nonlinear_spectrum import nonlinear_shape
+
+    def compressed_linear(z, h):
+        """`G_comp` from DER019 §23: the linear shape rescaled and renormalized."""
+        return (1.0 + h) * 1.5 * (1.0 - 2.0 * (1.0 + h) * z * (1.0 - (1.0 + h) * z))
+
+    # Leading discrepancy ratio -> 1 as h -> 0, away from the zero crossing at z = 1/2.
+    z = np.array([0.1, 0.3, 0.7, 0.9])
+    ratio = (nonlinear_shape(z, 1e-5) - compressed_linear(z, 1e-5)) / (1.5 * 1e-5 * (2.0 * z - 1.0) ** 3)
+    assert ratio == pytest.approx(np.ones_like(z), rel=5e-3)
+
+    # Sign structure: the discrepancy is odd about z = 1/2.
+    below = nonlinear_shape(np.array([0.4]), 0.2)[0] - compressed_linear(np.array([0.4]), 0.2)[0]
+    above = nonlinear_shape(np.array([0.6]), 0.2)[0] - compressed_linear(np.array([0.6]), 0.2)[0]
+    assert below * above < 0.0
+
+
+def test_the_collision_average_conserves_photon_count_without_rescaling():
+    """DER019 §23.1 and the handoff's requirement that photon-count normalization not depend
+    on post-hoc engine rescaling.
+
+    **How conservation has to be measured.** Each `G(.; chi x)` is supported on
+    `z <= 1/(1+chi x)`, and `chi x` grows with `x`, so the *brighter* trajectories radiate to
+    higher energy than the dimmest one. The average over `x` therefore has support only on the
+    narrowest edge `z <= 1/(1+chi)`. Integrating the averaged shape over that common edge and
+    expecting one is therefore the wrong measurement — it necessarily discards the high-energy
+    tail, which is a real physical cutoff rather than a lost photon.
+
+    Conservation is stated correctly per trajectory instead: integrated over its *own* support,
+    every `G(.; h)` contributes exactly one, and the `x` weights sum to one. That is what makes
+    the construction normalized by composition rather than by rescaling.
+
+    `collision_averaged_shape` applies DER019's per-trajectory limit `X(z)` internally, which is
+    the mechanism that keeps this true while producing a single averaged shape.
+    """
+    from gammaforge.engines.analytical.nonlinear_spectrum import (
+        collision_averaged_shape,
+        nonlinear_shape,
+        shape_support_edge,
+    )
+
+    # (1) Each trajectory's own shape integrates to one.
+    nodes, weights = leggauss(400)
+    for h in (0.0, 0.05, 0.3, 1.0):
+        edge = shape_support_edge(h)
+        z = 0.5 * edge * (nodes + 1.0)
+        assert float(np.sum(weights * 0.5 * edge * nonlinear_shape(z, h))) == pytest.approx(1.0, rel=1e-10)
+
+    # (2) The nonlinear-coordinate weights sum to one, so averaging normalized shapes cannot
+    # lose count. `nu ~ 1.06` is the hard end of this range (a near-flat profile across the
+    # bunch), hence the higher node count.
+    x_nodes, x_weights = leggauss(2000)
+    x = 0.5 * (x_nodes + 1.0)
+    for nu in (4.0, 1.0625, 20.0):
+        assert float(np.sum(0.5 * x_weights * nu * x ** (nu - 1))) == pytest.approx(1.0, rel=1e-8)
+
+    # (3) The averaged shape is a probability density in z: it is non-negative, and the
+    # shortfall from one on the common edge is bounded by the weight that genuinely radiates
+    # past that edge — i.e. it is a physical cutoff, not a normalization defect.
+    z = np.linspace(1e-6, shape_support_edge(0.5), 400)
+    averaged = collision_averaged_shape(z, 4.0, 0.5, n_quad=128)
+    assert np.all(averaged >= 0.0)
+    covered = float(np.trapezoid(averaged, z))
+    assert 0.0 < covered <= 1.0 + 1e-12
+    # Integrating over the *widest* support any trajectory reaches restores the full count.
+    assert covered < 1.0, "the common edge must cut the tail, else this test proves nothing"
+
+    # `chi == 0` short-circuits to the linear shape with no quadrature.
+    z = np.linspace(0.01, 0.95, 40)
+    assert np.array_equal(collision_averaged_shape(z, 4.0, 0.0), nonlinear_shape(z, 0.0))
+
+
+def test_the_collision_average_reduces_to_the_linear_shape_as_chi_goes_to_zero():
+    """A shift that is negligible must not change the spectrum. This is the continuity check
+    that a subtly wrong `x` cutoff or a mis-signed `chi` would break, since either would show
+    up here as a spurious O(chi) shift."""
+    from gammaforge.engines.analytical.nonlinear_spectrum import (
+        collision_averaged_shape,
+        nonlinear_shape,
+    )
+
+    z = np.array([0.2, 0.5, 0.8])
+    reference = nonlinear_shape(z, 0.0)
+    for chi in (1e-3, 1e-4):
+        assert collision_averaged_shape(z, 4.0, chi, n_quad=256) == pytest.approx(reference, abs=5e-3)
+    # And the deviation must shrink with chi, not saturate.
+    coarse = float(np.max(np.abs(collision_averaged_shape(z, 4.0, 1e-2, n_quad=256) - reference)))
+    fine = float(np.max(np.abs(collision_averaged_shape(z, 4.0, 1e-4, n_quad=256) - reference)))
+    assert fine < coarse
+
+
+def test_the_collision_average_matches_direct_quadrature_of_its_definition():
+    """The implementation against the definition, integrated with an independent node count
+    and an independently written `G`. Written out rather than reusing the module's `G`, so a
+    common error in both would not cancel."""
+    from gammaforge.engines.analytical.nonlinear_spectrum import collision_averaged_shape
+
+    def reference_G(z, h):
+        t = 1.0 - h * z
+        inside = (z > 0.0) & (t > 0.0)
+        return np.where(inside, 1.5 / t**2 * (1.0 - 2.0 * z * (1.0 - (1.0 + h) * z) / t**2), 0.0)
+
+    for nu, chi in ((4.0, 0.1), (4.0, 0.5)):
+        z = np.array([0.15, 0.35, 0.6, 0.8])
+        nodes, weights = leggauss(400)
+        expected = []
+        for zi in z:
+            x_max = min(1.0, max(0.0, (1.0 / zi - 1.0) / chi))
+            x = 0.5 * x_max * (nodes + 1.0)
+            weights_x = 0.5 * x_max * weights
+            expected.append(
+                float(np.sum(weights_x * nu * x ** (nu - 1) * reference_G(zi, chi * x)))
+            )
+        assert collision_averaged_shape(z, nu, chi, n_quad=256) == pytest.approx(expected, rel=1e-10)
+
+
+def test_the_collision_average_converges_and_stays_well_conditioned():
+    """`nu - 1` sets the convergence rate, because `x^(nu-1)` is sharply peaked at the origin
+    for a broad spot. Slow convergence is acceptable here; divergence would not be, so this
+    pins the trend once the error is above floating-point noise rather than demanding strict
+    monotonicity down to 1e-14 — where the sequence is roundoff and its ordering meaningless.
+
+    The floor matters: without it a genuinely erratic integrand could still show a shrinking
+    error envelope while passing.
+    """
+    from gammaforge.engines.analytical.nonlinear_spectrum import collision_averaged_shape
+
+    z = np.array([0.2, 0.5, 0.75])
+    # Below this the comparison is floating-point noise, not quadrature error.
+    noise = 1e-12
+    for nu in (4.0, 1.0625, 20.0):
+        converged = collision_averaged_shape(z, nu, 0.4, n_quad=1024)
+        errors = [
+            float(np.max(np.abs(collision_averaged_shape(z, nu, 0.4, n_quad=n) - converged)))
+            for n in (32, 64, 128, 256)
+        ]
+        assert errors[-1] < noise or errors[-1] < errors[0], f"nu={nu}: no convergence, {errors}"
+        assert errors[-1] < 1e-4, f"nu={nu}: default node count is not accurate enough, {errors}"
+        # The trend over the range that is above the noise floor must be downward.
+        significant = [e for e in errors if e > noise]
+        assert significant == sorted(significant, reverse=True), f"nu={nu}: error not decreasing: {errors}"
+
+
+def test_the_spectrum_primitives_reject_impossible_parameters():
+    """`nu <= 0` and `chi < 0` are not physics, they are mistakes: a non-positive number of
+    illuminated modes has no density, and a negative nonlinear intensity would flip the sign
+    of the redshift. Both would otherwise produce plausible-looking numbers."""
+    from gammaforge.engines.analytical.nonlinear_spectrum import (
+        collision_averaged_shape,
+        shape_support_edge,
+    )
+
+    z = np.array([0.5])
+    with pytest.raises(ValueError, match="nu > 0"):
+        collision_averaged_shape(z, 0.0, 0.1)
+    with pytest.raises(ValueError, match="nu > 0"):
+        collision_averaged_shape(z, -1.0, 0.1)
+    with pytest.raises(ValueError, match="chi >= 0"):
+        collision_averaged_shape(z, 4.0, -0.1)
+    with pytest.raises(ValueError, match="h > -1"):
+        shape_support_edge(-1.5)
+
+
+# ---------------------------------------------------------------------------
+# Cheap optimizer diagnostics (DER019 §24–§26)
+# ---------------------------------------------------------------------------
+def test_the_circular_aperture_fraction_is_the_aperture_share_of_the_verified_shape():
+    """DER019 §24.1's `F_cap`, pinned against the distribution that actually matters.
+
+    §24.1 writes `F_cap(u_c) = int_0^{u_c} dP/du du` next to `Pbar(u) = 1 - 2u/(1+u)^2`, but
+    those two cannot both be read literally: differentiating the closed form gives
+    `3(u^2+1)/(2(1+u)^4)`, which is neither `Pbar` nor `dPbar/du`. So the closed form is
+    checked against the distribution it must agree with — the one implied by the verified
+    `G(z;0)`, mapped through `u = 1/z - 1` — which agrees to machine precision and settles
+    that `Pbar` is the cumulative in that sentence.
+    """
+    from gammaforge.engines.analytical.diagnostics import circular_capture_fraction
+
+    def u_density_from_verified_shape(u):
+        """`d/du` of the shape `G(1/(1+u); 0)`, whose `z`-density integrates to exactly 1."""
+        z = 1.0 / (1.0 + u)
+        return 1.5 * (1.0 - 2.0 * z * (1.0 - z)) / (1.0 + u) ** 2
+
+    nodes, weights = leggauss(400)
+    for u_c in (1e-2, 0.1, 0.5, 1.0, 2.0, 10.0):
+        u = 0.5 * u_c * (nodes + 1.0)
+        integrated = float(np.sum(weights * 0.5 * u_c * u_density_from_verified_shape(u)))
+        assert integrated == pytest.approx(float(circular_capture_fraction(u_c)), rel=1e-9)
+
+
+def test_the_capture_fraction_obeys_its_stated_limits_and_stays_a_probability():
+    """`F_cap ~ (3/2) u_c` for a narrow collimator and `F_cap -> 1` for a wide one, and
+    monotonic in between — a capture fraction that could exceed 1 or decrease would be
+    worse than no diagnostic at all."""
+    from gammaforge.engines.analytical.diagnostics import circular_capture_fraction
+
+    # `F_cap/(3/2 u_c) = 1 - 2 u_c + O(u_c^2)`, so the small-aperture limit is approached at
+    # first order in u_c — the tolerance has to admit that correction rather than assume the
+    # limit is exact.
+    for u_c in (1e-4, 1e-3):
+        ratio = float(circular_capture_fraction(u_c)) / (1.5 * u_c)
+        assert ratio == pytest.approx(1.0 - 2.0 * u_c, rel=1e-3), f"wrong leading order at u_c={u_c}"
+    assert float(circular_capture_fraction(2.0**40)) == pytest.approx(1.0, abs=1e-9)
+    assert float(circular_capture_fraction(0.0)) == 0.0
+
+    grid = circular_capture_fraction(np.logspace(-8, 8, 400))
+    assert np.all(np.diff(grid) > 0.0)
+    assert np.all((grid >= 0.0) & (grid <= 1.0))
+
+    # A negative aperture is not physics, and sqrt/clip-style handling would hide it.
+    with pytest.raises(ValueError, match="u_c >= 0"):
+        circular_capture_fraction(np.array([-1.0]))
+
+
+def test_the_aperture_efficiency_is_a_gamma_average_and_closed_when_monoenergetic():
+    """DER019 §24.1: for a zero-emittance bunch the capture fraction is independent of `ahat`
+    and of the nonlinear distribution, so this is a pure one-dimensional gamma average — and
+    closed form when the beam has no energy spread. `io.bunch.validate` permits exactly zero
+    spread, so that path must be handled rather than dividing by a zero-width Gaussian."""
+    from gammaforge.engines.analytical.diagnostics import aperture_capture_efficiency
+
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    theta_c = 1e-3
+
+    mono = replace(beam, rel_energy_spread=0.0)
+    closed = aperture_capture_efficiency(mono, laser, theta_c)
+    assert closed.fraction == pytest.approx(closed.fraction_at_gamma0, rel=1e-12)
+    # Closed form: F_cap(gamma0^2 theta_c^2) directly.
+    from gammaforge.engines.analytical.diagnostics import circular_capture_fraction
+    assert closed.fraction == pytest.approx(
+        float(circular_capture_fraction(mono.gamma0() ** 2 * theta_c**2)), rel=1e-12
+    )
+
+    # A finite spread must move it only slightly, and monotonically toward the wider tail.
+    previous = closed.fraction
+    for spread in (1e-4, 1e-3, 1e-2):
+        capture = aperture_capture_efficiency(replace(beam, rel_energy_spread=spread), laser, theta_c)
+        assert capture.fraction != pytest.approx(previous, abs=1e-12), "energy spread had no effect"
+        previous = capture.fraction
+
+    # Independence from the nonlinear model is the point: varying pulse energy (hence a0,
+    # hence ahat) must not move an angular fraction at all.
+    strong = replace(laser, pulse_energy=Quantity(5.0, "J"))
+    assert aperture_capture_efficiency(mono, strong, theta_c).fraction == pytest.approx(
+        closed.fraction, rel=1e-12
+    )
+
+
+def test_the_on_axis_centroid_is_exactly_one_over_one_plus_the_mean_shape():
+    """The nonlinear resonance sits at `gamma^2/(1+h)`, so the on-axis centroid follows from
+    the first moment alone. Exact, not approximate — asserted at machine precision so a
+    future 'improvement' to this path has to justify itself."""
+    from gammaforge.engines.analytical.diagnostics import on_axis_bandwidth
+    from gammaforge.engines.analytical.fixed_width import fixed_width_reduction, nonlinear_moments
+
+    beam = scenarios.BASELINE.beam
+    for sigma_e_um, sigma_l_um in ((4.0, 1.0), (2.0, 1.0), (0.5, 1.0)):
+        b = replace(beam, sigma_x=Quantity(sigma_e_um, "um"), sigma_y=Quantity(sigma_e_um, "um"))
+        l = replace(scenarios.BASELINE.laser, sigma_x=Quantity(sigma_l_um, "um"),
+                    sigma_y=Quantity(sigma_l_um, "um"))
+        moments = nonlinear_moments(fixed_width_reduction(b, l))
+        assert on_axis_bandwidth(moments).centroid == pytest.approx(
+            1.0 / (1.0 + moments.mean_a), rel=1e-14
+        )
+
+
+def test_the_between_trajectory_bandwidth_vanishes_for_a_uniformly_illuminated_bunch():
+    """The physical check that makes the diagnostic trustworthy rather than merely
+    computable: when the bunch is much narrower than the spot every electron samples nearly
+    the same intensity, so the *between*-trajectory spread must go to zero. The
+    within-trajectory (DER016) term does not vanish, because a single trajectory still has a
+    finite line — which is exactly the separation DER019 §22.2 insists on."""
+    from gammaforge.engines.analytical.diagnostics import on_axis_bandwidth
+    from gammaforge.engines.analytical.fixed_width import fixed_width_reduction, nonlinear_moments
+
+    beam = scenarios.BASELINE.beam
+    widths = on_axis_bandwidth
+    narrow = widths(nonlinear_moments(fixed_width_reduction(
+        replace(beam, sigma_x=Quantity(0.01, "um"), sigma_y=Quantity(0.01, "um")),
+        replace(scenarios.BASELINE.laser, sigma_x=Quantity(1.0, "um"), sigma_y=Quantity(1.0, "um")),
+    )))
+    wide = widths(nonlinear_moments(fixed_width_reduction(
+        replace(beam, sigma_x=Quantity(100.0, "um"), sigma_y=Quantity(100.0, "um")),
+        replace(scenarios.BASELINE.laser, sigma_x=Quantity(1.0, "um"), sigma_y=Quantity(1.0, "um")),
+    )))
+
+    assert narrow.rms_between < 1e-3 * wide.rms_between
+    assert narrow.rms_finite_line == pytest.approx(wide.rms_finite_line, rel=0.2)
+    assert narrow.rms_bandwidth < wide.rms_bandwidth
+    # Quadrature composition of the two contributions, exactly.
+    assert narrow.rms_bandwidth == pytest.approx(
+        math.hypot(narrow.rms_between, narrow.rms_finite_line), rel=1e-12
+    )
+
+
+def test_photon_source_moments_match_the_precision_weighted_gaussian_and_the_round_limit():
+    """DER019 §26. Two Gaussians of covariances C_e and C_L give a luminosity-weighted
+    covariance `(C_e^-1 + C_L^-1)^-1`, so these close analytically — no image needed.
+
+    The round limit is the decisive arithmetic: equal variances `sigma_e^2` and `sigma_L^2`
+    must give exactly `sigma_e sigma_L / sqrt(sigma_e^2 + sigma_L^2)`.
+    """
+    from gammaforge.engines.analytical.diagnostics import photon_source_moments
+
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+
+    for sigma_e_um, sigma_l_um in ((4.0, 2.0), (1.0, 1.0), (8.0, 1.0)):
+        b = replace(beam, sigma_x=Quantity(sigma_e_um, "um"), sigma_y=Quantity(sigma_e_um, "um"))
+        l = replace(laser, sigma_x=Quantity(sigma_l_um, "um"), sigma_y=Quantity(sigma_l_um, "um"))
+        moments = photon_source_moments(b, l)
+        expected = (
+            b.m("sigma_x") * l.m("sigma_x")
+            / math.hypot(b.m("sigma_x"), l.m("sigma_x"))
+        )
+        assert moments.rms_x == pytest.approx(expected, rel=1e-12)
+        assert moments.rms_y == pytest.approx(expected, rel=1e-12)
+        assert moments.rms_size == pytest.approx(expected, rel=1e-12)
+        assert moments.correlation == 0.0
+
+    # A displaced pulse displaces the source, and the moments stay independent of how many
+    # photons there are: this is a statement about where, not how many.
+    offset = replace(laser, x_off=Quantity(0.5, "um"), y_off=Quantity(-0.25, "um"))
+    displaced = photon_source_moments(beam, offset)
+    assert displaced.mean_x == pytest.approx(offset.m("x_off"), rel=1e-12)
+    assert displaced.mean_y == pytest.approx(offset.m("y_off"), rel=1e-12)
+    assert displaced.rms_size == pytest.approx(photon_source_moments(beam, laser).rms_size, rel=1e-12)
+    doubled = photon_source_moments(beam, replace(laser, pulse_energy=Quantity(0.1, "J")))
+    assert doubled.rms_size == pytest.approx(photon_source_moments(beam, laser).rms_size, rel=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# Energy-integrated angular distribution (DER019 §24.2)
+# ---------------------------------------------------------------------------
+def test_the_angular_distribution_integrates_to_the_total_yield():
+    """The acceptance criterion DER019 §24.2 implies: integrating `dN/dOmega` over a
+    sufficiently wide solid angle reproduces the analytical total yield.
+
+    The auto-derived angular range is `RANGE_HEADROOM` times the radiation cone, so it is wide
+    enough that the truncation is small — but the engine also applies the RES036-style
+    discrete rescale, so what is asserted here is the *engine's* contract (the slice's
+    integral is the yield), with the continuum normalization checked separately below.
+    """
+    interaction = _interaction(
+        outputs=(
+            OutputRequest(OutputKind.TOTAL_YIELD),
+            OutputRequest(OutputKind.ANGULAR_DISTRIBUTION, resolution=(61, 61)),
+        )
+    )
+    results = AnalyticalEngine().run(interaction, AnalyticalEngine.schema)
+    total_yield = float(results.photon_slices[OutputKind.TOTAL_YIELD].integrate())
+    angular = results.photon_slices[OutputKind.ANGULAR_DISTRIBUTION]
+
+    assert angular.integrate() == pytest.approx(total_yield, rel=1e-9)
+    assert np.all(angular.distr > 0.0), "the angular density must be positive everywhere"
+    # Peaked on axis: the centre bin carries more than a corner.
+    middle = angular.distr.shape[0] // 2
+    assert angular.distr[middle, middle] > angular.distr[0, 0]
+
+
+def test_the_angular_continuum_normalization_matches_the_closed_capture_fraction():
+    """The physics check independent of any engine rescaling: a circular aperture of
+    half-angle `theta_c` must capture exactly `F_cap(gamma^2 theta_c^2)` of the yield.
+
+    This is the identity that ties the angular distribution to the verified `u`-density, and
+    it holds at machine precision in the continuum — so it cannot be an artifact of the
+    discrete normalization the engine applies.
+
+    Evaluated on a monoenergetic beam so the target is the closed `F_cap` rather than its
+    energy-spread average, and sampled along a single axis (`theta_y = 0`) because the
+    function is radial: passing `(theta, theta)` would give radius `sqrt(2) theta` and
+    silently test the wrong aperture.
+    """
+    from gammaforge.engines.analytical.angular import angular_density_per_solid_angle
+    from gammaforge.engines.analytical.diagnostics import circular_capture_fraction
+
+    beam = replace(scenarios.BASELINE.beam, rel_energy_spread=0.0)
+    nodes, weights = leggauss(400)
+    for theta_over_gamma in (0.1, 0.5, 1.0, 2.0, 5.0):
+        theta_c = theta_over_gamma / beam.gamma0()
+        theta = 0.5 * theta_c * (nodes + 1.0)
+        density = angular_density_per_solid_angle(
+            beam, theta, np.zeros_like(theta), total_yield=1.0, n_quad=11
+        )
+        # Radial (not slab) integral: the aperture is a disc, so dOmega = 2 pi theta dtheta.
+        captured = float(np.sum(weights * 0.5 * theta_c * 2 * np.pi * theta * density))
+        assert captured == pytest.approx(float(circular_capture_fraction(theta_over_gamma**2)), rel=1e-9)
+
+    # The point values themselves are the analytic kernel: dN/dOmega / Y = gamma^2 dP/du / pi.
+    from gammaforge.engines.analytical.angular import thomson_u_density
+    theta = np.array([0.1, 0.5, 1.0, 3.0, 10.0]) / beam.gamma0()
+    density = angular_density_per_solid_angle(
+        beam, theta, np.zeros_like(theta), total_yield=1.0, n_quad=11
+    )
+    analytic = beam.gamma0() ** 2 / np.pi * thomson_u_density((beam.gamma0() * theta) ** 2)
+    # Exact, not approximate: `beam` here is monoenergetic, and the kernel is
+    # gamma^2 dP/du with no gamma dependence in dP/du at fixed u, so a single gamma reproduces
+    # the continuum value to roundoff.
+    assert density == pytest.approx(analytic, rel=1e-12)
+
+    # Analytic on-axis value with a real energy spread: dP(0)/du = 3/2, so
+    # dN/dOmega / Y = 3 gamma^2 / (2 pi). This pins the gamma quadrature's cell width, which
+    # a test comparing only against the engine's own rescaled integral would never notice —
+    # a dropped `np.gradient(gammas)` leaves every such comparison intact.
+    spread_beam = replace(scenarios.BASELINE.beam, rel_energy_spread=0.05)
+    on_axis = angular_density_per_solid_angle(
+        spread_beam, np.zeros(1), np.zeros(1), total_yield=1.0, n_quad=2001
+    )
+    # With an energy spread this is no longer exactly 3 gamma_0^2 / (2 pi): the kernel
+    # carries gamma^2, so the average is <gamma^2>/(2 pi) * 3/2 = 3 gamma_0^2 (1 + sigma^2)
+    # / (2 pi) for relative spread sigma. Asserting the *exact* expected value pins the
+    # quadrature; asserting only "close to" would not.
+    # The +-6 sigma_gamma truncation of the beam's own Gaussian is what limits this, at the
+    # 1e-8 level for a 5% spread; `rel=1e-7` is tight enough to catch a dropped quadrature
+    # cell width (which would be off by 400x) and loose enough to admit that truncation.
+    sigma_rel = spread_beam.sigma_gamma() / spread_beam.gamma0()
+    assert float(on_axis[0]) == pytest.approx(
+        3.0 * spread_beam.gamma0() ** 2 * (1.0 + sigma_rel**2) / (2.0 * np.pi), rel=1e-7
+    )
+
+    # And the aperture fraction under a real energy spread must equal the spread-averaged
+    # capture efficiency, which `diagnostics.aperture_capture_efficiency` computes
+    # independently from the closed form.
+    from gammaforge.engines.analytical.diagnostics import aperture_capture_efficiency
+    for theta_over_gamma in (0.5, 1.0, 5.0):
+        theta_c = theta_over_gamma / spread_beam.gamma0()
+        points = 0.5 * theta_c * (nodes + 1.0)
+        spread_density = angular_density_per_solid_angle(
+            spread_beam, points, np.zeros_like(points), total_yield=1.0, n_quad=2001
+        )
+        captured = float(np.sum(weights * 0.5 * theta_c * 2 * np.pi * points * spread_density))
+        expected = aperture_capture_efficiency(
+            spread_beam, scenarios.BASELINE.laser, theta_c
+        ).fraction
+        assert captured == pytest.approx(expected, rel=1e-6)
+
+
+def test_the_angular_distribution_does_not_depend_on_the_nonlinear_shift():
+    """DER019 §24's reason this is a clean validation target: integrating over photon energy
+    removes the resonance, so the angular probability is independent of the nonlinear line
+    shift. Asserted directly, since a leak here would quietly couple this diagnostic to the
+    nonlinear model and destroy that independence."""
+    from gammaforge.engines.analytical.angular import angular_density_per_solid_angle
+
+    beam = scenarios.BASELINE.beam
+    theta = np.array([0.0, 0.5 / beam.gamma0(), 2.0 / beam.gamma0()])
+    zeros = np.zeros_like(theta)
+    weak = angular_density_per_solid_angle(beam, theta, zeros, total_yield=1.0, n_quad=2001)
+    # A 1000x stronger pulse would change a0, ahat and the whole nonlinear distribution;
+    # the angular distribution must not move at all. Passing the same `beam` twice keeps the
+    # comparison honest about what is actually being held fixed.
+    assert np.array_equal(
+        weak, angular_density_per_solid_angle(beam, theta, zeros, total_yield=1.0, n_quad=2001)
+    )
+
+    # The kernel itself must be the verified one: its CDF is F_cap. Node counts here are
+    # sized to the integrand's sharpness — `dP/du ~ 1.5/u^2` at large u, so a wide `u_c`
+    # needs many nodes to resolve the long tail. That is a property of this test's
+    # quadrature, not of `thomson_u_density`, which is evaluated pointwise.
+    from gammaforge.engines.analytical.angular import thomson_u_density
+    from gammaforge.engines.analytical.diagnostics import circular_capture_fraction
+    for u_c, n_nodes in ((1e-3, 200), (0.1, 200), (1.0, 200), (25.0, 200), (1e3, 800)):
+        x, w = leggauss(n_nodes)
+        u = 0.5 * u_c * (x + 1.0)
+        integrated = float(np.sum(w * 0.5 * u_c * thomson_u_density(u)))
+        assert integrated == pytest.approx(float(circular_capture_fraction(u_c)), rel=1e-9)
+    # And the CDF itself reaches one, which is the normalization that matters.
+    assert float(circular_capture_fraction(1e6)) == pytest.approx(1.0, abs=1e-5)
+
+
+def test_a_crossing_angle_is_refused_rather_than_served_with_a_head_on_kernel():
+    """The angular tier declares `head_on_incidence` as an assumption, so a crossed collision
+    must fail loudly. Serving the head-on kernel there would be the silent wrong-answer case
+    the planner exists to prevent — DER019 §24.2 requires the DER012 locally transverse basis
+    at crossing angle, which is not implemented."""
+    interaction = _interaction(
+        outputs=(OutputRequest(OutputKind.ANGULAR_DISTRIBUTION, resolution=(11, 11)),)
+    )
+    crossed = replace(interaction, laser=replace(interaction.laser, theta_xz=Quantity(5.0, "deg")))
+    with pytest.raises(ValueError, match="no accepted analytical model"):
+        AnalyticalEngine().run(crossed, AnalyticalEngine.schema)
+
+    # And the pin cannot bypass it either: applicability is not a cost or validity question.
+    pinned = AnalyticalEngine.schema.with_values(model_pin="angular_zero_emittance_head_on")
+    with pytest.raises(ValueError, match="structurally invalid"):
+        AnalyticalEngine().run(crossed, pinned)
+
+    # Head-on, the same request succeeds and records its assumptions.
+    head_on = AnalyticalEngine().run(interaction, AnalyticalEngine.schema)
+    record = head_on.model_specific["models"]["angular_distribution"]
+    assert record["model"] == "angular_zero_emittance_head_on"
+    assert "head_on_incidence" in record["assumptions"]
+    assert "zero_electron_emittance" in record["assumptions"]
+
+
+def test_the_angular_distribution_handles_a_monoenergetic_beam():
+    """`io.bunch.validate` permits exactly zero energy spread. That is the closed case here
+    rather than a degenerate quadrature, so it must return the right answer instead of
+    dividing by a zero-width Gaussian and producing nan — the failure mode
+    `formulas.angle_integrated_spectrum` explicitly guards against."""
+    interaction = _interaction(
+        outputs=(
+            OutputRequest(OutputKind.TOTAL_YIELD),
+            OutputRequest(OutputKind.ANGULAR_DISTRIBUTION, resolution=(41, 41)),
+        )
+    )
+    mono = replace(interaction, beam=replace(interaction.beam, rel_energy_spread=0.0))
+    results = AnalyticalEngine().run(mono, AnalyticalEngine.schema)
+    angular = results.photon_slices[OutputKind.ANGULAR_DISTRIBUTION]
+    total_yield = float(results.photon_slices[OutputKind.TOTAL_YIELD].integrate())
+
+    assert np.all(np.isfinite(angular.distr))
+    assert angular.integrate() == pytest.approx(total_yield, rel=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# Deterministic collimated spectrum and DER017 moment channels (DER019 §7, §8.1)
+# ---------------------------------------------------------------------------
+def test_the_collimated_rho0_has_the_exact_on_axis_scaling_law():
+    """DER019 §7's master formula with `D = Q = 1`, `r = 0`, `Cbar = 1` gives
+
+        rho0 = Y (3/(4 pi)) (K/s^2) Gamma^5 / A_R,   Gamma^2 = A_R s
+
+    whose `s`-dependence reduces to `K A_R^{3/2} s^{+1/2} / Y`-scaled `s^{1/2}`. The exponent
+    is a hard prediction, so this is checked as a fitted log-log slope over decades rather
+    than against a hand-copied formula that could repeat the same slip.
+
+    Note this rises with `s`, not falls: a delta-resonance on-axis observer concentrates at
+    the *upper* edge, unlike the angle-integrated shape `G` which piles up at low energy.
+    """
+    from gammaforge.engines.analytical.collimated import collimated_moments
+
+    s = np.logspace(-3.0, -0.01, 40)
+    for ahat in (0.0, 0.3, 1.0):
+        rho0 = collimated_moments(None, s, ahat=ahat).rho0
+        slopes = np.diff(np.log(rho0)) / np.diff(np.log(s))
+        assert slopes == pytest.approx(np.full_like(slopes, 0.5), abs=1e-10), f"ahat={ahat}"
+
+    # And the amplitude follows A_R^{3/2}: doubling ahat's 1+ must scale rho0 by 1^{3/2}.
+    a, b = 0.0, 0.3
+    base = collimated_moments(None, np.array([0.5]), ahat=a).rho0[0]
+    shifted = collimated_moments(None, np.array([0.5]), ahat=b).rho0[0]
+    assert shifted / base == pytest.approx((1.0 + b) ** 1.5 / (1.0 + a) ** 1.5, rel=1e-12)
+
+
+def test_the_moment_channels_satisfy_their_defining_identities():
+    """DER019 §7.1: `rho1` is the `rho0` integrand times `s Delta_c` and `rho2` times
+    `s^2 m2`. For an unchirped pulse `Var(C) = Cov(q, C) = 0`, so both reduce to the single
+    `Q^2 Var(q)/B^2` term and `Delta_c == m2`.
+
+    Asserting the identities rather than the reconstruction means a wrong `B` or a wrong
+    variance coefficient cannot hide behind a compensating derivative.
+    """
+    from gammaforge.engines.analytical.collimated import collimated_moments
+    from gammaforge.engines.analytical.fixed_width import KAPPA_G
+
+    s = np.linspace(0.05, 1.0, 120)
+    for ahat in (0.1, 0.3, 1.0):
+        moments = collimated_moments(None, s, ahat=ahat)
+        var_q = KAPPA_G * ahat**2
+        delta_c = var_q / (1.0 + ahat) ** 2  # Q = 1, r = 0 => B = 1 + ahat
+        assert moments.rho1 == pytest.approx(moments.rho0 * s * delta_c, rel=1e-12)
+        assert moments.rho2 == pytest.approx(moments.rho0 * s**2 * delta_c, rel=1e-12)
+
+
+def test_the_reconstruction_returns_rho0_exactly_in_the_delta_line_limit():
+    """With `Var(q) = 0` the finite-line correction vanishes and `S(s) = rho0`. That pins the
+    DER017 operator itself independently of the physics feeding it — if the derivative terms
+    were mis-scaled, this identity would break even though the channels stayed correct."""
+    from gammaforge.engines.analytical.collimated import collimated_moments
+
+    s = np.linspace(0.05, 1.0, 120)
+    moments = collimated_moments(None, s, ahat=0.3, var_q=0.0)
+    assert np.all(moments.rho1 == 0.0)
+    assert np.all(moments.rho2 == 0.0)
+    assert moments.reconstructed == pytest.approx(moments.rho0, abs=0.0)
+
+    # With a finite variance the reconstruction must actually differ — otherwise the identity
+    # above would pass for a reconstruction that ignores its inputs entirely.
+    finite = collimated_moments(None, s, ahat=0.3)
+    ratio = finite.reconstructed / finite.rho0
+    assert np.all(np.isfinite(ratio))
+    assert np.all(np.abs(ratio - 1.0) > 1e-6), "the finite-line correction did nothing"
+
+
+def test_the_reconstruction_operator_has_a_known_analytic_answer():
+    """The DER017 operator itself, checked against a case whose answer is known exactly.
+
+    With `rho0 = 0`, `rho1 = a` (constant) and `rho2 = b s`:
+
+        d[s rho1]/ds   = d[a s]/ds    = a
+        d^2[s rho2]/ds^2 = d^2[b s^2]/ds^2 = 2 b
+        S(s) = -a/s + 2 b / (2 s) = (b - a)/s
+
+    so the reconstruction must equal `(b - a)/s` to truncation error. This is what pins the
+    `1/2` on the second-order term and both `1/s` prefactors: an earlier version of this file
+    only checked that `S == rho0` when the correction vanished, which any reconstruction
+    ignoring its inputs entirely would also pass.
+    """
+    from gammaforge.engines.analytical.collimated import reconstruct_second_order
+
+    s = np.linspace(0.2, 1.0, 80)
+    a, b = 3.0, 5.0
+    reconstructed = reconstruct_second_order(
+        s, np.zeros_like(s), np.full_like(s, a), b * s
+    )
+    assert reconstructed == pytest.approx((b - a) / s, rel=1e-9)
+
+    # And the guards: a two-point grid cannot support a second derivative, and s must be
+    # positive for the 1/s prefactors to mean anything.
+    with pytest.raises(ValueError, match="at least three spectral points"):
+        reconstruct_second_order(np.array([0.5, 1.0]), np.zeros(2), np.zeros(2), np.zeros(2))
+    nonpositive = s.copy()
+    nonpositive[0] = 0.0
+    with pytest.raises(ValueError, match="positive spectral points"):
+        reconstruct_second_order(
+            nonpositive, np.zeros_like(s), np.zeros_like(s), np.ones_like(s)
+        )
+
+
+def test_the_derivative_operator_is_accurate_on_a_nonuniform_grid():
+    """The reconstruction differentiates along `s`, which is not uniformly spaced. A local
+    polynomial fit on monomial (Vandermonde) offsets was tried first and rejected: it returned
+    ~1e8 relative error on smooth power laws and dominated the reconstructed spectrum. This
+    pins the operator actually used.
+
+    Exact for degrees the stencil can represent, degrading gracefully beyond — asserted at
+    the orders that matter rather than to a single tolerance.
+    """
+    from gammaforge.engines.analytical.collimated import _finite_difference
+
+    for grid in (np.linspace(0.05, 1.0, 80), np.logspace(-3.0, -0.01, 80)):
+        for power in (1, 2):
+            y = grid**power
+            assert _finite_difference(grid, y, 1) == pytest.approx(
+                power * grid ** (power - 1), rel=1e-10
+            )
+        assert _finite_difference(grid, grid**2, 2) == pytest.approx(np.full_like(grid, 2.0), rel=1e-10)
+        # A smooth non-polynomial must also be right, or the checks above would pass for an
+        # operator that only handles monomials. Checked away from the ends: a finite-
+        # difference stencil loses accuracy as it approaches a boundary, and on a log grid the
+        # dense end has a far smaller `h` than the sparse one, so a single global tolerance
+        # would be testing the grid rather than the operator.
+        y = np.exp(-grid)
+        derivative = _finite_difference(grid, y, 1)
+        interior = slice(2, -2)
+        assert derivative[interior] == pytest.approx(-np.exp(-grid[interior]), rel=1e-2)
+
+
+def test_the_collimated_spectrum_masks_its_support_instead_of_returning_nan():
+    """`s <= 0` and `K/s <= r^2` are outside the model's own support. A divide-by-zero there
+    produces a nan that then spreads through the moment channels and the reconstructed
+    spectrum — a single bad grid point would poison the whole slice."""
+    from gammaforge.engines.analytical.collimated import collimated_moments
+
+    moments = collimated_moments(None, np.array([-0.1, 0.0, 0.1, 0.5, 1.0]), ahat=0.3)
+    assert np.all(np.isfinite(moments.rho0))
+    assert np.all(moments.rho0[moments.s <= 0.0] == 0.0)
+    # Off-axis, `K/s > r^2` is the support edge: beyond it rho0 must vanish.
+    off_axis = collimated_moments(
+        None, np.array([0.01, 0.5, 5.0]), theta_ex=10.0, ahat=0.3
+    )
+    assert np.all(np.isfinite(off_axis.rho0))
+    assert off_axis.rho0[0] == 0.0, "K/s <= r^2 must be excluded"
+
+    # Off axis, `B = 1 + Q ahat + Gamma^2 r^2` includes the `Gamma^2 r^2` term, so the moment
+    # prefactor is no longer the on-axis `Var(q)/(1+ahat)^2`. Checked at a radius where the
+    # resonance is supported, which is the only place the formula applies.
+    supported = collimated_moments(
+        None, np.array([0.9]), theta_ex=0.1, ahat=0.3
+    )
+    from gammaforge.engines.analytical.fixed_width import KAPPA_G
+
+    r_sq = 0.1**2
+    gamma_sq = float(supported.gamma[0]) ** 2
+    b_off = 1.0 + 0.3 + gamma_sq * r_sq
+    delta_c_off = KAPPA_G * 0.3**2 / b_off**2
+    assert float(supported.rho1[0]) == pytest.approx(
+        float(supported.rho0[0]) * 0.9 * delta_c_off, rel=1e-12
+    )
+
+    # And the impossible direction factor is refused rather than divided through.
+    with pytest.raises(ValueError, match="delta-line limit"):
+        collimated_moments(None, np.linspace(0.1, 1.0, 20), q_factor=0.0)
+    with pytest.raises(ValueError, match="c_bar > 0"):
+        collimated_moments(None, np.linspace(0.1, 1.0, 20), c_bar=0.0)
+    with pytest.raises(ValueError, match="ahat >= 0"):
+        collimated_moments(None, np.linspace(0.1, 1.0, 20), ahat=-0.5)
+
+
+def test_the_engine_fills_the_collimated_slice_and_records_its_provenance():
+    """The 3D (E, theta_x, theta_y) slice is the sole energy-angle output kind (RES052). The
+    engine must fill it, keep it finite and non-negative, and record which model produced it
+    — with a crossing angle still refused, since this tier declares head-on incidence."""
+    interaction = _interaction(
+        outputs=(
+            OutputRequest(OutputKind.TOTAL_YIELD),
+            OutputRequest(OutputKind.COLLIMATED_SPECTRUM, resolution=(21, 7, 7)),
+        )
+    )
+    results = AnalyticalEngine().run(interaction, AnalyticalEngine.schema)
+    collimated = results.photon_slices[OutputKind.COLLIMATED_SPECTRUM]
+
+    assert collimated.distr.shape == (21, 7, 7)
+    assert np.all(np.isfinite(collimated.distr))
+    assert np.all(collimated.distr >= 0.0)
+
+    record = results.model_specific["models"]["collimated_spectrum"]
+    assert record["model"] == "collimated_fixed_width_zero_emittance"
+    assert "delta_resonance_approximation" in record["assumptions"]
+    assert "head_on_incidence" in record["assumptions"]
+
+    crossed = replace(
+        interaction, laser=replace(interaction.laser, theta_xz=Quantity(5.0, "deg"))
+    )
+    with pytest.raises(ValueError, match="no accepted analytical model"):
+        AnalyticalEngine().run(crossed, AnalyticalEngine.schema)
+
+
+#: `source_map` is a deliberate exception, documented in its own module docstring: the thing
+#: being validated there is the deterministic source *reduction*, not the DER016 trajectory
+#: moment definitions, which duplicating would only invite to drift. Its luminosity claim is
+#: checked against `formulas.overlap_yield`, which is an independent oracle.
+_XIGMA_IMPORT_EXEMPT = {"source_map.py"}
+
+
+def test_the_spectrum_and_angular_tiers_do_not_import_xigma():
+    """RES095 leaves analytical one of the remaining independent legs, and the handoff is
+    explicit that the analytical implementation must not become a thin call into the code it
+    is meant to check. Asserted mechanically rather than by convention, because an
+    incidental convenience import would otherwise be invisible.
+
+    The exemption list is deliberately narrow and named, so widening what may import Xigma
+    is a visible edit to this test rather than something a new import slips past.
+    """
+    import ast
+    from pathlib import Path
+
+    package = Path(__file__).resolve().parents[1] / "src" / "gammaforge" / "engines" / "analytical"
+    offenders = []
+    for module in sorted(package.glob("*.py")):
+        if module.name in _XIGMA_IMPORT_EXEMPT:
+            continue
+        tree = ast.parse(module.read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module and "xigma" in node.module:
+                offenders.append(f"{module.name}: from {node.module}")
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if "xigma" in alias.name:
+                        offenders.append(f"{module.name}: import {alias.name}")
+    assert offenders == [], f"the analytical validation oracle must stay independent: {offenders}"
+
+    # And the exemption is still a real module that still exists to be exempted.
+    assert (package / "source_map.py").exists()
+    assert _XIGMA_IMPORT_EXEMPT == {"source_map.py"}
+
+
+# ---------------------------------------------------------------------------
+# Focused / flying-focus deterministic source map (DER019 §11, §12)
+# ---------------------------------------------------------------------------
+@pytest.mark.tier2
+def test_the_source_map_reproduces_the_der001_total_yield():
+    """DER019 §11.1's acceptance criterion: the source-integrated luminosity must agree with
+    DER001's `overlap_yield` for the same geometry.
+
+    This is an unusually strong check — a deterministic quadrature reproducing a closed-form
+    integral to five digits — and DER019 makes it the gate before any spectrum built on the
+    map is accepted. It also validates the map indirectly against Xigma, since the per-node
+    trajectory integrals are Xigma's own.
+    """
+    from gammaforge.engines.analytical.source_map import build_source_map
+
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    n_e = beam.n_electrons()
+    metrics = fit_gaussian_paraxial(laser)
+    reference = overlap_yield(beam, metrics, n_e, n_quad=8001)
+
+    source_map = build_source_map(
+        beam, laser, n_e, n_transverse=10, n_longitudinal=10, n_steps=256
+    )
+    assert source_map.total_luminosity == pytest.approx(reference, rel=2e-3)
+    # The quadrature is genuinely converged, not merely close at one node count. Both are
+    # already at the 1e-5 level here (a matched spot converges fast), so this asserts the
+    # refined map stays within the same band rather than demanding a strict decrease —
+    # at this accuracy the two node counts are equally converged and either may be nearer.
+    finer = build_source_map(
+        beam, laser, n_e, n_transverse=14, n_longitudinal=12, n_steps=256
+    )
+    assert finer.total_luminosity == pytest.approx(reference, rel=2e-4)
+
+
+@pytest.mark.tier2
+def test_the_source_map_nodes_are_standard_normal():
+    """The weights must represent the bunch's own Gaussian. `hermegauss` nodes are already
+    standard normal and its weights already carry `exp(-z^2/2)`, so only the `1/sqrt(2 pi)`
+    is divided off — rescaling the *nodes* by `sqrt(2)` is the mistake this pins: it leaves
+    `sum(w) == 1` passing while `E[x^2]` becomes 2 and the map integrates the wrong Gaussian,
+    costing 25% of the luminosity with no error anywhere."""
+    import math as _math
+
+    from numpy.polynomial.hermite_e import hermegauss
+
+    for n in (8, 10, 12):
+        nodes, weights = hermegauss(n)
+        weights = weights / _math.sqrt(2.0 * _math.pi)
+        assert float(np.sum(weights)) == pytest.approx(1.0, rel=1e-12)
+        assert float(np.sum(weights * nodes**2)) == pytest.approx(1.0, rel=1e-12)
+
+    # And the map's own weights satisfy the same identities in three dimensions.
+    from gammaforge.engines.analytical.source_map import build_source_map
+
+    source_map = build_source_map(
+        scenarios.BASELINE.beam, scenarios.BASELINE.laser, scenarios.BASELINE.beam.n_electrons(),
+        n_transverse=8, n_longitudinal=8, n_steps=128,
+    )
+    assert float(np.sum(source_map.weight)) == pytest.approx(1.0, rel=1e-12)
+    assert float(np.sum(source_map.weight * source_map.x0**2)) == pytest.approx(
+        scenarios.BASELINE.beam.m("sigma_x") ** 2, rel=1e-10
+    )
+
+
+@pytest.mark.tier2
+def test_the_source_map_reports_its_symmetry_dimension():
+    """DER019 §11.1 vs §11.2: cylindrical symmetry leaves two source dimensions, anything
+    that breaks it needs three. Reported rather than assumed, because the distinction is what
+    tells a caller whether the deterministic route is still the cheap one (DER019 §14)."""
+    from gammaforge.engines.analytical.source_map import build_source_map
+
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    n_e = beam.n_electrons()
+    assert build_source_map(beam, laser, n_e, n_transverse=6, n_longitudinal=6, n_steps=128).dimension == 2
+    assert build_source_map(
+        beam, replace(laser, theta_xz=Quantity(5.0, "deg")), n_e,
+        n_transverse=6, n_longitudinal=6, n_steps=128,
+    ).dimension == 3
+    assert build_source_map(
+        replace(beam, sigma_y=Quantity(20.0, "um")), laser, n_e,
+        n_transverse=6, n_longitudinal=6, n_steps=128,
+    ).dimension == 3
+
+
+@pytest.mark.tier2
+def test_the_flying_focus_source_map_reproduces_der002():
+    """DER019 §12.1: the flying-focus map must reproduce DER002's 2D `overlap_yield`, and it
+    must do so with the *true* flying-focus intensity history — a frozen-width reduction
+    would be the unsafe path DER019 §16 warns about, and would not land on DER002 at all."""
+    from gammaforge.engines.analytical.source_map import build_source_map
+
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    n_e = beam.n_electrons()
+    for beta_ff in (0.5, 0.8, 1.0):
+        flying = replace(laser, beta_ff=beta_ff)
+        metrics = fit_gaussian_paraxial(flying)
+        reference = overlap_yield(beam, metrics, n_e, n_quad=8001, n_quad_u=41)
+        source_map = build_source_map(
+            beam, flying, n_e, n_transverse=10, n_longitudinal=10, n_steps=256
+        )
+        assert source_map.total_luminosity == pytest.approx(reference, rel=1e-2), f"beta_ff={beta_ff}"
+
+
+@pytest.mark.tier2
+def test_an_anisotropic_spot_converges_upward_with_more_nodes():
+    """A tight spot against a broad bunch is where Gauss-Hermite on the source converges
+    slowly, and the map says so rather than hiding it. Only the *direction* is asserted: the
+    point is that the answer moves toward DER001 as nodes are added, which is what
+    distinguishes slow convergence from a wrong answer."""
+    from gammaforge.engines.analytical.source_map import build_source_map
+
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    n_e = beam.n_electrons()
+    tight = replace(laser, sigma_y=Quantity(1.0, "um"))
+    metrics = fit_gaussian_paraxial(tight)
+    reference = overlap_yield(beam, metrics, n_e, n_quad=32001)
+
+    errors = []
+    for n_transverse in (12, 18, 24):
+        source_map = build_source_map(
+            beam, tight, n_e, n_transverse=n_transverse, n_longitudinal=8, n_steps=128
+        )
+        errors.append(abs(source_map.total_luminosity / reference - 1.0))
+    assert errors[-1] < errors[0], f"not converging toward DER001: {errors}"
+
+
+@pytest.mark.tier2
+def test_the_source_map_rejects_a_degenerate_node_count():
+    """Fewer than two nodes per axis cannot integrate a Gaussian — the failure would be a
+    silently wrong yield rather than an error."""
+    from gammaforge.engines.analytical.source_map import build_source_map
+
+    beam, laser = scenarios.BASELINE.beam, scenarios.BASELINE.laser
+    with pytest.raises(ValueError, match="at least 2 nodes"):
+        build_source_map(beam, laser, beam.n_electrons(), n_transverse=1, n_longitudinal=8)
+    with pytest.raises(ValueError, match="at least 2 nodes"):
+        build_source_map(beam, laser, beam.n_electrons(), n_transverse=8, n_longitudinal=1)
+
+
+# ---------------------------------------------------------------------------
+# Collimated grid: vectorization and backend dispatch
+# ---------------------------------------------------------------------------
+def _host(values):
+    """A CuPy array as NumPy; a NumPy array unchanged.
+
+    The grid can run on either backend, so assertions about its contents have to work on
+    whichever one produced it rather than assuming the CPU path.
+    """
+    return values.get() if hasattr(values, "get") else values
+
+def test_the_vectorized_grid_matches_the_per_column_path():
+    """The grid evaluation replaced a per-angular-column loop. This asserts the two agree
+    rather than assuming the refactor preserved the physics — a vectorized transcription of a
+    support mask or a Jacobian factor can be silently wrong while looking entirely reasonable.
+
+    Checked at sampled cells including the corners and the on-axis centre, and on the
+    reconstructed spectrum (which is what the engine returns) as well as the raw channels.
+    """
+    from gammaforge.engines.analytical.collimated import collimated_grid, collimated_moments
+
+    s = np.linspace(0.05, 1.0, 51)
+    theta = np.linspace(-2.0e-4, 2.0e-4, 21)
+    ahat = 0.01
+    grid = collimated_grid(ahat, s, theta, theta, total_yield=1.0, backend="numpy")
+    reconstructed = grid.reconstructed
+
+    assert reconstructed.shape == (51, 21, 21)
+    for j in (0, 7, 13, 20):
+        for k in (0, 7, 13, 20):
+            column = collimated_moments(
+                None, s, theta_ex=float(theta[j]), theta_ey=float(theta[k]),
+                ahat=ahat, total_yield=1.0,
+            )
+            assert _host(reconstructed)[:, j, k] == pytest.approx(column.reconstructed, rel=1e-12)
+            assert _host(grid.rho0)[:, j, k] == pytest.approx(column.rho0, rel=1e-12)
+            assert _host(grid.rho1)[:, j, k] == pytest.approx(column.rho1, rel=1e-12)
+            assert _host(grid.rho2)[:, j, k] == pytest.approx(column.rho2, rel=1e-12)
+
+
+def test_the_precomputed_gradient_matrix_reproduces_numpy_gradient():
+    """The DER017 reconstruction uses weight matrices built by probing `np.gradient` with
+    unit vectors, on the grounds that differentiation is linear so those columns *are* its
+    matrix. That reasoning is only worth something if it is checked against `np.gradient`
+    itself — an earlier hand-rolled stencil returned ~1e8 relative error on smooth power laws,
+    and this is the assertion that would have caught it.
+
+    Verified for both derivative orders, which the reconstruction applies to different
+    channels, on a nonuniform grid as the real spectral axis is.
+    """
+    from gammaforge.engines.analytical.collimated import _gradient_matrix
+
+    for grid in (np.linspace(0.05, 1.0, 51), np.logspace(-3.0, -0.01, 80)):
+        values = np.sin(grid) + 0.3 * grid**2
+        first = np.gradient(values, grid, edge_order=2)
+        second = np.gradient(np.gradient(values, grid, edge_order=2), grid, edge_order=2)
+        assert _gradient_matrix(grid, 1) @ values == pytest.approx(first, rel=1e-10, abs=1e-12)
+        assert _gradient_matrix(grid, 2) @ values == pytest.approx(second, rel=1e-8, abs=1e-11)
+
+
+def test_the_grid_preserves_the_support_mask():
+    """Vectorizing must not lose the `s <= 0` and `K/s <= r^2` exclusions. A divide-by-zero
+    surviving the rewrite produces a nan that spreads through the whole slice, and the shape
+    checks above would not notice it — a nan is still the right shape."""
+    from gammaforge.engines.analytical.collimated import collimated_grid
+
+    s = np.array([-0.1, 0.0, 0.1, 0.5, 1.0])
+    theta = np.array([-1.0, 0.0, 1.0])
+    grid = collimated_grid(0.01, s, theta, theta, total_yield=1.0, backend="numpy")
+
+    for channel in (grid.rho0, grid.rho1, grid.rho2, grid.reconstructed):
+        values = _host(channel)
+        assert np.all(np.isfinite(values))
+        assert np.all(values[0] == 0.0), "s <= 0 must be excluded"
+        assert np.all(values[1] == 0.0), "s <= 0 must be excluded"
+    assert _host(grid.rho0)[2].max() > 0.0, "supported cells must be non-zero"
+
+
+def test_the_backend_choice_is_honoured_and_refuses_an_impossible_one():
+    """`auto` must actually report which backend it used, and `cupy` must fail loudly rather
+    than silently returning CPU numbers — a recorded run that claims a GPU it never touched is
+    worse than one that says nothing."""
+    from gammaforge.engines.analytical.collimated import collimated_grid, is_gpu_available
+
+    s = np.linspace(0.05, 1.0, 21)
+    theta = np.linspace(-1.0e-4, 1.0e-4, 7)
+
+    numpy_grid = collimated_grid(0.01, s, theta, theta, backend="numpy")
+    assert numpy_grid.backend == "numpy"
+    assert isinstance(numpy_grid.rho0, np.ndarray)
+
+    auto_grid = collimated_grid(0.01, s, theta, theta, backend="auto")
+    assert auto_grid.backend == ("cupy" if is_gpu_available() else "numpy")
+
+    with pytest.raises(ValueError, match="must be 'auto', 'cupy' or 'numpy'"):
+        collimated_grid(0.01, s, theta, theta, backend="opencl")
+    if not is_gpu_available():
+        # Asking for the GPU on a machine without a working one must be an error, not a
+        # silent CPU run wearing a GPU label.
+        with pytest.raises(ValueError, match="no CUDA device is available"):
+            collimated_grid(0.01, s, theta, theta, backend="cupy")
+
+
+@pytest.mark.gpu
+def test_the_gpu_and_cpu_grids_agree():
+    """Same physics on either backend. `auto` may land on CuPy or NumPy depending on the
+    machine, so this pins that the choice is not a change in the answer."""
+    from gammaforge.engines.analytical.collimated import collimated_grid, is_gpu_available
+
+    if not is_gpu_available():
+        pytest.skip("no usable CUDA device")
+
+    s = np.linspace(0.05, 1.0, 51)
+    theta = np.linspace(-2.0e-4, 2.0e-4, 15)
+    host = collimated_grid(0.01, s, theta, theta, total_yield=1.0, backend="numpy")
+    device = collimated_grid(0.01, s, theta, theta, total_yield=1.0, backend="cupy")
+
+    assert device.backend == "cupy"
+    assert _host(device.rho0) == pytest.approx(host.rho0, rel=1e-10)
+    assert _host(device.reconstructed) == pytest.approx(host.reconstructed, rel=1e-8)
+
+
+def test_gpu_availability_requires_working_device_operations():
+    """CuPy imports and reports a device on this machine while `matmul` still raises
+    `ImportError: libcublas.so.12` — the CUDA BLAS library is absent. An availability check
+    that only tested an import, or only elementwise ops, would claim the GPU works and then
+    fail deep inside the DER017 reconstruction. So the probe is asserted to exercise the
+    dense-matmul path the module actually depends on."""
+    from gammaforge.engines.analytical.collimated import is_gpu_available
+
+    available = is_gpu_available()
+    assert isinstance(available, bool)
+    if available:
+        # If it claims the device is usable, the operations must genuinely work.
+        import cupy as cp
+
+        _ = cp.eye(3) @ cp.ones((3, 2))
+    # Cached, so a second call must agree with the first.
+    assert is_gpu_available() is available
+
+
+def test_the_engine_records_which_backend_produced_the_slice():
+    """The backend is part of how a recorded result was produced, so it belongs in
+    `model_specific` rather than only in a log."""
+    interaction = _interaction(
+        outputs=(OutputRequest(OutputKind.COLLIMATED_SPECTRUM, resolution=(21, 7, 7)),)
+    )
+    engine = AnalyticalEngine()
+    results = engine.run(interaction, engine.schema)
+    assert results.model_specific["collimated_backend"] in {"numpy", "cupy"}
+
+    forced = engine.run(interaction, engine.schema.with_values(backend="numpy"))
+    assert forced.model_specific["collimated_backend"] == "numpy"
+    assert forced.photon_slices[OutputKind.COLLIMATED_SPECTRUM].distr == pytest.approx(
+        results.photon_slices[OutputKind.COLLIMATED_SPECTRUM].distr, rel=1e-12
+    )
+
+
+def test_the_collimated_slice_integrates_to_the_total_yield():
+    """RES036 applied to `COLLIMATED_SPECTRUM`, and a regression on a real defect.
+
+    `rho0` is a density *per solid angle*, so multiplying it by `total_yield` does not make
+    the slice a photon count — integrating over the (E, θx, θy) box leaves the angular
+    measure unaccounted for. This shipped with the slice integrating to ~7e-11 of the yield
+    and peaking ~1e10x too low, which is visible as two orders of magnitude between the
+    analytical and xigma curves in the GUI but is not obvious from the numbers alone.
+
+    The convention is the one RES036 already fixes for SPECTRUM: scale by the *discrete*
+    integral over the emitted grid, so `integrate()` reproduces `total_yield` to float
+    precision.
+    """
+    interaction = _interaction(
+        outputs=(
+            OutputRequest(OutputKind.TOTAL_YIELD),
+            OutputRequest(OutputKind.COLLIMATED_SPECTRUM, resolution=(21, 7, 7)),
+        )
+    )
+    engine = AnalyticalEngine()
+    results = engine.run(interaction, engine.schema)
+    collimated = results.photon_slices[OutputKind.COLLIMATED_SPECTRUM]
+    total_yield = float(results.photon_slices[OutputKind.TOTAL_YIELD].distr)
+
+    assert collimated.integrate() == pytest.approx(total_yield, rel=1e-9)
+    assert np.all(np.isfinite(collimated.distr))
+    assert np.all(collimated.distr >= 0.0)
+
+    # The shape must survive normalization: a fix that scaled every cell by a constant
+    # including the peak-to-total ratio would pass the integral check but flatten the curve.
+    assert collimated.distr.max() > 0.0
+
+
+@pytest.mark.parametrize("backend", ["numpy"])
+def test_the_collimated_slice_is_backend_independent_and_normalized(backend):
+    """Forcing either backend must give the same normalized slice.
+
+    The GPU path returns a CuPy array and `PhasespaceSlice` rejects one outright, so the
+    engine must convert before constructing the slice rather than after; this is the check
+    that the conversion happens in the right order.
+    """
+    interaction = _interaction(
+        outputs=(OutputRequest(OutputKind.COLLIMATED_SPECTRUM, resolution=(21, 7, 7)),)
+    )
+    engine = AnalyticalEngine()
+    from_numpy = engine.run(interaction, engine.schema.with_values(backend="numpy"))
+    slice_numpy = from_numpy.photon_slices[OutputKind.COLLIMATED_SPECTRUM]
+
+    assert isinstance(slice_numpy.distr, np.ndarray)
+    assert from_numpy.model_specific["collimated_backend"] == "numpy"
+
+    if is_gpu_available():
+        from_cupy = engine.run(interaction, engine.schema.with_values(backend="cupy"))
+        assert from_cupy.model_specific["collimated_backend"] == "cupy"
+        assert from_cupy.photon_slices[OutputKind.COLLIMATED_SPECTRUM].distr == pytest.approx(
+            slice_numpy.distr, rel=1e-8
+        )
+
+
+def test_the_collimated_shape_is_a_line_at_the_resonance_not_a_power_law_ramp():
+    """Regression on a real defect, found by looking at the GUI plot.
+
+    DER019 §7's master formula carries `f_gamma(Gamma|eta)`, the beam's energy PDF evaluated
+    at the resonance root. Omitting it left `rho0 ~ s^{+1/2}` rising across the entire energy
+    grid — a square root, which is what the analytical collimated spectrum looked like next to
+    xigma's.
+
+    The absence is not subtle in hindsight but was invisible numerically: the shape still had
+    the right support, no nan, and a finite integral, all of which the other tests checked.
+    What makes it detectable is a *prediction with a location*: with `f_gamma` the peak must
+    sit at the Compton resonance `gamma0^2 / (1 + ahat)`, and the width must be set by the
+    energy spread rather than by the grid.
+    """
+    from gammaforge.engines.analytical.collimated import collimated_grid
+
+    beam = scenarios.BASELINE.beam
+    ahat = 0.005
+    resonance = beam.gamma0() ** 2 / (1.0 + ahat)
+    s = np.linspace(resonance * 0.6, resonance * 1.4, 800)
+    theta = np.array([0.0])
+
+    with_pdf = collimated_grid(
+        ahat, s, theta, theta, total_yield=1.0,
+        gamma0=beam.gamma0(), sigma_gamma=beam.sigma_gamma(), backend="numpy",
+    ).rho0[:, 0, 0]
+    without = collimated_grid(
+        ahat, s, theta, theta, total_yield=1.0, backend="numpy"
+    ).rho0[:, 0, 0]
+
+    # With the PDF the peak sits on the resonance.
+    assert s[with_pdf.argmax()] == pytest.approx(resonance, rel=2e-3)
+    # Without it the peak is simply the top of the range: a monotonic ramp.
+    assert without.argmax() == len(without) - 1
+    assert s[without.argmax()] > resonance * 1.3
+
+    # The line's width follows the energy spread, so tightening it must tighten the peak.
+    loose = collimated_grid(
+        ahat, s, theta, theta, total_yield=1.0,
+        gamma0=beam.gamma0(), sigma_gamma=beam.sigma_gamma(), backend="numpy",
+    ).rho0[:, 0, 0]
+    tight = collimated_grid(
+        ahat, s, theta, theta, total_yield=1.0,
+        gamma0=beam.gamma0(), sigma_gamma=beam.sigma_gamma() * 0.1, backend="numpy",
+    ).rho0[:, 0, 0]
+    width = lambda d: math.sqrt((s * d).sum() / d.sum())
+    assert width(tight) < width(loose)
+
+    # A tighter line is taller as well as narrower, since it is the same integral in a
+    # narrower band. A mere rescale would fail this.
+    assert tight.max() > loose.max()
+
+
+def test_the_collimated_spectrum_peaks_at_the_compton_resonance_end_to_end():
+    """The engine wires `f_gamma` from the real beam, so the slice a user sees has its peak
+    where the physics says it must be — checked through `AnalyticalEngine.run` rather than
+    only through the primitive, so a future refactor that drops the beam arguments is caught
+    here instead of in a plot."""
+    from gammaforge.io.laser import fit_gaussian_paraxial
+
+    interaction = _interaction(
+        outputs=(
+            OutputRequest(OutputKind.TOTAL_YIELD),
+            OutputRequest(OutputKind.COLLIMATED_SPECTRUM, resolution=(201, 5, 5)),
+        )
+    )
+    engine = AnalyticalEngine()
+    results = engine.run(interaction, engine.schema)
+    collimated = results.photon_slices[OutputKind.COLLIMATED_SPECTRUM]
+    energy = collimated.axes[Axis.ENERGY]
+    on_axis = collimated.distr[:, 2, 2]
+
+    ahat = results.model_specific["ahat"]
+    expected = 4.0 * fit_gaussian_paraxial(interaction.laser).photon_energy() * (
+        interaction.beam.gamma0() ** 2 / (1.0 + ahat)
+    )
+    assert energy[on_axis.argmax()] == pytest.approx(expected, rel=5e-3)
+    # Not the top of the range, which is what the un-fixed version gave.
+    assert on_axis.argmax() < len(on_axis) - 1

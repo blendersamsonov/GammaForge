@@ -211,7 +211,9 @@ class Workspace:
             ]
 
             # Run single engine (analytical is always run as overlay)
-            results = await asyncio.to_thread(self.runner.calculate_one, engine_name, request, status)
+            results, estimate_results = await asyncio.to_thread(
+                self.runner.calculate_one_all, engine_name, request, status
+            )
             failures = self.runner.errors
 
             if failures and engine_name in failures:
@@ -234,6 +236,29 @@ class Workspace:
                     for r in self.runs
                 ]
                 self.stale = bool(self.runs)
+
+            # The analytical estimate becomes a run of its own (badged as an estimate), so it
+            # can be compared against the calculated engine in the same plot, renamed,
+            # forked, exported to HDF5, and kept across a later re-run. Previously it was
+            # computed as an overlay and then discarded, which meant its spectra were
+            # computed every time and never shown.
+            # Skip when the estimate was itself the selected engine: it already produced its
+            # own run above, and a second identical one would double-count it in the history
+            # and show two entries that look like different results.
+            if estimate_results is not None and engine_name != self.runner.estimate_name:
+                self.runs.append(
+                    Run(
+                        id=self.next_run_id,
+                        name=f"Run {self.next_run_id}",
+                        engine_name=self.runner.estimate_name,
+                        request=request,
+                        results=estimate_results,
+                        status="completed",
+                    )
+                )
+                self.next_run_id += 1
+                self.locked = self.revision == revision
+
             self.error = "\n".join(f"{name}: {error}" for name, error in failures.items())
         except Exception as exc:
             self.error = str(exc)

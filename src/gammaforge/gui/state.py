@@ -286,18 +286,38 @@ class InputState:
             },
         )
 
-    def estimate_request(self):
-        """Build the analytical preview from only the fields its formulas consume."""
+    def estimate_request(self, *, full_outputs: bool = False):
+        """Build the analytical preview from only the fields its formulas consume.
+
+        ``full_outputs=False`` (the default) narrows to `TOTAL_YIELD`, which is what makes
+        this safe to re-run on every keystroke. ``full_outputs=True`` keeps the outputs the
+        user actually requested, so an on-demand estimate can return a spectrum or angular
+        distribution instead of only a scalar.
+
+        Either way the result is bunch-independent: `SamplingSpec()` with no particles is the
+        point — the analytical engine never samples, so it needs no bunch to be built.
+        """
         if any(key.startswith(("beam.", "laser.", "target.")) for key in self.errors):
             raise ValueError("Correct the beam, laser, or collimation inputs to update estimates")
         from ..io.calculation import CalculationRequest
         from ..io.interaction import SamplingSpec
 
         target_params = self.groups["target"]
+        if full_outputs:
+            outputs = tuple(
+                OutputRequest(kind, resolution, self.manual_ranges.get(kind) or None)
+                for kind, resolution in self.requested.items()
+            )
+            # The analytical engine is not a selectable calculation engine, so
+            # `supports()` is about the selected one; requesting an output it cannot model
+            # is allowed to fail loudly in the engine's own planner rather than being
+            # filtered out here, where the user would just see nothing happen.
+        else:
+            outputs = (OutputRequest(OutputKind.TOTAL_YIELD),)
         target = Target(
             Quantity(target_params.get_float("theta_x_col"), "rad"),
             Quantity(target_params.get_float("theta_y_col"), "rad"),
-            (OutputRequest(OutputKind.TOTAL_YIELD),),
+            outputs,
         )
         return CalculationRequest(
             beam=beam_from_parameters(self.groups["beam"]),

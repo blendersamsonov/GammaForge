@@ -17,20 +17,41 @@ from ...io.results import Axis, PhasespaceSlice, Results
 from ...io.schema import Parameters
 from ...io.target import OutputKind, OutputRequest, auto_ranges, slice_axis_values
 from ..base import RecomputeCost
+from .angular import angular_density_per_solid_angle
+from .collimated import collimated_grid
 from .formulas import (
     angle_integrated_spectrum,
     estimate_spectrum_width,
     overlap_mean_a0_sq,
     overlap_yield,
 )
+from .models import AnalyticalModel, ModelChoice, ModelInputs, ModelSelector
 from .schema import default_parameters
 
 __all__ = ["AnalyticalEngine"]
 
-#: analytical produces only the 0D total yield and the 1D angle-integrated spectrum
-#: (§4.3) — never `COLLIMATED_SPECTRUM` (the 3D (E, θx, θy) slice), which the GUI is
-#: expected to overlay this 1D estimate onto rather than receive from this engine.
-SUPPORTED_OUTPUTS: tuple[OutputKind, ...] = (OutputKind.TOTAL_YIELD, OutputKind.SPECTRUM)
+
+def _as_numpy(values):
+    """A CuPy array as a NumPy one; a NumPy array unchanged.
+
+    `Results` and `PhasespaceSlice` are NumPy-typed throughout `gammaforge.io`, so a device
+    array must be brought back before it is stored — otherwise HDF5 persistence and the
+    plotting frontends both see an object they do not understand.
+    """
+    return values.get() if hasattr(values, "get") else values
+
+#: analytical produces the 0D total yield, the 1D angle-integrated spectrum, and the 2D
+#: angular distribution (§4.3) — never `COLLIMATED_SPECTRUM` (the 3D (E, θx, θy) slice),
+#: which the GUI is expected to overlay this 1D estimate onto rather than receive from this
+#: engine. `ANGULAR_DISTRIBUTION` is added by DER019 §24.2 and, unlike the collimated slice,
+#: is genuinely cheap: one deterministic gamma quadrature per angular point, no particle
+#: dependence.
+SUPPORTED_OUTPUTS: tuple[OutputKind, ...] = (
+    OutputKind.TOTAL_YIELD,
+    OutputKind.SPECTRUM,
+    OutputKind.ANGULAR_DISTRIBUTION,
+    OutputKind.COLLIMATED_SPECTRUM,
+)
 
 #: Bunch charge is exactly linear in `N_e` for every engine and is handled entirely at
 #: the `io` level (`InteractionParameters.with_charge`/`Results.scaled`) without an
@@ -43,7 +64,110 @@ RECOMPUTE_COSTS: dict[str, RecomputeCost] = {
     "n_quad": RecomputeCost.FULL_RERUN,
     "n_quad_overlap": RecomputeCost.FULL_RERUN,
     "n_quad_u": RecomputeCost.FULL_RERUN,
+    # Model selection is a handful of comparisons over a short registry, with no integral
+    # of its own. A different pin can select a different model, so it cannot be assumed
+    # QUERY_ONLY — but it is never more expensive than re-running the model it selects.
+    "model_mode": RecomputeCost.FULL_RERUN,
+    "model_pin": RecomputeCost.FULL_RERUN,
+    # Only the collimated slice is array-backend dependent, and it is already a FULL_RERUN
+    # for anyone requesting it; switching backend moves the same work to the same kind of
+    # place rather than making it cheaper or dearer.
+    "backend": RecomputeCost.FULL_RERUN,
 }
+
+#: The DER001/DER002 tier, which is what this engine computed before the DER019 hierarchy
+#: existed. Registered as a model so the planner has something truthful to select and so
+#: higher tiers can be added as siblings rather than as branches inside `run`.
+#:
+#: `exact` is True for `TOTAL_YIELD` in the sense DER019 means it: the general Gaussian
+#: overlap is exact for the geometry, including a crossing angle and the flying-focus path
+#: (RES039/RES041/RES043). The same model serves `SPECTRUM`, where it is **not** exact — the
+#: spectrum is built from one luminosity-weighted mean `ahat` and normalized against the
+#: yield, which is a documented approximation. One model, two observables, one shared truth
+#: about its assumptions; the per-observable exactness is recorded in the provenance below
+#: rather than smuggled into the model's own flag.
+_OVERLAP_TIER = AnalyticalModel(
+    name="overlap_der001_mean_ahat",
+    outputs=(OutputKind.TOTAL_YIELD, OutputKind.SPECTRUM),
+    # Structurally universal within this engine's own domain: `run` has already rejected
+    # every laser that is not a GaussianParaxialLaser (RES067), and the DER001/DER002 overlap
+    # covers crossing angle, offsets, astigmatism and flying focus exactly.
+    applies=lambda inputs: True,
+    # Always accepted automatically: it is the current, tested behaviour of this engine.
+    acceptance=lambda inputs: True,
+    fidelity_rank=1,
+    cost_rank=0,
+    exact=True,
+    assumptions=(
+        "gaussian_beam_and_paraxial_gaussian_laser",
+        "luminosity_weighted_mean_ahat_for_spectrum_shape",
+        "spectrum_normalized_to_overlap_total_yield",
+    ),
+    outer_dimension=1,
+    trajectory_quadrature=False,
+)
+
+
+#: The DER019 §24.2 angular-distribution tier: zero-emittance, head-on, unchirped.
+#:
+#: Structurally limited to *head-on* on purpose. A crossing angle changes the polarization
+#: basis, and DER019 §24.2 requires the DER012 locally transverse kernel for it; returning
+#: the head-on kernel for a crossed collision would be exactly the silent wrong-answer case
+#: the planner exists to prevent. A non-zero emittance is a real further quadrature, so this
+#: is stated as an approximation rather than hidden — the engine has no electron-direction
+#: input to condition on at this tier.
+_ANGULAR_TIER = AnalyticalModel(
+    name="angular_zero_emittance_head_on",
+    outputs=(OutputKind.ANGULAR_DISTRIBUTION,),
+    # Head-on only. The crossing angle is already available on ModelInputs.
+    applies=lambda inputs: inputs.crossing_angle == 0.0,
+    # Exact for the energy-integrated angular probability: integrating over photon energy
+    # removes the resonance, so this does not depend on the nonlinear shift at all
+    # (DER019 §24). The *finite-emittance* extension is not implemented, which is recorded
+    # as an assumption rather than claimed as exactness.
+    acceptance=lambda inputs: inputs.crossing_angle == 0.0,
+    fidelity_rank=2,
+    cost_rank=1,
+    exact=True,
+    assumptions=(
+        "zero_electron_emittance",
+        "head_on_incidence",
+        "unchirped_first_harmonic",
+        "azimuthal_average_about_electron_direction",
+        "independent_of_nonlinear_shift",
+    ),
+    outer_dimension=1,
+    trajectory_quadrature=False,
+)
+
+
+#: The DER019 §8.1 collimated-spectrum tier: the delta-resonance model with `gamma` inverted
+#: analytically, so no gamma quadrature and no particle sampling. Round head-on, zero
+#: emittance, unchirped.
+#:
+#: Stated as `exact` because the delta-resonance inversion itself is exact under the tier's
+#: assumptions — the *finite-line* reconstruction on top of it is a DER017 modelling choice,
+#: not an approximation of this engine's, and the raw channels are reported so a user can
+#: inspect the delta-line limit directly.
+_COLLIMATED_TIER = AnalyticalModel(
+    name="collimated_fixed_width_zero_emittance",
+    outputs=(OutputKind.COLLIMATED_SPECTRUM,),
+    applies=lambda inputs: inputs.crossing_angle == 0.0,
+    acceptance=lambda inputs: inputs.crossing_angle == 0.0,
+    fidelity_rank=3,
+    cost_rank=2,
+    exact=True,
+    assumptions=(
+        "zero_electron_emittance",
+        "head_on_incidence",
+        "unchirped_first_harmonic",
+        "delta_resonance_approximation",
+        "single_direction_factor_D_and_Q",
+        "der017_second_order_finite_line_reconstruction",
+    ),
+    outer_dimension=1,
+    trajectory_quadrature=False,
+)
 
 
 class AnalyticalEngine:
@@ -54,6 +178,15 @@ class AnalyticalEngine:
     supported_outputs: tuple[OutputKind, ...] = SUPPORTED_OUTPUTS
     recompute_costs: dict[str, RecomputeCost] = RECOMPUTE_COSTS
 
+    #: Single planner instance per engine. `ModelSelector` is immutable after construction,
+    #: so sharing one across calls keeps selection allocation-free on the real-time path.
+    _selector = ModelSelector((_OVERLAP_TIER, _ANGULAR_TIER, _COLLIMATED_TIER))
+
+    #: Backend the collimated slice actually ran on, reported on `Results`. Instance state
+    #: rather than a return value because `_fill` builds the slice deep in the run; reset per
+    #: run so a request that does not ask for collimated output does not report a stale one.
+    _collimated_backend: str | None = None
+
     def run(self, interaction: InteractionParameters, params: Parameters) -> Results:
         if not isinstance(interaction.laser, GaussianParaxialLaser):
             raise TypeError(
@@ -61,6 +194,7 @@ class AnalyticalEngine:
                 "Closed-form overlap integrals assume an astigmatic paraxial Gaussian pulse (RES067)."
             )
         target = interaction.target
+        self._collimated_backend = None
         beam = interaction.beam
         metrics = interaction.laser
         photon_energy = metrics.photon_energy()
@@ -93,10 +227,16 @@ class AnalyticalEngine:
         # this engine discards, defeating the whole point of being bunch-independent).
         supported_requests = tuple(r for r in target.outputs if r.kind in SUPPORTED_OUTPUTS)
         ranges = auto_ranges(replace(target, outputs=supported_requests), beam, interaction.laser)
+
+        # Model selection happens per observable, before anything is filled, so the choice is
+        # reported even for a requested kind this engine ultimately produces no slice for.
+        # A structurally invalid pin raises here rather than deep inside a formula.
+        choices = self._select_models(params, interaction, photon_energy, supported_requests)
+
         slices: dict[OutputKind, PhasespaceSlice] = {}
         for request in supported_requests:
             slices[request.kind] = self._fill(
-                request, ranges[request.kind], beam, total_yield, photon_energy, n_quad, ahat
+                request, ranges[request.kind], beam, total_yield, photon_energy, n_quad, ahat, params
             )
 
         return Results(
@@ -109,8 +249,39 @@ class AnalyticalEngine:
                 "compton_edge_energy": 4.0 * beam.gamma0() ** 2 * photon_energy / (1.0 + ahat),
                 "n_photons": metrics.n_photons(),
                 "warnings": self._geometry_warnings(metrics, slices),
+                "models": {choice.observable: choice.as_metadata() for choice in choices},
+                # Which array backend produced the collimated slice, so a recorded result
+                # says how it was computed rather than leaving it to be inferred.
+                "collimated_backend": self._collimated_backend,
             },
         )
+
+    def _select_models(
+        self, params: Parameters, interaction: InteractionParameters, photon_energy: float, requests
+    ) -> list[ModelChoice]:
+        """Ask the planner for a model per requested observable.
+
+        Every observable routes through the planner even though only one tier is registered
+        yet. That is the point of doing it now: registering the current behaviour as a model
+        before adding new ones is what makes the refactor provably inert, and it means a
+        later tier is a new registry entry rather than a rewrite of `run`.
+        """
+        metrics = interaction.laser
+        inputs = ModelInputs(
+            beam=interaction.beam,
+            laser=metrics,
+            photon_energy=photon_energy,
+            crossing_angle=math.hypot(metrics.m("theta_xz"), metrics.m("theta_yz")),
+            beta_ff=metrics.beta_ff,
+        )
+        mode = str(params["model_mode"])
+        pin = str(params["model_pin"])
+        pin = None if pin == "auto" else pin
+        # TOTAL_YIELD always participates: it is this engine's own normalization anchor, and
+        # selecting a spectrum model without selecting what normalizes it would leave the
+        # provenance claiming an independence the arithmetic does not have.
+        kinds = tuple(dict.fromkeys(r.kind for r in requests)) or SUPPORTED_OUTPUTS
+        return [self._selector.select(inputs, kind, mode=mode, pin=pin) for kind in kinds]
 
     @staticmethod
     def _geometry_warnings(metrics, slices) -> tuple[str, ...]:
@@ -149,6 +320,7 @@ class AnalyticalEngine:
         photon_energy: float,
         n_quad: int,
         ahat: float,
+        params: Parameters,
     ) -> PhasespaceSlice:
         kind = request.kind
         if kind is OutputKind.TOTAL_YIELD:
@@ -167,5 +339,71 @@ class AnalyticalEngine:
             raw_integral = float(np.trapezoid(raw_dN_dE, values[Axis.ENERGY]))
             dN_dE = raw_dN_dE * (total_yield / raw_integral) if raw_integral > 0 else raw_dN_dE
             return PhasespaceSlice(axes=values, distr=dN_dE)
+
+        if kind is OutputKind.ANGULAR_DISTRIBUTION:
+            values = slice_axis_values(request, ranges)
+            # A 2D (theta_x, theta_y) slice: `slice_axis_values` gives the two 1D axis
+            # vectors, and the density is evaluated on their mesh. Normalizing to
+            # `total_yield` is exact in the continuum (the angular probability integrates to
+            # one); the discrete rescale is the same quadrature correction RES036 applies to
+            # SPECTRUM, and it keeps `integrate()` reproducing the yield on a truncated grid.
+            dN_dOmega = angular_density_per_solid_angle(
+                beam,
+                values[Axis.THETA_X][:, None],
+                values[Axis.THETA_Y][None, :],
+                total_yield,
+                n_quad,
+            )
+            integral = float(PhasespaceSlice(axes=values, distr=dN_dOmega).integrate())
+            if integral > 0.0:
+                dN_dOmega = dN_dOmega * (total_yield / integral)
+            return PhasespaceSlice(axes=values, distr=dN_dOmega)
+
+        if kind is OutputKind.COLLIMATED_SPECTRUM:
+            values = slice_axis_values(request, ranges)
+            # The delta-resonance tier: `gamma` is inverted analytically at each (E, n), so
+            # there is no gamma quadrature and no macroparticle (DER019 §7). The raw DER017
+            # channels are reported alongside the slice so the reconstruction can be checked
+            # against its inputs rather than trusted (DER019 §18.12).
+            energy = values[Axis.ENERGY]
+            # One broadcast evaluation for the whole (E, theta_x, theta_y) slice. `r^2` does
+            # differ per angular cell, but that is a grid operation rather than a reason to
+            # loop: every channel is elementwise in (s, r^2), and the DER017 reconstruction
+            # differentiates along the energy axis only, so it becomes two matmuls against
+            # weights built once from `s`. That took this branch from ~240 ms to ~5 ms at
+            # 51x21x21; `tests/test_analytical.py` asserts the result still matches the
+            # per-column `collimated_moments` path.
+            grid = collimated_grid(
+                ahat,
+                energy / (4.0 * photon_energy),
+                values[Axis.THETA_X],
+                values[Axis.THETA_Y],
+                total_yield=total_yield,
+                # The beam's energy PDF at the resonance root (DER019 §7). Without it the
+                # shape is a bare s^{+1/2} ramp rising across the whole grid rather than a
+                # line at the Compton resonance.
+                gamma0=beam.gamma0(),
+                sigma_gamma=beam.sigma_gamma(),
+                backend=str(params["backend"]),
+            )
+            self._collimated_backend = grid.backend
+            distr = _as_numpy(grid.reconstructed)
+            # `rho0` is a density *per solid angle*, so scaling it by `total_yield` does not
+            # make the slice a photon count: integrating over the (E, θx, θy) box leaves the
+            # angular measure unaccounted for, and the integral came out ~7e-11 of the yield
+            # with a peak ~1e10x too small.
+            #
+            # RES036 defines the convention this engine already uses for SPECTRUM and
+            # ANGULAR_DISTRIBUTION: scale by the *discrete* integral over the actual emitted
+            # grid so `integrate()` reproduces `total_yield` to float precision. The slice is
+            # therefore "the photons the target's window carries", which is what makes the
+            # on-target total comparable between engines at all — but note it is a different
+            # quantity from Xigma's on-target fraction, which also loses energy outside
+            # [E_min, E_max]. Compare shapes, not raw accepted fractions.
+            slice_ = PhasespaceSlice(axes=values, distr=distr)
+            integral = slice_.integrate()
+            if integral > 0.0:
+                distr = distr * (total_yield / integral)
+            return PhasespaceSlice(axes=values, distr=distr)
 
         raise AssertionError(f"AnalyticalEngine._fill: {kind} is in SUPPORTED_OUTPUTS but has no branch")
